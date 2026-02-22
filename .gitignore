@@ -1,0 +1,6 @@
+node_modules/
+config.json
+state.json
+shift_state.json
+ticket_chat_state.json
+*.log

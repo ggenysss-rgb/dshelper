@@ -70,14 +70,15 @@ const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const DISCORD_TOKEN = config.discordBotToken || config.discordToken || '';
 const IS_BOT_TOKEN = !!config.discordBotToken;
 const TELEGRAM_API = `https://api.telegram.org/bot${config.tgToken}`;
-const STATE_FILE = path.join(__dirname, 'state.json');
+const DATA_DIR = fs.existsSync('/data') ? '/data' : __dirname;
+const STATE_FILE = path.join(DATA_DIR, 'state.json');
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5000;
 const AUTOSAVE_INTERVAL_MS = 30_000;
 const SAFE_MESSAGE_TYPES = new Set([0, 19, 20]);
 const TICKET_CHANNEL_TYPES = new Set([0, 11, 12]);
 const MAX_CLOSED_HISTORY = 500;
-const SHIFT_STATE_FILE = path.join(__dirname, 'shift_state.json');
+const SHIFT_STATE_FILE = path.join(DATA_DIR, 'shift_state.json');
 const SHIFT_CHANNEL_ID = '1451246122755559555';
 const SHIFT_GUILD_ID = '690362306395111444';
 const SHIFT_TZ = 'Europe/Kyiv';
@@ -121,7 +122,7 @@ const tgMsgToChannel = new Map();  // tg_message_id → discord_channel_id
 let selfUserId = null;              // Discord user ID (set on READY)
 
 // ── Ticket Chat State ─────────────────────────────────────────
-const TICKET_CHAT_STATE_FILE = path.join(__dirname, 'ticket_chat_state.json');
+const TICKET_CHAT_STATE_FILE = path.join(DATA_DIR, 'ticket_chat_state.json');
 let ticketChatState = {
     activeTicketId: null,       // selected Discord channel ID
     activeTicketName: null,     // selected channel name

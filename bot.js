@@ -78,8 +78,8 @@ const SAFE_MESSAGE_TYPES = new Set([0, 19, 20]);
 const TICKET_CHANNEL_TYPES = new Set([0, 11, 12]);
 const MAX_CLOSED_HISTORY = 500;
 const SHIFT_STATE_FILE = path.join(__dirname, 'shift_state.json');
-const SHIFT_CHANNEL_ID = '1266100282551570525';
-const SHIFT_GUILD_ID = '1266100282551570522';
+const SHIFT_CHANNEL_ID = '1451246122755559555';
+const SHIFT_GUILD_ID = '690362306395111444';
 const SHIFT_TZ = 'Europe/Kyiv';
 
 // ── Runtime State ─────────────────────────────────────────────

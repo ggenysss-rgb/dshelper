@@ -49,6 +49,9 @@ if (process.env.GUILD_ID) config.guildId = process.env.GUILD_ID;
 if (process.env.TICKETS_CATEGORY_ID) config.ticketsCategoryId = process.env.TICKETS_CATEGORY_ID;
 if (process.env.STAFF_ROLE_IDS) config.staffRoleIds = process.env.STAFF_ROLE_IDS.split(',');
 if (process.env.TICKET_PREFIX) config.ticketPrefix = process.env.TICKET_PREFIX;
+if (process.env.USERS) {
+    try { config.users = JSON.parse(process.env.USERS); } catch (e) { console.error('[TicketBot] USERS env parse error:', e.message); }
+}
 
 // Defaults
 config.priorityKeywords = config.priorityKeywords || ["срочно", "urgent", "баг", "bug", "оплата", "payment", "помогите", "help"];

@@ -426,8 +426,10 @@ const dashboardLogs = [];            // { ts, type, message }
 const MAX_LOGS = 200;
 
 function addLog(type, message) {
-    dashboardLogs.unshift({ ts: new Date().toISOString(), type, message });
+    const entry = { ts: new Date().toISOString(), type, message };
+    dashboardLogs.unshift(entry);
     if (dashboardLogs.length > MAX_LOGS) dashboardLogs.length = MAX_LOGS;
+    if (io) io.emit('log:new', entry);
 }
 
 let ps = emptyState();
@@ -953,6 +955,7 @@ async function runQueue() {
                 console.error(`${LOG} Сообщение потеряно после ${MAX_RETRIES} попыток.`);
                 sendQueue.shift();
                 sessionStats.messagesFailed++;
+                addLog('error', `Сообщение потеряно после ${MAX_RETRIES} попыток отправки`);
             } else {
                 await sleep(RETRY_DELAY_MS * item.retries);
             }
@@ -1273,6 +1276,7 @@ async function handleSendToTicket(text, chatId) {
             } catch { }
         }
         console.log(`${LOG} ✉️ /s → #${channelName}: ${text.slice(0, 60)}`);
+        addLog('message', `Сообщение отправлено в #${channelName}`);
         const partsNote = parts.length > 1 ? `\n(${parts.length} сообщений)` : '';
         return {
             text: `✅ <b>Отправлено в</b> <code>#${escapeHtml(channelName)}</code>${partsNote}\n\n<blockquote>${escapeHtml(truncate(text, 200))}</blockquote>`,
@@ -1432,6 +1436,7 @@ async function handleBindSearch(query, chatId) {
             if (res.ok) {
                 try { const j = JSON.parse(res.body); if (j.id) sentByBot.add(j.id); } catch { }
                 console.log(`${LOG} 📎 Бинд "${bind.name}" → #${uState.activeTicketName || channelId}`);
+                addLog('bind', `Бинд «${bind.name}» отправлен в #${uState.activeTicketName || channelId}`);
                 return { text: `✅ Отправлено: "<b>${escapeHtml(bind.name)}</b>"`, markup: null };
             }
             return { text: `❌ Ошибка Discord (${res.status})`, markup: null };
@@ -1468,6 +1473,7 @@ function handleAddBind(argsStr) {
     config.binds[name] = { name, message };
     saveConfig();
     console.log(`${LOG} ➕ Бинд "${name}" добавлен.`);
+    addLog('bind', `Бинд «${name}» добавлен`);
     return `✅ Бинд "<b>${escapeHtml(name)}</b>" добавлен.\n\n<i>${escapeHtml(truncate(message, 100))}</i>`;
 }
 
@@ -1479,6 +1485,7 @@ function handleDelBind(name) {
     delete config.binds[name];
     saveConfig();
     console.log(`${LOG} ➖ Бинд "${name}" удалён.`);
+    addLog('bind', `Бинд «${name}» удалён`);
     return `✅ Бинд "<b>${escapeHtml(name)}</b>" удалён.`;
 }
 
@@ -1487,6 +1494,7 @@ function handleSetGreet(text) {
     config.autoGreetText = text.trim();
     saveConfig();
     console.log(`${LOG} 👋 Текст приветствия обновлён.`);
+    addLog('greet', `Текст приветствия обновлён`);
     return `✅ Текст приветствия обновлён:\n\n<blockquote>${escapeHtml(config.autoGreetText)}</blockquote>`;
 }
 
@@ -1512,11 +1520,13 @@ function handleGreet(args) {
         config.autoGreetEnabled = true;
         saveConfig();
         console.log(`${LOG} 👋 Авто-приветствие включено.`);
+        addLog('greet', `Авто-приветствие включено`);
         return '✅ Авто-приветствие <b>включено</b>.';
     } else if (arg === 'off') {
         config.autoGreetEnabled = false;
         saveConfig();
         console.log(`${LOG} 👋 Авто-приветствие выключено.`);
+        addLog('greet', `Авто-приветствие выключено`);
         return '❌ Авто-приветствие <b>выключено</b>.';
     }
     return '❌ Используй: /greet on или /greet off';
@@ -1572,6 +1582,7 @@ async function handleSmena(chatId) {
         shiftState.lastShiftContent = content;
         savePerUserState();
         console.log(`${LOG} ✅ Смена начата (${userName}): ${dateStr}, msgId=${msgId}`);
+        addLog('shift', `${userName}: смена начата (${dateStr})`);
         return `✅ <b>Смена начата!</b>\n\n📅 ${escapeHtml(dateStr)}\n🕐 12-0\n\nDiscord сообщение отправлено.`;
     } catch (e) {
         return `❌ Ошибка: ${e.message}`;
@@ -1607,6 +1618,7 @@ async function handleSmenoff(chatId) {
         shiftState.lastShiftClosed = true;
         savePerUserState();
         console.log(`${LOG} ✅ Смена закрыта, сообщение отредактировано.`);
+        addLog('shift', `${getUserName(chatId)}: смена закрыта`);
         return `✅ <b>Смена закрыта!</b>\n\nDiscord сообщение отредактировано: "Начал/ Закрыл"`;
     } catch (e) {
         return `❌ Ошибка: ${e.message}`;
@@ -1863,6 +1875,7 @@ function startActivityTimer(channelId, type) {
         record.activityTimerType = null;
         markDirty();
         console.log(`${LOG} ⏰ Таймер сработал: #${record.channelName} (${type}, ${timeoutMin} мин.)`);
+        addLog('timer', `Таймер «${type === 'closing' ? 'можно закрывать' : 'нет ответа'}» — #${record.channelName} (${timeoutMin} мин.)`);
         if (!botPaused) {
             enqueueToAll({ ...buildActivityMessage(record, type, timeoutMin), channelId });
         } else {
@@ -2226,6 +2239,7 @@ function handleSetCommand(argsStr) {
     const oldValue = config[key];
     config[key] = newValue;
     saveConfig();
+    addLog('system', `Настройка изменена: ${key} = ${newValue}`);
 
     let display = meta.type === 'bool' ? (newValue ? '✅ вкл.' : '❌ выкл.') : `${newValue}`;
     let oldDisplay = meta.type === 'bool' ? (oldValue ? '✅ вкл.' : '❌ выкл.') : `${oldValue}`;
@@ -2236,6 +2250,7 @@ function handlePause() {
     if (botPaused) return '⏸ Бот уже на паузе.';
     botPaused = true;
     console.log(`${LOG} ⏸ Бот поставлен на паузу.`);
+    addLog('system', `Бот поставлен на паузу`);
     return '⏸ <b>Бот поставлен на паузу.</b>\nУведомления приостановлены. Команды работают.\n/resume — возобновить.';
 }
 
@@ -2243,6 +2258,7 @@ function handleResume() {
     if (!botPaused) return '▶️ Бот уже работает.';
     botPaused = false;
     console.log(`${LOG} ▶️ Бот возобновлён.`);
+    addLog('system', `Бот возобновлён`);
     return '▶️ <b>Бот возобновлён!</b>\nУведомления снова активны.';
 }
 
@@ -2258,6 +2274,7 @@ function handleReset() {
     sessionStats.messagesFailed = 0;
     markDirty();
     console.log(`${LOG} 🔄 Статистика сброшена.`);
+    addLog('system', `Статистика сброшена`);
     return [
         `🔄 <b>Статистика сброшена!</b>`,
         ``,
@@ -2638,6 +2655,7 @@ function onChannelCreate(data) {
     setTimeout(() => notifiedTicketIds.delete(data.id), 60_000);
 
     console.log(`${LOG} ✅ Новый тикет (CHANNEL_CREATE): #${data.name}`);
+    addLog('ticket', `Новый тикет: #${data.name || data.id}`);
     if (io) io.emit('ticket:new', record);
     if (!IS_BOT_TOKEN) {
         subscribeToSingleChannel(config.guildId, data.id);
@@ -2699,6 +2717,7 @@ function onChannelDelete(data) {
     autoGreetedChannels.delete(data.id);
     ps.totalClosed++;
     markDirty();
+    addLog('ticket', `Тикет закрыт: #${fallback.channelName}`);
     if (io) io.emit('ticket:closed', data.id);
 
     if (botPaused) { console.log(`${LOG} ⏸ Пауза — пропускаем уведомление о закрытии.`); return; }
@@ -2732,6 +2751,7 @@ function onThreadCreate(data) {
         setTimeout(() => notifiedTicketIds.delete(data.id), 60_000);
 
         console.log(`${LOG} ✅ Новый тред-тикет (THREAD_CREATE): #${data.name}`);
+        addLog('ticket', `Новый тред-тикет: #${data.name || data.id}`);
         const guild = guildCache.get(config.guildId);
         (async () => {
             const threadId = await ensureThread(record);
@@ -2800,6 +2820,7 @@ function onMessageCreate(data) {
                             await sleep(1000);
                             await sendDiscordMessage(chIdCopy, ruleCopy.response, GATEWAY_TOKEN, msgIdCopy);
                             console.log(`${LOG} 🤖 Gemini авто-ответ [${ruleCopy.name}] в #${chIdCopy}`);
+                            addLog('ai', `AI авто-ответ «${ruleCopy.name}» в #${chIdCopy}`);
                         }
                     } catch (e) {
                         console.error(`${LOG} ❌ Gemini авто-ответ ошибка:`, e.message);
@@ -2816,6 +2837,7 @@ function onMessageCreate(data) {
                     try {
                         await sendDiscordMessage(channelId, rule.response, GATEWAY_TOKEN, data.id);
                         console.log(`${LOG} 🤖 Авто-ответ [${ruleName}] в #${channelId}: ${rule.response.slice(0, 50)}`);
+                        addLog('autoreply', `Авто-ответ «${ruleName}» → ${authorName}: ${msgContent.slice(0, 80)}`);
                         const tgText = [
                             `🤖 <b>Авто-ответ отправлен</b>`,
                             ``,
@@ -2859,6 +2881,7 @@ function onMessageCreate(data) {
                 try {
                     await sendDiscordMessage(channelId, config.autoGreetText, GATEWAY_TOKEN);
                     console.log(`${LOG} 👋 Авто-приветствие отправлено в #${channel.name || channelId}`);
+                    addLog('greet', `Авто-приветствие отправлено в #${channel.name || channelId}`);
                 } catch (e) {
                     console.error(`${LOG} ❌ Ошибка авто-приветствия:`, e.message);
                 }
@@ -2946,6 +2969,7 @@ function onMessageCreate(data) {
     if (!SAFE_MESSAGE_TYPES.has(data.type ?? 0)) return;
 
     notifiedFirstMessage.add(channelId);
+    addLog('ticket', `Первое сообщение в #${channel?.name || channelId} от ${data.author?.username || 'Неизвестно'}`);
     if (!config.forumMode) enqueueToAll({ ...buildFirstMessageNotification(channel, data), channelId });
     if (getPriority(channel?.name || '', data.content || '').high && config.mentionOnHighPriority) {
         enqueueToAll({ ...buildHighPriorityAlert(channel?.name || channelId), channelId });
@@ -3148,6 +3172,7 @@ async function pollTelegram() {
         }
     } catch (e) {
         console.error(`${LOG} Ошибка полинга:`, e.message);
+        addLog('error', `Ошибка Telegram-поллинга: ${e.message}`);
     }
 }
 
@@ -3163,6 +3188,7 @@ function connectGateway() {
 
     ws.on('open', () => {
         console.log(`${LOG} 🔌 WebSocket подключён.`);
+        addLog('gateway', `WebSocket подключён к Discord Gateway`);
     });
 
     ws.on('message', raw => {
@@ -3176,6 +3202,7 @@ function connectGateway() {
 
     ws.on('close', (code, reason) => {
         console.log(`${LOG} 🔌 WebSocket закрыт: ${code} ${reason || ''}`);
+        addLog('gateway', `WebSocket отключён (код: ${code})`);
         cleanupGateway();
         if (code === 4004) {
             console.error(`${LOG} ❌ Невалидный токен! Проверьте config.json.`);
@@ -3239,6 +3266,7 @@ function handleDispatch(event, data) {
             gatewayReady = true;
             selfUserId = data.user.id;
             console.log(`${LOG} ✅ Авторизован как ${data.user.username} (${data.user.id})`);
+            addLog('gateway', `Авторизован как ${data.user.username}`);
             if (!pollingTimer && !pollingRunning) {
                 schedulePolling();
                 console.log(`${LOG} 📡 Telegram-поллинг запущен.`);

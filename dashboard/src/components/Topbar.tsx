@@ -9,7 +9,7 @@ import ProfileModal, { useProfile } from './ProfileModal';
 
 export default function Topbar() {
     const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 });
-    const { user } = useAuth();
+    useAuth();
     const { theme, toggleTheme } = useTheme();
     const { profile, updateProfile } = useProfile();
     const [profileModalOpen, setProfileModalOpen] = useState(false);

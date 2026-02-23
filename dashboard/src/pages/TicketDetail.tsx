@@ -5,8 +5,7 @@ import { useTicketMessages, useSendTicketMessage, useTickets } from '../hooks/us
 import { fetchBinds } from '../api/stats';
 import { useSocket } from '../hooks/useSocket';
 import ChatMessage from '../components/ChatMessage';
-import { ArrowLeft, Send, Sparkles, AlertCircle } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { ArrowLeft, Send, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -102,11 +101,7 @@ export default function TicketDetail() {
         } catch (_e) { }
     };
 
-    const insertBind = (bindMsg: string) => {
-        setContent(prev => prev ? `${prev}\n${bindMsg}` : bindMsg);
-        setShowBinds(false);
-        setSlashQuery('');
-    };
+
 
     if (isLoading) {
         return <div className="h-full flex items-center justify-center"><span className="animate-pulse">Загрузка истории...</span></div>;
@@ -142,7 +137,7 @@ export default function TicketDetail() {
                             Нет сообщений для отображения
                         </div>
                     ) : (
-                        messages.map((msg, i) => {
+                        messages.map((msg) => {
                             // Hacky way to guess if it's staff (either bot itself or someone with certain roles, or just admin)
                             // Since we don't have full context here, we assume if it's NOT the opener, it's staff
                             const isStaff = ticket ? msg.author.id !== ticket.openerId && !msg.author.bot : false;
@@ -172,8 +167,8 @@ export default function TicketDetail() {
                                             type="button"
                                             onClick={() => selectBind(b)}
                                             className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-3 group ${idx === slashIndex
-                                                    ? 'bg-primary/15 text-foreground'
-                                                    : 'hover:bg-secondary/70 text-muted-foreground hover:text-foreground'
+                                                ? 'bg-primary/15 text-foreground'
+                                                : 'hover:bg-secondary/70 text-muted-foreground hover:text-foreground'
                                                 }`}
                                         >
                                             <span className="font-mono text-primary text-sm font-bold shrink-0">/{b.name}</span>

@@ -3458,7 +3458,8 @@ function startDashboard() {
     // Public API
     app.post('/api/auth', (req, res) => {
         const { password } = req.body;
-        if (password === config.dashboardPassword) {
+        const dashPassword = process.env.DASHBOARD_PASSWORD || config.dashboardPassword;
+        if (password === dashPassword) {
             const secret = config.jwtSecret || 'ticket-dashboard-secret-key-2026';
             const token = jwt.sign({ role: 'admin' }, secret, { expiresIn: '7d' });
             return res.json({ token });

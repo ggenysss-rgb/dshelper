@@ -37,6 +37,8 @@ if (process.env.TICKET_PREFIX) config.ticketPrefix = process.env.TICKET_PREFIX;
 if (process.env.USERS) {
     try { config.users = JSON.parse(process.env.USERS); } catch (e) { console.error('[TicketBot] USERS env parse error:', e.message); }
 }
+if (process.env.DASHBOARD_PASSWORD) config.dashboardPassword = process.env.DASHBOARD_PASSWORD;
+if (process.env.GEMINI_API_KEY) config.geminiApiKey = process.env.GEMINI_API_KEY;
 
 config.priorityKeywords = config.priorityKeywords || ["срочно", "urgent", "баг", "bug", "оплата", "payment", "помогите", "help"];
 config.includeFirstUserMessage = config.includeFirstUserMessage ?? true;

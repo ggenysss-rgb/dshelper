@@ -71,14 +71,40 @@ config.autoGreetRoleIds = config.autoGreetRoleIds || ['1334466933273395242'];
 config.autoGreetText = config.autoGreetText || 'Здравствуйте, чем могу помочь?';
 config.autoGreetEnabled = config.autoGreetEnabled ?? true;
 
-// Auto-reply defaults
+// Auto-reply defaults (smart template system)
+// Rule format:
+//   name        — human-readable label
+//   channelId   — Discord channel to listen in
+//   includeAny  — message must contain at least ONE of these (OR)
+//   includeAll  — message must contain ALL groups (AND); each group is an array (OR within group)
+//   excludeAny  — if message contains ANY of these → skip (do NOT reply)
+//   patterns    — (legacy) simple pattern list, works like includeAny
+//   response    — text to send as reply
+//   enabled     — on/off toggle
 config.autoReplies = config.autoReplies || [
     {
+        name: 'когда вайп',
         channelId: '1475424153057366036',
-        patterns: ['когда вайп'],
+        includeAny: ['когда вайп'],
         response: 'Здравствуйте, вайп был 30.01.2026, когда будет - неизвестно',
         enabled: true,
-    }
+    },
+    {
+        name: 'ошибочный бан',
+        channelId: '1475424153057366036',
+        includeAll: [
+            // Группа A — вопрос "что делать"
+            ['что делать', 'что мне делать', 'подскажите что делать', 'как быть'],
+            // Группа B — бан/блокировка
+            ['бан', 'забан', 'забанили', 'забанен', 'баннули', 'блок', 'блокировка'],
+        ],
+        excludeAny: [
+            'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
+            'уже написал апелляц', 'уже апелляцию подал', 'апелляция уже подана',
+        ],
+        response: 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals',
+        enabled: true,
+    },
 ];
 
 // Binds defaults
@@ -2355,23 +2381,50 @@ function onMessageCreate(data) {
 
     const channelId = data.channel_id;
 
-    // Auto-reply in specific channels (e.g. "когда вайп") — works across ALL servers
+    // Auto-reply in specific channels — smart template engine, works across ALL servers
     if (config.autoReplies && data.content && data.author && !data.author.bot) {
-        const content = data.content.toLowerCase().replace(/[?!.,]/g, '').trim();
-        for (const rule of config.autoReplies) {
-            if (!rule.enabled) continue;
-            if (rule.channelId !== channelId) continue;
-            const matched = rule.patterns.some(p => content.includes(p.toLowerCase()));
-            if (matched) {
-                setTimeout(async () => {
-                    try {
-                        await sendDiscordMessage(channelId, rule.response, GATEWAY_TOKEN, data.id);
-                        console.log(`${LOG} 🤖 Авто-ответ в #${channelId}: ${rule.response.slice(0, 50)}`);
-                    } catch (e) {
-                        console.error(`${LOG} ❌ Ошибка авто-ответа:`, e.message);
-                    }
-                }, 1000);
-                break;
+        // Ignore own messages
+        if (!(selfUserId && data.author.id === selfUserId)) {
+            const normalized = data.content.toLowerCase().replace(/[?!.,;:()]/g, ' ').replace(/\s+/g, ' ').trim();
+            for (const rule of config.autoReplies) {
+                if (!rule.enabled) continue;
+                if (rule.channelId !== channelId) continue;
+
+                // --- excludeAny: if any matches → skip ---
+                if (rule.excludeAny && rule.excludeAny.some(ex => normalized.includes(ex.toLowerCase()))) {
+                    continue;
+                }
+
+                let matched = false;
+
+                // --- includeAll: every group must have at least one match (AND of ORs) ---
+                if (rule.includeAll && Array.isArray(rule.includeAll)) {
+                    matched = rule.includeAll.every(group => {
+                        if (Array.isArray(group)) return group.some(p => normalized.includes(p.toLowerCase()));
+                        return normalized.includes(String(group).toLowerCase());
+                    });
+                }
+                // --- includeAny: at least one pattern matches (OR) ---
+                else if (rule.includeAny && Array.isArray(rule.includeAny)) {
+                    matched = rule.includeAny.some(p => normalized.includes(p.toLowerCase()));
+                }
+                // --- legacy: patterns (simple OR) ---
+                else if (rule.patterns && Array.isArray(rule.patterns)) {
+                    matched = rule.patterns.some(p => normalized.includes(p.toLowerCase()));
+                }
+
+                if (matched) {
+                    const ruleName = rule.name || 'unnamed';
+                    setTimeout(async () => {
+                        try {
+                            await sendDiscordMessage(channelId, rule.response, GATEWAY_TOKEN, data.id);
+                            console.log(`${LOG} 🤖 Авто-ответ [${ruleName}] в #${channelId}: ${rule.response.slice(0, 50)}`);
+                        } catch (e) {
+                            console.error(`${LOG} ❌ Ошибка авто-ответа [${ruleName}]:`, e.message);
+                        }
+                    }, 1000);
+                    break;
+                }
             }
         }
     }

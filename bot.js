@@ -84,6 +84,7 @@ config.autoGreetEnabled = config.autoGreetEnabled ?? true;
 config.autoReplies = config.autoReplies || [
     {
         name: 'когда вайп',
+        guildId: '1266100282551570522',
         channelId: '1475424153057366036',
         includeAny: ['когда вайп'],
         response: 'Здравствуйте, вайп был 30.01.2026, когда будет - неизвестно',
@@ -91,6 +92,7 @@ config.autoReplies = config.autoReplies || [
     },
     {
         name: 'ошибочный бан',
+        guildId: '1266100282551570522',
         channelId: '1475424153057366036',
         includeAll: [
             // Группа A — вопрос "что делать"
@@ -2852,8 +2854,10 @@ function handleDispatch(event, data) {
             }
             // In selfbot mode, READY includes guilds (often as unavailable stubs)
             let foundTarget = false;
+            const autoReplyGuildIds = getAutoReplyGuildIds();
             if (data.guilds && Array.isArray(data.guilds)) {
                 for (const g of data.guilds) {
+                    // Handle target guild
                     if (g.id === config.guildId) {
                         if (g.channels || g.name) {
                             console.log(`${LOG} 🏠 Сервер найден в READY payload.`);
@@ -2863,7 +2867,11 @@ function handleDispatch(event, data) {
                             console.log(`${LOG} 🏠 Сервер ${config.guildId} в READY (unavailable), ждём GUILD_CREATE...`);
                         }
                         foundTarget = true;
-                        break;
+                    }
+                    // Handle autoReply guilds (subscribe to their channels)
+                    if (autoReplyGuildIds.has(g.id)) {
+                        console.log(`${LOG} 🤖 AutoReply сервер ${g.name || g.id} найден в READY.`);
+                        onGuildCreate(g);
                     }
                 }
                 if (!foundTarget) {
@@ -2887,6 +2895,12 @@ function handleDispatch(event, data) {
                     }
                     if (chIds.length > 0) sendLazyRequest(config.guildId, chIds);
                 }
+                // Re-subscribe to autoReply channels on other guilds
+                for (const [arGuildId, arChIds] of getAutoReplyGuildChannels()) {
+                    if (arGuildId !== config.guildId && arChIds.size > 0) {
+                        sendLazyRequest(arGuildId, [...arChIds]);
+                    }
+                }
             }
             break;
         case 'GUILD_CREATE':
@@ -2894,6 +2908,10 @@ function handleDispatch(event, data) {
                 console.log(`${LOG} 🏠 GUILD_CREATE для целевого сервера уже обработан, пропускаем.`);
             } else {
                 onGuildCreate(data);
+            }
+            // Always try to subscribe to autoReply channels (even if guild was handled)
+            if (!IS_BOT_TOKEN && getAutoReplyGuildIds().has(data.id)) {
+                subscribeToAutoReplyChannels(data.id);
             }
             break;
         case 'READY_SUPPLEMENTAL':

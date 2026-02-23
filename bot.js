@@ -1432,7 +1432,7 @@ async function tgAnswerCallbackQuery(callbackQueryId, text) {
 }
 
 async function tgEditMessageText(chatId, messageId, text, replyMarkup) {
-    const payload = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML' };
+    const payload = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
     if (replyMarkup) payload.reply_markup = replyMarkup;
     try {
         await httpPost(`${TELEGRAM_API}/editMessageText`, payload);

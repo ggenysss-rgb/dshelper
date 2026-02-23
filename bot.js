@@ -1251,6 +1251,8 @@ function scheduleShiftReminder() {
     if (shiftReminderTimer) { clearTimeout(shiftReminderTimer); shiftReminderTimer = null; }
     const today = getKyivDate();
     const hour = getKyivHour();
+    const minute = getKyivMinute();
+    console.log(`${LOG} 📋 scheduleShiftReminder: Kyiv time = ${hour}:${String(minute).padStart(2,'0')}, date = ${today}`);
 
     // Check if ALL users already checked in today
     const allCheckedIn = users.every(u => {
@@ -1274,21 +1276,23 @@ function scheduleShiftReminder() {
             sendShiftStartReminder();
             scheduleShiftLateReminder();
         }, ms);
-    } else if (hour < 12) {
-        // Between 11:00 and 12:00 — send start reminder now if not sent, schedule late for 12:00
-        const alreadySentStart = users.every(u => {
+    } else if (hour === 11) {
+        // Exactly 11:xx — send start reminder now if not sent, schedule late for 12:00
+        const needsStart = users.some(u => {
             const ss = getUserState(u.tgChatId).shift;
-            return ss.lastShiftDate === today || ss.reminderSentDate === today;
+            return ss.lastShiftDate !== today && ss.reminderSentDate !== today;
         });
-        if (!alreadySentStart) sendShiftStartReminder();
+        console.log(`${LOG} 📋 11:xx, needsStart=${needsStart}`);
+        if (needsStart) sendShiftStartReminder();
         scheduleShiftLateReminder();
-    } else {
-        // 12:00+ — send late reminder now if not sent
-        const alreadySentLate = users.every(u => {
+    } else if (hour < 23) {
+        // 12:00-22:59 — send late reminder now if not sent
+        const needsLate = users.some(u => {
             const ss = getUserState(u.tgChatId).shift;
-            return ss.lastShiftDate === today || ss.lateReminderSentDate === today;
+            return ss.lastShiftDate !== today && ss.lateReminderSentDate !== today;
         });
-        if (!alreadySentLate) {
+        console.log(`${LOG} 📋 ${hour}:xx, needsLate=${needsLate}`);
+        if (needsLate) {
             sendShiftLateReminder();
         } else {
             // All reminders sent, schedule for tomorrow
@@ -1296,6 +1300,10 @@ function scheduleShiftReminder() {
             console.log(`${LOG} 📋 Все напоминания отправлены. Следующее через ${Math.round(ms / 3600000)}ч`);
             shiftReminderTimer = setTimeout(() => scheduleShiftReminder(), ms);
         }
+    } else {
+        // 23:00+ — schedule for tomorrow
+        const ms = msUntilKyivHour(11, 0);
+        shiftReminderTimer = setTimeout(() => scheduleShiftReminder(), ms);
     }
 
     // Always schedule close reminder

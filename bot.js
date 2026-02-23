@@ -18,6 +18,7 @@ try {
     config = {};
 }
 
+if (process.env.GEMINI_API_KEY) config.geminiApiKey = process.env.GEMINI_API_KEY;
 if (process.env.DISCORD_TOKEN) config.discordToken = process.env.DISCORD_TOKEN;
 if (process.env.DISCORD_BOT_TOKEN) config.discordBotToken = process.env.DISCORD_BOT_TOKEN;
 if (process.env.TG_TOKEN) config.tgToken = process.env.TG_TOKEN;
@@ -87,6 +88,19 @@ config.autoReplies = config.autoReplies || [
             'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
             'уже написал апелляц', 'уже апелляцию подал', 'апелляция уже подана',
             'апелляция отклонена', 'апелляцию отклонили',
+        ],
+        response: 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals',
+        enabled: true,
+    },
+    {
+        name: 'ошибочный бан (Gemini AI)',
+        guildId: '1266100282551570522',
+        channelId: '1475424153057366036',
+        geminiPrompt: 'Ты модератор игрового сервера Minecraft. Определи: человек жалуется на то что его забанили/заблокировали на сервере, и при этом считает что это ошибка или несправедливо? Учитывай любые формулировки: "дали бан", "меня забанили", "заблокировали аккаунт", "получил блокировку", "бан ни за что" и т.д. Не считай ДА если человек спрашивает про чужой бан, про покупку разбана, или уже подал апелляцию.',
+        excludeAny: [
+            'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
+            'уже написал апелляц', 'апелляция уже подана', 'апелляция отклонена',
+            'апелляцию отклонили', 'купить разбан', 'покупка разбана',
         ],
         response: 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals',
         enabled: true,
@@ -384,6 +398,62 @@ function snowflakeToTimestamp(id) {
 }
 
 // ── Helper: get unique guild IDs from autoReplies ─────────────
+
+// ── Gemini AI Auto-Reply Check ────────────────────────────────
+
+const geminiCache = new Map(); // кэш чтобы не спамить API одинаковыми сообщениями
+
+async function checkWithGemini(message, ruleName, prompt) {
+    if (!config.geminiApiKey) return false;
+
+    const cacheKey = `${ruleName}:${message.slice(0, 100)}`;
+    if (geminiCache.has(cacheKey)) return geminiCache.get(cacheKey);
+
+    try {
+        const body = JSON.stringify({
+            contents: [{
+                parts: [{ text: prompt + '\n\nСообщение: "' + message + '"\n\nОтветь только: ДА или НЕТ' }]
+            }],
+            generationConfig: { maxOutputTokens: 10, temperature: 0 },
+        });
+
+        const result = await new Promise((resolve, reject) => {
+            const url = new URL(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.geminiApiKey}`);
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname + url.search,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+            }, res => {
+                let chunks = '';
+                res.on('data', c => chunks += c);
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: chunks }));
+            });
+            req.on('error', reject);
+            req.write(body);
+            req.end();
+        });
+
+        if (!result.ok) {
+            console.error(`${LOG} Gemini API ${JSON.parse(result.body)?.error?.status || 'error'}`);
+            return false;
+        }
+
+        const data = JSON.parse(result.body);
+        const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase() || '';
+        const matched = answer.startsWith('ДА');
+
+        // кэшируем на 5 минут
+        geminiCache.set(cacheKey, matched);
+        setTimeout(() => geminiCache.delete(cacheKey), 5 * 60 * 1000);
+
+        console.log(`${LOG} 🤖 Gemini [${ruleName}]: "${message.slice(0, 50)}" → ${matched ? 'ДА' : 'НЕТ'}`);
+        return matched;
+    } catch (e) {
+        console.error(`${LOG} Gemini ошибка:`, e.message);
+        return false;
+    }
+}
 
 function getAutoReplyGuildIds() {
     const ids = new Set();
@@ -2376,6 +2446,25 @@ function onMessageCreate(data) {
                 matched = rule.includeAny.some(p => normalized.includes(p.toLowerCase()));
             } else if (rule.patterns && Array.isArray(rule.patterns)) {
                 matched = rule.patterns.some(p => normalized.includes(p.toLowerCase()));
+            } else if (rule.geminiPrompt) {
+                // Gemini AI проверка — асинхронная, обрабатываем отдельно
+                const ruleCopy = rule;
+                const msgCopy = data.content;
+                const chIdCopy = channelId;
+                const msgIdCopy = data.id;
+                (async () => {
+                    try {
+                        const aiMatched = await checkWithGemini(msgCopy, ruleCopy.name || 'gemini', ruleCopy.geminiPrompt);
+                        if (aiMatched) {
+                            await sleep(1000);
+                            await sendDiscordMessage(chIdCopy, ruleCopy.response, GATEWAY_TOKEN, msgIdCopy);
+                            console.log(`${LOG} 🤖 Gemini авто-ответ [${ruleCopy.name}] в #${chIdCopy}`);
+                        }
+                    } catch (e) {
+                        console.error(`${LOG} ❌ Gemini авто-ответ ошибка:`, e.message);
+                    }
+                })();
+                continue; // не ждём, идём дальше
             }
 
             if (matched) {

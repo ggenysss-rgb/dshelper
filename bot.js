@@ -2734,6 +2734,12 @@ function connectGateway() {
             console.error(`${LOG} ❌ Невалидный токен! Проверьте config.json.`);
             process.exit(1);
         }
+        if (code === 4002) {
+            console.error(`${LOG} ❌ 4002 Decode error — сбрасываем сессию, делаем чистый Identify.`);
+            sessionId = null;
+            resumeGatewayUrl = null;
+            seq = null;
+        }
         if (code === 4013 || code === 4014) {
             console.error(`${LOG} ❌ Ошибка intents (${code}). Переподключение...`);
         }
@@ -2926,6 +2932,7 @@ function startHeartbeat(intervalMs) {
 
 function cleanupGateway() {
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    receivedAck = true; // сбрасываем чтобы старый heartbeat не триггерил переподключение
     guildCreateHandled = false;
 }
 

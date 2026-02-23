@@ -1,8 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchStats } from '../api/stats';
 import StatCard from '../components/StatCard';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Activity, TicketCheck, TrendingUp, Clock } from 'lucide-react';
+import {
+    BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+    PieChart, Pie, Cell, Area, AreaChart
+} from 'recharts';
+import { Activity, TicketCheck, TrendingUp, Clock, Zap, Timer } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+const COLORS = ['hsl(355, 80%, 50%)', 'hsl(200, 80%, 50%)', 'hsl(145, 80%, 40%)', 'hsl(45, 90%, 50%)', 'hsl(280, 70%, 55%)'];
 
 export default function Analytics() {
     const { data: stats, isLoading } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 60000 });
@@ -12,44 +18,149 @@ export default function Analytics() {
 
     const hourlyData = Object.entries(stats.hourlyBuckets || {}).map(([hour, count]) => ({
         name: `${hour}:00`,
-        'Запросов': count
+        'Запросов': count as number
     }));
 
-    // Mocking average response time for visuals since it's not strictly tracked in bot.js logic
-    const avgResponse = '2.5 мин';
+    // Generate weekly trend from closed tickets
+    const closedTickets = stats.closedTickets || [];
+    const now = Date.now();
+    const dayLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const weeklyData = Array.from({ length: 7 }, (_, i) => {
+        const dayStart = new Date(now - (6 - i) * 86400000);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart.getTime() + 86400000);
+        const created = closedTickets.filter((t: any) => {
+            const ts = new Date(t.createdAt).getTime();
+            return ts >= dayStart.getTime() && ts < dayEnd.getTime();
+        }).length;
+        const closed = closedTickets.filter((t: any) => {
+            const ts = new Date(t.closedAt).getTime();
+            return ts >= dayStart.getTime() && ts < dayEnd.getTime();
+        }).length;
+        return { name: dayLabels[dayStart.getDay()], Создано: created, Закрыто: closed };
+    });
+
+    // Priority distribution
+    const highPriority = closedTickets.filter((t: any) => t.priority === 'high').length;
+    const normalPriority = closedTickets.length - highPriority;
+    const pieData = [
+        { name: 'Обычные', value: normalPriority || 1 },
+        { name: 'Высокий приоритет', value: highPriority },
+    ];
+
+    // Avg response time calculation (rough estimate)
+    const responseTimes = closedTickets
+        .filter((t: any) => t.firstStaffReplyAt && t.createdAt)
+        .map((t: any) => (new Date(t.firstStaffReplyAt).getTime() - new Date(t.createdAt).getTime()) / 60000);
+    const avgResponseMin = responseTimes.length > 0 ? Math.round(responseTimes.reduce((a: number, b: number) => a + b, 0) / responseTimes.length) : 0;
+    const avgResponse = avgResponseMin > 60 ? `${Math.floor(avgResponseMin / 60)}ч ${avgResponseMin % 60}м` : `${avgResponseMin || '—'} мин`;
+
+    const uptimeHrs = Math.floor((stats.uptime || 0) / 3600);
+    const uptimeMins = Math.floor(((stats.uptime || 0) % 3600) / 60);
 
     return (
-        <div className="max-w-6xl mx-auto space-y-8">
+        <div className="max-w-6xl mx-auto space-y-6">
             <div>
-                <h1 className="text-3xl font-rajdhani font-bold text-foreground">Аналитика</h1>
-                <p className="text-muted-foreground mt-1">Общая статистика работы бота</p>
+                <h1 className="text-2xl md:text-3xl font-rajdhani font-bold text-foreground">Аналитика</h1>
+                <p className="text-muted-foreground mt-1 text-sm">Статистика за всё время</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
                 <StatCard title="Всего создано" value={stats.totalCreated} icon={<Activity />} delay={0.1} />
                 <StatCard title="Всего закрыто" value={stats.totalClosed} icon={<TicketCheck />} delay={0.2} />
                 <StatCard title="В работе" value={stats.activeTicketsCount} icon={<TrendingUp />} delay={0.3} />
                 <StatCard title="Ср. ответ" value={avgResponse} icon={<Clock />} delay={0.4} />
             </div>
 
-            <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-                <h2 className="text-lg font-rajdhani font-bold mb-6">Активность по часам</h2>
-                <div className="h-80 w-full font-inter">
+            {/* Additional stats */}
+            <div className="grid grid-cols-2 gap-3 md:gap-6">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+                    className="bg-card border border-border rounded-xl p-4 md:p-6 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+                        <Timer className="w-6 h-6 text-cyan-400" />
+                    </div>
+                    <div>
+                        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Аптайм</p>
+                        <p className="text-xl md:text-2xl font-bold font-rajdhani">{uptimeHrs}ч {uptimeMins}м</p>
+                    </div>
+                </motion.div>
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
+                    className="bg-card border border-border rounded-xl p-4 md:p-6 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                        <Zap className="w-6 h-6 text-amber-400" />
+                    </div>
+                    <div>
+                        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Закрыто сегодня</p>
+                        <p className="text-xl md:text-2xl font-bold font-rajdhani">{weeklyData[6]?.['Закрыто'] || 0}</p>
+                    </div>
+                </motion.div>
+            </div>
+
+            {/* Charts row */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Weekly Trend */}
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+                    className="lg:col-span-2 bg-card border border-border rounded-xl p-4 md:p-6 shadow-sm">
+                    <h2 className="text-sm md:text-lg font-rajdhani font-bold mb-4 md:mb-6">Тренд за неделю</h2>
+                    <div className="h-64 md:h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={weeklyData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                                <Tooltip cursor={{ fill: 'hsl(var(--secondary))' }}
+                                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
+                                <Area type="monotone" dataKey="Создано" stackId="1" stroke="hsl(200, 80%, 50%)" fill="hsl(200, 80%, 50%)" fillOpacity={0.2} strokeWidth={2} />
+                                <Area type="monotone" dataKey="Закрыто" stackId="2" stroke="hsl(145, 80%, 40%)" fill="hsl(145, 80%, 40%)" fillOpacity={0.2} strokeWidth={2} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </motion.div>
+
+                {/* Priority Pie */}
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
+                    className="bg-card border border-border rounded-xl p-4 md:p-6 shadow-sm">
+                    <h2 className="text-sm md:text-lg font-rajdhani font-bold mb-4 md:mb-6">Приоритеты</h2>
+                    <div className="h-48 md:h-56 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value">
+                                    {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                                </Pie>
+                                <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px', fontSize: '12px' }} />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+                    <div className="flex justify-center gap-4 mt-2">
+                        {pieData.map((entry, i) => (
+                            <div key={entry.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i] }} />
+                                {entry.name}: {entry.value}
+                            </div>
+                        ))}
+                    </div>
+                </motion.div>
+            </div>
+
+            {/* Hourly chart */}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+                className="bg-card border border-border rounded-xl p-4 md:p-6 shadow-sm">
+                <h2 className="text-sm md:text-lg font-rajdhani font-bold mb-4 md:mb-6">Активность по часам</h2>
+                <div className="h-64 md:h-80 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                            <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                            <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
                             <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip
-                                cursor={{ fill: 'hsl(var(--secondary))' }}
+                            <Tooltip cursor={{ fill: 'hsl(var(--secondary))' }}
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                                itemStyle={{ color: 'hsl(var(--foreground))' }}
-                            />
+                                itemStyle={{ color: 'hsl(var(--foreground))' }} />
                             <Bar dataKey="Запросов" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
-            </div>
+            </motion.div>
         </div>
     );
 }

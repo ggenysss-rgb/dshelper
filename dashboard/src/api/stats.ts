@@ -49,3 +49,31 @@ export const fetchProfiles = async () => {
     const { data } = await client.get('/profiles');
     return data;
 };
+
+// ── Settings ──────────────────────────────────────────────────
+export const fetchSettings = async () => {
+    const { data } = await client.get('/settings');
+    return data;
+};
+
+export const updateSettings = async (settings: Record<string, any>) => {
+    const { data } = await client.post('/settings', settings);
+    return data;
+};
+
+// ── Auto-Replies ──────────────────────────────────────────────
+export const fetchAutoReplies = async () => {
+    const { data } = await client.get('/autoreplies');
+    return data;
+};
+
+export const updateAutoReplies = async (autoReplies: any[]) => {
+    const { data } = await client.post('/autoreplies', { autoReplies });
+    return data;
+};
+
+// ── Closed Tickets ────────────────────────────────────────────
+export const fetchClosedTickets = async (page = 1, search = '') => {
+    const { data } = await client.get(`/closed-tickets?page=${page}&limit=50&search=${encodeURIComponent(search)}`);
+    return data;
+};

@@ -106,17 +106,12 @@ config.autoReplies = config.autoReplies || [
             'когда заработает сервер', 'почему не работает сервер',
             'большой пинг на сервере', 'высокий пинг на сервере',
             'лагает сервер', 'сервер лагает', 'лаги на сервере',
-            'серв лагает', 'лагает серв', 'серв не работает',
-            'у меня лагает', 'почему лагает', 'почему серв лагает',
-            'лагает', 'лаги', 'фризы', 'фризит',
-            'пинг 999', 'таймаут', 'высокий пинг', 'большой пинг',
+            'пинг 999', 'таймаут',
             'connection refused', 'connection timed out',
             'проблемы с подключением к серверу', 'ошибка подключения к серверу',
             'не могу попасть на сервер',
             'не отвечает сервер', 'сервер не отвечает',
             'почему не могу зайти на сервер',
-            'не могу зайти', 'не могу подключиться', 'не заходит',
-            'кикает с сервера', 'выкидывает с сервера', 'вылетает',
         ],
         excludeAny: [
             'забанили', 'заблокировали', 'бан', 'блокировка',
@@ -138,7 +133,6 @@ config.autoReplies = config.autoReplies || [
         excludeAny: [
             'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
             'уже написал апелляц', 'уже апелляцию подал', 'апелляция уже подана',
-            'купить', 'можно купить', 'разбан можно', 'сколько стоит', 'за сколько', 'цена',
         ],
         response: 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals',
         enabled: true,
@@ -191,7 +185,6 @@ config.autoReplies = config.autoReplies || [
             'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
             'уже написал апелляц', 'уже апелляцию подал', 'апелляция уже подана',
             'апелляция отклонена', 'апелляцию отклонили',
-            'купить', 'можно купить', 'разбан можно', 'сколько стоит', 'за сколько', 'цена',
         ],
         response: 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals',
         enabled: true,
@@ -268,17 +261,12 @@ config.autoReplies = config.autoReplies || [
             'когда заработает сервер', 'почему не работает сервер',
             'большой пинг на сервере', 'высокий пинг на сервере',
             'лагает сервер', 'сервер лагает', 'лаги на сервере',
-            'серв лагает', 'лагает серв', 'серв не работает',
-            'у меня лагает', 'почему лагает', 'почему серв лагает',
-            'лагает', 'лаги', 'фризы', 'фризит',
-            'пинг 999', 'таймаут', 'высокий пинг', 'большой пинг',
+            'пинг 999', 'таймаут',
             'connection refused', 'connection timed out',
             'проблемы с подключением к серверу', 'ошибка подключения к серверу',
             'не могу попасть на сервер',
             'не отвечает сервер', 'сервер не отвечает',
             'почему не могу зайти на сервер',
-            'не могу зайти', 'не могу подключиться', 'не заходит',
-            'кикает с сервера', 'выкидывает с сервера', 'вылетает',
         ],
         excludeAny: [
             'забанили', 'заблокировали', 'бан', 'блокировка',
@@ -300,7 +288,6 @@ config.autoReplies = config.autoReplies || [
         excludeAny: [
             'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
             'уже написал апелляц', 'уже апелляцию подал', 'апелляция уже подана',
-            'купить', 'можно купить', 'разбан можно', 'сколько стоит', 'за сколько', 'цена',
         ],
         response: 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals',
         enabled: true,
@@ -340,7 +327,6 @@ config.autoReplies = config.autoReplies || [
             'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
             'уже написал апелляц', 'апелляция уже подана',
             'апелляция отклонена', 'апелляцию отклонили',
-            'купить', 'можно купить', 'разбан можно', 'сколько стоит', 'за сколько', 'цена',
         ],
         response: 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals',
         enabled: true,
@@ -3709,6 +3695,82 @@ function startDashboard() {
             console.error(`${LOG} Members API error:`, err.message);
             res.status(500).json({ error: err.message });
         }
+    });
+
+    // ── Settings API ─────────────────────────────────────────
+    app.get('/api/settings', (req, res) => {
+        res.json({
+            autoGreetEnabled: config.autoGreetEnabled ?? true,
+            autoGreetText: config.autoGreetText || '',
+            autoGreetRoleIds: config.autoGreetRoleIds || [],
+            includeFirstUserMessage: config.includeFirstUserMessage ?? true,
+            notifyOnClose: config.notifyOnClose ?? true,
+            mentionOnHighPriority: config.mentionOnHighPriority ?? true,
+            activityCheckMin: config.activityCheckMin || 10,
+            closingCheckMin: config.closingCheckMin || 15,
+            closingPhrase: config.closingPhrase || '',
+            ticketPrefix: config.ticketPrefix || 'ticket-',
+            pollingIntervalSec: config.pollingIntervalSec || 3,
+            rateLimitMs: config.rateLimitMs || 1500,
+            maxMessageLength: config.maxMessageLength || 300,
+            forumMode: config.forumMode ?? false,
+            priorityKeywords: config.priorityKeywords || [],
+        });
+    });
+
+    app.post('/api/settings', (req, res) => {
+        const allowed = [
+            'autoGreetEnabled', 'autoGreetText', 'autoGreetRoleIds',
+            'includeFirstUserMessage', 'notifyOnClose', 'mentionOnHighPriority',
+            'activityCheckMin', 'closingCheckMin', 'closingPhrase',
+            'ticketPrefix', 'pollingIntervalSec', 'rateLimitMs',
+            'maxMessageLength', 'forumMode', 'priorityKeywords',
+        ];
+        const body = req.body;
+        let changed = 0;
+        for (const key of allowed) {
+            if (body[key] !== undefined) {
+                config[key] = body[key];
+                changed++;
+            }
+        }
+        if (changed > 0) {
+            saveConfig();
+            addLog('system', `Настройки обновлены (${changed} полей)`);
+        }
+        res.json({ ok: true, changed });
+    });
+
+    // ── Auto-Replies API ──────────────────────────────────────
+    app.get('/api/autoreplies', (req, res) => {
+        res.json(config.autoReplies || []);
+    });
+
+    app.post('/api/autoreplies', (req, res) => {
+        const { autoReplies } = req.body;
+        if (!Array.isArray(autoReplies)) return res.status(400).json({ error: 'autoReplies must be an array' });
+        config.autoReplies = autoReplies;
+        saveConfig();
+        addLog('system', `Авто-ответы обновлены (${autoReplies.length} правил)`);
+        res.json({ ok: true, count: autoReplies.length });
+    });
+
+    // ── Closed Tickets History ─────────────────────────────────
+    app.get('/api/closed-tickets', (req, res) => {
+        const page = parseInt(req.query.page) || 1;
+        const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+        const search = (req.query.search || '').toLowerCase();
+        let tickets = ps.closedTickets || [];
+        if (search) {
+            tickets = tickets.filter(t =>
+                (t.channelName || '').toLowerCase().includes(search) ||
+                (t.openerUsername || '').toLowerCase().includes(search)
+            );
+        }
+        const total = tickets.length;
+        const reversed = [...tickets].reverse();
+        const paginated = reversed.slice((page - 1) * limit, page * limit);
+        res.json({ tickets: paginated, total, page, totalPages: Math.ceil(total / limit) });
     });
 
     // Serve Dashboard static files

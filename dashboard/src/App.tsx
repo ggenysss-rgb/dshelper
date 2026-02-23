@@ -9,6 +9,9 @@ import Analytics from './pages/Analytics';
 import Binds from './pages/Binds';
 import Shifts from './pages/Shifts';
 import Logs from './pages/Logs';
+import Settings from './pages/Settings';
+import AutoReplies from './pages/AutoReplies';
+import ClosedTickets from './pages/ClosedTickets';
 
 export default function App() {
     const { token, loading } = useAuth();
@@ -33,6 +36,9 @@ export default function App() {
                     <Route path="/binds" element={<Binds />} />
                     <Route path="/shifts" element={<Shifts />} />
                     <Route path="/logs" element={<Logs />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/autoreplies" element={<AutoReplies />} />
+                    <Route path="/closed-tickets" element={<ClosedTickets />} />
                     <Route path="*" element={<Navigate to="/tickets" replace />} />
                 </Route>
             )}

@@ -1,8 +1,9 @@
+import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut } from 'lucide-react';
+import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut, Settings, Bot, TicketX, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { cn } from '../lib/utils';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const navItems = [
     { to: '/tickets', icon: Ticket, label: 'Тикеты' },
@@ -10,16 +11,37 @@ const navItems = [
     { to: '/binds', icon: Keyboard, label: 'Биндлы' },
     { to: '/shifts', icon: Clock, label: 'Смены' },
     { to: '/logs', icon: ScrollText, label: 'Логи' },
+    { to: '/closed-tickets', icon: TicketX, label: 'Архив' },
+    { to: '/autoreplies', icon: Bot, label: 'Авто-ответы' },
+    { to: '/settings', icon: Settings, label: 'Настройки' },
 ];
 
 export default function Sidebar() {
     const { logout } = useAuth();
+    const [mobileOpen, setMobileOpen] = useState(false);
 
-    return (
-        <aside className="w-64 h-screen bg-card border-r border-border flex flex-col p-4 fixed left-0 top-0 z-50">
-            <div className="flex items-center gap-3 px-2 mb-8 mt-2">
-                <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold text-xl">T</div>
-                <h1 className="text-2xl font-rajdhani font-bold tracking-wider uppercase text-foreground">Notifier</h1>
+    // Listen for hamburger toggle from Topbar
+    useEffect(() => {
+        const handler = () => setMobileOpen(prev => !prev);
+        window.addEventListener('toggle-sidebar', handler);
+        return () => window.removeEventListener('toggle-sidebar', handler);
+    }, []);
+
+    // Close on route change
+    useEffect(() => {
+        setMobileOpen(false);
+    }, []);
+
+    const sidebarContent = (
+        <>
+            <div className="flex items-center justify-between px-2 mb-8 mt-2">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold text-xl">T</div>
+                    <h1 className="text-2xl font-rajdhani font-bold tracking-wider uppercase text-foreground">Notifier</h1>
+                </div>
+                <button onClick={() => setMobileOpen(false)} className="md:hidden p-1.5 hover:bg-secondary rounded-lg transition-colors text-muted-foreground">
+                    <X className="w-5 h-5" />
+                </button>
             </div>
 
             <nav className="flex-1 space-y-1 relative">
@@ -27,6 +49,7 @@ export default function Sidebar() {
                     <NavLink
                         key={item.to}
                         to={item.to}
+                        onClick={() => setMobileOpen(false)}
                         className={({ isActive }) =>
                             cn(
                                 'flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
@@ -59,6 +82,39 @@ export default function Sidebar() {
                 <LogOut className="w-5 h-5" />
                 <span>Выйти</span>
             </button>
-        </aside>
+        </>
+    );
+
+    return (
+        <>
+            {/* Desktop sidebar */}
+            <aside className="hidden md:flex w-64 h-screen bg-card border-r border-border flex-col p-4 fixed left-0 top-0 z-50">
+                {sidebarContent}
+            </aside>
+
+            {/* Mobile sidebar overlay */}
+            <AnimatePresence>
+                {mobileOpen && (
+                    <>
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setMobileOpen(false)}
+                            className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
+                        />
+                        <motion.aside
+                            initial={{ x: -280 }}
+                            animate={{ x: 0 }}
+                            exit={{ x: -280 }}
+                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                            className="md:hidden fixed left-0 top-0 w-72 h-screen bg-card border-r border-border flex flex-col p-4 z-[70]"
+                        >
+                            {sidebarContent}
+                        </motion.aside>
+                    </>
+                )}
+            </AnimatePresence>
+        </>
     );
 }

@@ -2385,19 +2385,18 @@ function onMessageCreate(data) {
 
     // Auto-reply in specific channels — smart template engine, works across ALL servers
     if (config.autoReplies && data.content && data.author && !data.author.bot) {
-        // Ignore own messages
-        if (!(selfUserId && data.author.id === selfUserId)) {
-            const normalized = data.content.toLowerCase().replace(/[?!.,;:()]/g, ' ').replace(/\s+/g, ' ').trim();
-            for (const rule of config.autoReplies) {
-                if (!rule.enabled) continue;
-                if (rule.channelId !== channelId) continue;
+        // Allow replies even to own messages (for testing)
+        const normalized = data.content.toLowerCase().replace(/[?!.,;:()]/g, ' ').replace(/\s+/g, ' ').trim();
+        for (const rule of config.autoReplies) {
+            if (!rule.enabled) continue;
+            if (rule.channelId !== channelId) continue;
 
-                // --- excludeAny: if any matches → skip ---
-                if (rule.excludeAny && rule.excludeAny.some(ex => normalized.includes(ex.toLowerCase()))) {
-                    continue;
-                }
+            // --- excludeAny: if any matches → skip ---
+            if (rule.excludeAny && rule.excludeAny.some(ex => normalized.includes(ex.toLowerCase()))) {
+                continue;
+            }
 
-                let matched = false;
+            let matched = false;
 
                 // --- includeAll: every group must have at least one match (AND of ORs) ---
                 if (rule.includeAll && Array.isArray(rule.includeAll)) {

@@ -175,6 +175,7 @@ const perUserState = new Map(); // tgChatId → { ticketChat: {...}, shift: {...
 const sentByBot = new Set();  // Discord message IDs sent by us (loop protection)
 const TICKETS_PER_PAGE = 6;
 let shiftReminderTimer = null;
+let shiftCloseReminderTimer = null;
 
 function getUserByChatId(chatId) {
     return users.find(u => u.tgChatId === String(chatId));
@@ -190,7 +191,7 @@ function getUserState(chatId) {
     if (!perUserState.has(key)) {
         perUserState.set(key, {
             ticketChat: { activeTicketId: null, activeTicketName: null, listPage: 0 },
-            shift: { lastShiftMessageId: null, lastShiftDate: null, lastShiftClosed: false, reminderSentDate: null, lastShiftContent: null },
+            shift: { lastShiftMessageId: null, lastShiftDate: null, lastShiftClosed: false, reminderSentDate: null, lateReminderSentDate: null, closeReminderSentDate: null, lastShiftContent: null },
         });
     }
     return perUserState.get(key);
@@ -212,7 +213,15 @@ function loadPerUserState() {
         for (const [chatId, state] of Object.entries(parsed)) {
             perUserState.set(String(chatId), {
                 ticketChat: state.ticketChat || { activeTicketId: null, activeTicketName: null, listPage: 0 },
-                shift: state.shift || { lastShiftMessageId: null, lastShiftDate: null, lastShiftClosed: false, reminderSentDate: null, lastShiftContent: null },
+                shift: {
+                    lastShiftMessageId: (state.shift || {}).lastShiftMessageId || null,
+                    lastShiftDate: (state.shift || {}).lastShiftDate || null,
+                    lastShiftClosed: (state.shift || {}).lastShiftClosed || false,
+                    reminderSentDate: (state.shift || {}).reminderSentDate || null,
+                    lateReminderSentDate: (state.shift || {}).lateReminderSentDate || null,
+                    closeReminderSentDate: (state.shift || {}).closeReminderSentDate || null,
+                    lastShiftContent: (state.shift || {}).lastShiftContent || null,
+                },
             });
         }
         console.log(`${LOG} 👥 Per-user state loaded for ${perUserState.size} users.`);
@@ -1223,69 +1232,132 @@ async function handleSmenoff(chatId) {
 
 // ── Shift Reminder ────────────────────────────────────────────
 
+function getKyivNow() {
+    const now = new Date();
+    return new Date(now.toLocaleString('en-US', { timeZone: SHIFT_TZ }));
+}
+
+function msUntilKyivHour(targetHour, targetMinute = 0) {
+    const kyivNow = getKyivNow();
+    const target = new Date(kyivNow);
+    target.setHours(targetHour, targetMinute, 0, 0);
+    let ms = target.getTime() - kyivNow.getTime();
+    if (ms < 0) ms += 24 * 60 * 60 * 1000; // next day
+    return ms;
+}
+
 function scheduleShiftReminder() {
     if (shiftReminderTimer) { clearTimeout(shiftReminderTimer); shiftReminderTimer = null; }
     const today = getKyivDate();
     const hour = getKyivHour();
-    const minute = getKyivMinute();
 
-    // Check if ALL users are done for today
-    const allDone = users.every(u => {
+    // Check if ALL users already checked in today
+    const allCheckedIn = users.every(u => {
         const ss = getUserState(u.tgChatId).shift;
-        return ss.reminderSentDate === today || ss.lastShiftDate === today;
+        return ss.lastShiftDate === today;
     });
-    if (allDone) {
-        scheduleNextDayReminder();
+
+    if (allCheckedIn) {
+        // Everyone is checked in, schedule for tomorrow 11:00
+        const ms = msUntilKyivHour(11, 0);
+        console.log(`${LOG} 📋 Все отмечены. Следующее напоминание через ${Math.round(ms / 3600000)}ч`);
+        shiftReminderTimer = setTimeout(() => scheduleShiftReminder(), ms);
         return;
     }
 
-    if (hour >= 13) {
-        sendShiftReminder();
-    } else if (hour >= 12) {
-        const msUntil13 = ((60 - minute) * 60 * 1000);
-        console.log(`${LOG} 📋 Shift reminder scheduled in ${Math.round(msUntil13 / 60000)} min`);
+    if (hour < 11) {
+        // Before 11:00 — schedule for 11:00
+        const ms = msUntilKyivHour(11, 0);
+        console.log(`${LOG} 📋 Напоминание о смене через ${Math.round(ms / 60000)} мин (11:00)`);
         shiftReminderTimer = setTimeout(() => {
-            const allDoneNow = users.every(u => {
-                const ss = getUserState(u.tgChatId).shift;
-                return ss.lastShiftDate === getKyivDate() || ss.reminderSentDate === getKyivDate();
-            });
-            if (allDoneNow) { scheduleNextDayReminder(); return; }
-            sendShiftReminder();
-        }, msUntil13);
+            sendShiftStartReminder();
+            scheduleShiftLateReminder();
+        }, ms);
+    } else if (hour < 12) {
+        // Between 11:00 and 12:00 — send start reminder now if not sent, schedule late for 12:00
+        const alreadySentStart = users.every(u => {
+            const ss = getUserState(u.tgChatId).shift;
+            return ss.lastShiftDate === today || ss.reminderSentDate === today;
+        });
+        if (!alreadySentStart) sendShiftStartReminder();
+        scheduleShiftLateReminder();
     } else {
-        const now = new Date();
-        const kyivNow = new Date(now.toLocaleString('en-US', { timeZone: SHIFT_TZ }));
-        const target = new Date(kyivNow);
-        target.setHours(13, 0, 0, 0);
-        const msUntil = target.getTime() - kyivNow.getTime();
-        console.log(`${LOG} 📋 Shift reminder scheduled in ${Math.round(msUntil / 60000)} min (before noon)`);
-        shiftReminderTimer = setTimeout(() => {
-            const allDoneNow = users.every(u => {
-                const ss = getUserState(u.tgChatId).shift;
-                return ss.lastShiftDate === getKyivDate() || ss.reminderSentDate === getKyivDate();
-            });
-            if (allDoneNow) { scheduleNextDayReminder(); return; }
-            sendShiftReminder();
-        }, Math.max(0, msUntil));
+        // 12:00+ — send late reminder now if not sent
+        const alreadySentLate = users.every(u => {
+            const ss = getUserState(u.tgChatId).shift;
+            return ss.lastShiftDate === today || ss.lateReminderSentDate === today;
+        });
+        if (!alreadySentLate) {
+            sendShiftLateReminder();
+        } else {
+            // All reminders sent, schedule for tomorrow
+            const ms = msUntilKyivHour(11, 0);
+            console.log(`${LOG} 📋 Все напоминания отправлены. Следующее через ${Math.round(ms / 3600000)}ч`);
+            shiftReminderTimer = setTimeout(() => scheduleShiftReminder(), ms);
+        }
     }
+
+    // Always schedule close reminder
+    scheduleShiftCloseReminder();
 }
 
-function scheduleNextDayReminder() {
-    // Schedule check for next day at ~12:05 Kyiv
-    const now = new Date();
-    const kyivNow = new Date(now.toLocaleString('en-US', { timeZone: SHIFT_TZ }));
-    const tomorrow = new Date(kyivNow);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(12, 5, 0, 0);
-    const ms = tomorrow.getTime() - kyivNow.getTime();
-    console.log(`${LOG} 📋 Next shift reminder check in ${Math.round(ms / 3600000)}h`);
-    shiftReminderTimer = setTimeout(() => scheduleShiftReminder(), Math.max(0, ms));
+function scheduleShiftLateReminder() {
+    if (shiftReminderTimer) { clearTimeout(shiftReminderTimer); shiftReminderTimer = null; }
+    const ms = msUntilKyivHour(12, 0);
+    const hour = getKyivHour();
+    if (hour >= 12) {
+        // Already past 12 — send immediately
+        sendShiftLateReminder();
+        return;
+    }
+    console.log(`${LOG} 📋 Напоминание "опаздываете" через ${Math.round(ms / 60000)} мин (12:00)`);
+    shiftReminderTimer = setTimeout(() => {
+        const today = getKyivDate();
+        const allDone = users.every(u => {
+            const ss = getUserState(u.tgChatId).shift;
+            return ss.lastShiftDate === today;
+        });
+        if (allDone) {
+            const msNext = msUntilKyivHour(11, 0);
+            shiftReminderTimer = setTimeout(() => scheduleShiftReminder(), msNext);
+            return;
+        }
+        sendShiftLateReminder();
+    }, ms);
 }
 
-async function sendShiftReminder() {
+function scheduleShiftCloseReminder() {
+    if (shiftCloseReminderTimer) { clearTimeout(shiftCloseReminderTimer); shiftCloseReminderTimer = null; }
     const today = getKyivDate();
-    console.log(`${LOG} ⏰ Sending shift reminders for ${today}`);
-    const text = '⏰ <b>Вы забыли отметиться на смену!</b>\n\nХотите отметиться?';
+    const hour = getKyivHour();
+
+    // Check if any user has an open (unclosed) shift today
+    const needsCloseReminder = users.some(u => {
+        const ss = getUserState(u.tgChatId).shift;
+        return ss.lastShiftDate === today && !ss.lastShiftClosed && ss.closeReminderSentDate !== today;
+    });
+
+    if (hour >= 23) {
+        if (needsCloseReminder) sendShiftCloseReminder();
+        return;
+    }
+
+    const ms = msUntilKyivHour(23, 0);
+    console.log(`${LOG} 📋 Напоминание о закрытии смены через ${Math.round(ms / 60000)} мин (23:00)`);
+    shiftCloseReminderTimer = setTimeout(() => {
+        const todayNow = getKyivDate();
+        const needsClose = users.some(u => {
+            const ss = getUserState(u.tgChatId).shift;
+            return ss.lastShiftDate === todayNow && !ss.lastShiftClosed && ss.closeReminderSentDate !== todayNow;
+        });
+        if (needsClose) sendShiftCloseReminder();
+    }, ms);
+}
+
+async function sendShiftStartReminder() {
+    const today = getKyivDate();
+    console.log(`${LOG} ⏰ 11:00 — напоминание о начале смены`);
+    const text = '🕚 <b>Пора отмечаться на смену!</b>\n\nНачинай смену, время 11:00.';
     const keyboard = {
         inline_keyboard: [
             [
@@ -1301,7 +1373,52 @@ async function sendShiftReminder() {
         await tgSendMessage(user.tgChatId, text, keyboard);
     }
     savePerUserState();
-    scheduleNextDayReminder();
+}
+
+async function sendShiftLateReminder() {
+    const today = getKyivDate();
+    console.log(`${LOG} ⏰ 12:00 — опоздание на смену`);
+    const text = '🚨 <b>Вы опаздываете на смену!</b>\n\nУже 12:00, а вы ещё не отметились. Хотите отметиться сейчас?';
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: '✅ Отметиться', callback_data: 'shift_checkin' },
+                { text: '⏭ Пропустить', callback_data: 'shift_skip' },
+            ]
+        ]
+    };
+    for (const user of users) {
+        const ss = getUserState(user.tgChatId).shift;
+        if (ss.lastShiftDate === today || ss.lateReminderSentDate === today) continue;
+        ss.lateReminderSentDate = today;
+        await tgSendMessage(user.tgChatId, text, keyboard);
+    }
+    savePerUserState();
+    // Schedule for tomorrow
+    const msNext = msUntilKyivHour(11, 0);
+    shiftReminderTimer = setTimeout(() => scheduleShiftReminder(), msNext);
+}
+
+async function sendShiftCloseReminder() {
+    const today = getKyivDate();
+    console.log(`${LOG} ⏰ 23:00 — напоминание о закрытии смены`);
+    const text = '🕐 <b>Не забудьте закрыть смену!</b>\n\nУже 23:00. Закройте смену командой /smenoff.';
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: '🔒 Закрыть смену', callback_data: 'shift_close' },
+            ]
+        ]
+    };
+    for (const user of users) {
+        const ss = getUserState(user.tgChatId).shift;
+        if (ss.lastShiftDate !== today) continue;
+        if (ss.lastShiftClosed) continue;
+        if (ss.closeReminderSentDate === today) continue;
+        ss.closeReminderSentDate = today;
+        await tgSendMessage(user.tgChatId, text, keyboard);
+    }
+    savePerUserState();
 }
 
 async function tgAnswerCallbackQuery(callbackQueryId, text) {
@@ -2389,6 +2506,10 @@ async function pollTelegram() {
                 } else if (cbData === 'shift_skip') {
                     await tgAnswerCallbackQuery(cbq.id, 'Пропущено');
                     await tgEditMessageText(cbChatId, cbq.message.message_id, '⏭ Смена пропущена на сегодня.');
+                } else if (cbData === 'shift_close') {
+                    const result = await handleSmenoff(cbChatId);
+                    await tgAnswerCallbackQuery(cbq.id, result.startsWith('✅') ? 'Закрыто!' : 'Ошибка');
+                    await tgEditMessageText(cbChatId, cbq.message.message_id, result);
                 }
                 // ── Ticket Chat callbacks ──
                 else if (cbData.startsWith('tsel_')) {
@@ -2485,6 +2606,8 @@ async function pollTelegram() {
                 shiftSt.lastShiftDate = null;
                 shiftSt.lastShiftClosed = false;
                 shiftSt.reminderSentDate = null;
+                shiftSt.lateReminderSentDate = null;
+                shiftSt.closeReminderSentDate = null;
                 shiftSt.lastShiftContent = null;
                 savePerUserState();
                 enqueueToUser(chatId, { text: '🔄 Состояние смены сброшено. Можно делать /smena заново.' });
@@ -2792,6 +2915,7 @@ async function main() {
         stopPolling();
         stopAutosave();
         if (shiftReminderTimer) { clearTimeout(shiftReminderTimer); shiftReminderTimer = null; }
+        if (shiftCloseReminderTimer) { clearTimeout(shiftCloseReminderTimer); shiftCloseReminderTimer = null; }
         noReplyTimers.forEach(t => clearTimeout(t));
         noReplyTimers.clear();
         saveState();

@@ -66,6 +66,38 @@ config.closingPhrase = config.closingPhrase || "остались вопросы"
 config.forumMode = config.forumMode ?? false;
 config.pollingIntervalSec = config.pollingIntervalSec || 3;
 
+// Auto-greet defaults
+config.autoGreetRoleIds = config.autoGreetRoleIds || ['1334466933273395242'];
+config.autoGreetText = config.autoGreetText || 'Здравствуйте, чем могу помочь?';
+config.autoGreetEnabled = config.autoGreetEnabled ?? true;
+
+// Binds defaults
+config.binds = config.binds || {
+    '25': { name: '25', message: 'Здравствуйте!** **Вайп состоится: 25.10.2025 **Время: 17:00 по МСК.' },
+    '27': { name: '27', message: '**Здравствуйте!** **Вайп состоится: 27.09.2025 **Время:** 14:00 по МСК.' },
+    'фарм': { name: 'фарм', message: '**Основные способы заработка:** 1. Лаваход + шалкеровый ящик. 2. Зачарование алмазного сета (З5) с перепродажей. 3. Зачарование и объединение эффектов на незеритовом мече. 4. Создание прибыльных кирок (бульдозер, автоплавка, магнит). 5. Автошахта. 6. Перепродажа обсидиана и алмазов при наличии стартового капитала. 7. PvP-зона для получения лута. 8. Участие в ивентах. 9. Перепродажа сфер и талисманов. Нарушение правил сервера может привести к блокировке.' },
+    'запрет': { name: 'запрет', message: 'С перечнем разрешённых и запрещённых модификаций можно ознакомиться здесь: https://forum.funtime.su/modifications Визуальные модификации, не указанные как разрешённые, считаются запрещёнными. Разработчикам модификаций для согласования необходимо обратиться в группу проекта: @staff_funtime' },
+    'отклонили': { name: 'отклонили', message: '*Если отклонили апелляцию* — повторные апелляции рассматриваться не будут. Решение окончательное.\n\n• Если бан *не навсегда* — разбан можно купить на сайте.\n\n• Если бан *навсегда* и он *не* по пунктам **4.2**, **4.3.1 (AutoBuy)**, **9.1**, **3.1**, **1.3** — можно обратиться в поддержку для покупки разбана за **5000₽**:\nhttps://vk.com/funtime' },
+    'апелляция': { name: 'апелляция', message: 'Если Вы считаете блокировку ошибочной, подайте апелляцию: https://forum.funtime.su/index.php?forums/appeals/ Перед подачей обязательно ознакомьтесь с FAQ: https://forum.funtime.su/faq_appeals' },
+    'уточните': { name: 'уточните', message: 'Уточните данный вопрос в поддержке: https://vk.com/funtime' },
+    'айпи': { name: 'айпи', message: '**Здравствуйте!** Попробуйте использовать альтернативные IP-адреса: test-tcp.funtime.sh test-neo.funtime.sh tcpshield.funtime.me neoprotect.funtime.me neoprotect.funtime.su tcpshield.funtime.su tcpshield.funtime.su (не работает из Украины) neoprotect.funtime.su (не работает из Украины) tcpshield-ovh.funtime.su (не работает из Украины) Если проблема сохраняется — обратитесь к интернет-провайдеру. Сервер работает стабильно, однако возможны локальные сетевые ограничения.' },
+    'разраб': { name: 'разраб', message: '**Здравствуйте!** Для получения одобрения модификаций обратитесь в группу проекта: http://vk.com/staff_funtime' },
+    'читер': { name: 'читер', message: 'Если пользователь нарушает правила и использует стороннее ПО, отправьте жалобу: /report ник чит/тим или через форум: https://forum.funtime.su/complaint' },
+    'пишите': { name: 'пишите', message: 'Обратитесь в поддержку: https://vk.com/funtime' },
+    'вайп': { name: 'вайп', message: '**Здравствуйте!** Предыдущий вайп состоялся 30.01. Информация о следующем вайпе будет опубликована дополнительно.' },
+    'взломали': { name: 'взломали', message: '**Здравствуйте!** Если Вы забыли пароль или аккаунт был взломан — обратитесь в поддержку: https://vk.com/funtime' },
+    'автокликкер': { name: 'автокликкер', message: '**Здравствуйте!** При обнаружении автокликера во время проверки блокировка выдана не будет. Однако если система зафиксирует его использование (аукцион, мистический сундук и т.д.) и выдаст автоматическую блокировку — помощь оказана не будет. Использование автокликера может быть расценено как отсутствие режима АФК, что может повлечь вызов на проверку. Ответственность за последствия несёт пользователь.' },
+    'вопрос': { name: 'вопрос', message: '**Здравствуйте!** Чем можем Вам помочь?' },
+    'запрещен': { name: 'запрещен', message: 'С перечнем разрешённых и запрещённых модификаций можно ознакомиться здесь: https://forum.funtime.su/modifications Визуальные модификации, не указанные как разрешённые, считаются запрещёнными. Разработчикам модификаций для согласования необходимо обратиться в группу проекта: @staff_funtime' },
+    'модер': { name: 'модер', message: '**Здравствуйте!** Хотите стать сотрудником проекта? Ознакомьтесь с информацией: https://forum.funtime.su/categories12' },
+    'остались': { name: 'остались', message: 'У Вас остались дополнительные вопросы по данному тикету? Если вопросов нет — просим закрыть тикет.' },
+    'шалкер': { name: 'шалкер', message: '**Здравствуйте!** Если предметы не куплены в течение 9 часов — они перемещаются в хранилище. Если в течение следующих 24 часов они не будут забраны — предметы удаляются. (Для шалкера срок хранения — 3 часа.) Система введена для оптимизации аукциона. Возврат и компенсация невозможны.' },
+    'хранение': { name: 'хранение', message: 'Мы не блокируем за хранение читов, если они не использовались на сервере. Запрещено хранение: .exe-инжектов прокси-читов DoomsDay AutoBuy AutoMyst За наличие данных программ возможна блокировка.' },
+    'скам': { name: 'скам', message: 'Здравствуйте! На нашем проекте скам разрешён. Исключение: скам на аккаунты (передача/попытки завладеть аккаунтом) запрещён.' },
+    'двигаться': { name: 'двигаться', message: 'Здравствуйте! При возникновении подобной проблемы стоит сделать следующее:\n1) Отключите все модификации и войдите на сервер с ванильной версии Майнкрафт\n2) Если это не поможет, то привяжите ваш игровой аккаунт к профилю ВК или Телеграм: https://vk.com/funtime https://t.me/FunAuthBot После этого повторите попытку входа.\n3) Если ни один из вариантов не помог, то обратитесь в техническую поддержку сервера в ВК или Телеграм: https://vk.com/funtime https://t.me/funtime' },
+    'рп': { name: 'рп', message: 'Для этого зайдите в меню серверов, выберите наш сервер, нажмите "Настроить" и включите наборы ресурсов.' },
+};
+
 // ── Users (multi-user support) ────────────────────────────────
 
 if (!config.users || !Array.isArray(config.users) || config.users.length === 0) {
@@ -120,6 +152,7 @@ let pollingRunning = false;
 const processedUpdateIds = new Set();
 
 const sessionStats = { messagesFailed: 0 };
+const autoGreetedChannels = new Set();
 
 // Gateway state
 let ws = null;
@@ -899,6 +932,200 @@ async function handleTestSend(text, token) {
     }
 }
 
+// ── History, Binds, Greet ─────────────────────────────────────
+
+async function fetchChannelMessages(channelId, limit = 100, token) {
+    try {
+        const res = await httpGet(
+            `https://discord.com/api/v9/channels/${channelId}/messages?limit=${limit}`,
+            { Authorization: token || GATEWAY_TOKEN }
+        );
+        if (!res.ok) return [];
+        return JSON.parse(res.body);
+    } catch { return []; }
+}
+
+async function handleHistory(chatId) {
+    const uState = getUserState(chatId).ticketChat;
+    if (!uState.activeTicketId) {
+        return [{ text: '❌ Сначала выбери тикет через /list', markup: null }];
+    }
+    const token = getDiscordToken(chatId);
+    const channelId = uState.activeTicketId;
+    const channelName = uState.activeTicketName || channelId;
+    const messages = await fetchChannelMessages(channelId, 100, token);
+    if (!messages || messages.length === 0) {
+        return [{ text: '📭 Нет сообщений в тикете.', markup: null }];
+    }
+    // Sort from old to new (Discord returns newest first)
+    messages.reverse();
+    const lines = [`📜 <b>История #${escapeHtml(channelName)}</b> (${messages.length} сообщ.)\n`];
+    for (const msg of messages) {
+        if (!msg.author) continue;
+        const ts = new Date(msg.timestamp);
+        const time = ts.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        const nick = msg.member?.nick || msg.author.global_name || msg.author.username || 'Неизвестно';
+        const isStaff = msg.member?.roles?.some(r => config.staffRoleIds.includes(r)) || false;
+        const icon = isStaff ? '👮' : '👤';
+        const content = msg.content ? escapeHtml(truncate(msg.content, 200)) : '(вложение)';
+        lines.push(`${icon} ${escapeHtml(nick)} (${time}): ${content}`);
+    }
+    const fullText = lines.join('\n');
+    if (fullText.length <= 4096) {
+        return [{ text: fullText, markup: null }];
+    }
+    const chunks = [];
+    let remaining = fullText;
+    while (remaining.length > 0) {
+        if (remaining.length <= 4096) {
+            chunks.push({ text: remaining, markup: null });
+            break;
+        }
+        let cut = remaining.lastIndexOf('\n', 4096);
+        if (cut < 2000) cut = 4096;
+        chunks.push({ text: remaining.slice(0, cut), markup: null });
+        remaining = remaining.slice(cut).trimStart();
+    }
+    return chunks;
+}
+
+function handleBindsList() {
+    if (!config.binds || Object.keys(config.binds).length === 0) {
+        return '📭 Нет сохранённых биндов.';
+    }
+    const lines = [
+        '╔══════════════════════════╗',
+        '║  📋  <b>БИНДЫ (ШАБЛОНЫ)</b>',
+        '╚══════════════════════════╝',
+        '',
+    ];
+    for (const [key, bind] of Object.entries(config.binds)) {
+        const preview = escapeHtml(truncate(bind.message || '', 60));
+        lines.push(`  <b>/${escapeHtml(key)}</b> — <i>${preview}</i>`);
+    }
+    lines.push('', `Всего: ${Object.keys(config.binds).length}`);
+    lines.push('', '<code>/addbind</code> &lt;имя&gt; &lt;текст&gt; — добавить');
+    lines.push('<code>/delbind</code> &lt;имя&gt; — удалить');
+    lines.push('<code>/имя_бинда</code> — отправить в тикет');
+    return lines.join('\n');
+}
+
+async function handleBindSearch(query, chatId) {
+    const uState = getUserState(chatId).ticketChat;
+    if (!uState.activeTicketId) {
+        return { text: '❌ Сначала выбери тикет через /list', markup: null };
+    }
+    if (!config.binds || Object.keys(config.binds).length === 0) return null;
+    const q = query.toLowerCase().trim();
+    if (q.length < 2) return null;
+    const matches = [];
+    for (const [key, bind] of Object.entries(config.binds)) {
+        const k = key.toLowerCase();
+        if (k.startsWith(q) || q.startsWith(k)) {
+            matches.push(bind);
+        }
+    }
+    if (matches.length === 0) return null;
+    if (matches.length === 1) {
+        const bind = matches[0];
+        const token = getDiscordToken(chatId);
+        const channelId = uState.activeTicketId;
+        try {
+            const res = await sendDiscordMessage(channelId, bind.message, token);
+            if (res.ok) {
+                try { const j = JSON.parse(res.body); if (j.id) sentByBot.add(j.id); } catch {}
+                console.log(`${LOG} 📎 Бинд "${bind.name}" → #${uState.activeTicketName || channelId}`);
+                return { text: `✅ Отправлено: "<b>${escapeHtml(bind.name)}</b>"`, markup: null };
+            }
+            return { text: `❌ Ошибка Discord (${res.status})`, markup: null };
+        } catch (e) {
+            return { text: `❌ Ошибка: ${e.message}`, markup: null };
+        }
+    }
+    // Multiple matches — show buttons
+    const buttons = [];
+    for (let i = 0; i < matches.length; i += 2) {
+        const row = [];
+        row.push({ text: matches[i].name, callback_data: `bind_${matches[i].name}` });
+        if (i + 1 < matches.length) {
+            row.push({ text: matches[i + 1].name, callback_data: `bind_${matches[i + 1].name}` });
+        }
+        buttons.push(row);
+    }
+    return {
+        text: `🔍 Найдено ${matches.length} биндов. Выбери:`,
+        markup: { inline_keyboard: buttons },
+    };
+}
+
+function handleAddBind(argsStr) {
+    const spaceIdx = argsStr.indexOf(' ');
+    if (spaceIdx === -1 || !argsStr.trim()) {
+        return '❌ Формат: /addbind &lt;название&gt; &lt;текст&gt;';
+    }
+    const name = argsStr.slice(0, spaceIdx).trim();
+    const message = argsStr.slice(spaceIdx + 1).trim();
+    if (!name || !message) {
+        return '❌ Формат: /addbind &lt;название&gt; &lt;текст&gt;';
+    }
+    if (!config.binds) config.binds = {};
+    config.binds[name] = { name, message };
+    saveConfig();
+    console.log(`${LOG} ➕ Бинд "${name}" добавлен.`);
+    return `✅ Бинд "<b>${escapeHtml(name)}</b>" добавлен.\n\n<i>${escapeHtml(truncate(message, 100))}</i>`;
+}
+
+function handleDelBind(name) {
+    if (!name.trim()) return '❌ Формат: /delbind &lt;название&gt;';
+    if (!config.binds || !config.binds[name]) {
+        return `❌ Бинд "${escapeHtml(name)}" не найден.`;
+    }
+    delete config.binds[name];
+    saveConfig();
+    console.log(`${LOG} ➖ Бинд "${name}" удалён.`);
+    return `✅ Бинд "<b>${escapeHtml(name)}</b>" удалён.`;
+}
+
+function handleSetGreet(text) {
+    if (!text.trim()) return '❌ Формат: /setgreet &lt;текст приветствия&gt;';
+    config.autoGreetText = text.trim();
+    saveConfig();
+    console.log(`${LOG} 👋 Текст приветствия обновлён.`);
+    return `✅ Текст приветствия обновлён:\n\n<blockquote>${escapeHtml(config.autoGreetText)}</blockquote>`;
+}
+
+function handleGreet(args) {
+    if (!args || !args.trim()) {
+        const status = config.autoGreetEnabled ? '✅ Включено' : '❌ Выключено';
+        return [
+            '╔══════════════════════════╗',
+            '║  👋  <b>АВТО-ПРИВЕТСТВИЕ</b>',
+            '╚══════════════════════════╝',
+            '',
+            `Статус: <b>${status}</b>`,
+            `Текст: <i>${escapeHtml(config.autoGreetText || '')}</i>`,
+            `Роли: <code>${(config.autoGreetRoleIds || []).join(', ') || 'нет'}</code>`,
+            '',
+            '/greet on — включить',
+            '/greet off — выключить',
+            '/setgreet &lt;текст&gt; — изменить текст',
+        ].join('\n');
+    }
+    const arg = args.trim().toLowerCase();
+    if (arg === 'on') {
+        config.autoGreetEnabled = true;
+        saveConfig();
+        console.log(`${LOG} 👋 Авто-приветствие включено.`);
+        return '✅ Авто-приветствие <b>включено</b>.';
+    } else if (arg === 'off') {
+        config.autoGreetEnabled = false;
+        saveConfig();
+        console.log(`${LOG} 👋 Авто-приветствие выключено.`);
+        return '❌ Авто-приветствие <b>выключено</b>.';
+    }
+    return '❌ Используй: /greet on или /greet off';
+}
+
 // ── Shift (Смена) System ──────────────────────────────────────
 
 function getKyivDate() {
@@ -1366,7 +1593,19 @@ function buildStartMessage() {
         `  /msg &lt;номер&gt; &lt;текст&gt; — отправить в тикет`,
         `  Или <b>reply</b> на уведомление`,
         ``,
-        `📅  <b>Смена:</b>`,
+        `�  <b>История и бинды:</b>`,
+        `  /history — история сообщений тикета`,
+        `  /binds — все шаблоны ответов`,
+        `  /addbind &lt;имя&gt; &lt;текст&gt; — добавить шаблон`,
+        `  /delbind &lt;имя&gt; — удалить шаблон`,
+        `  /&lt;имя&gt; — быстрый поиск и отправка бинда`,
+        ``,
+        `👋  <b>Авто-приветствие:</b>`,
+        `  /greet — статус авто-приветствия`,
+        `  /greet on|off — вкл/выкл`,
+        `  /setgreet &lt;текст&gt; — изменить текст`,
+        ``,
+        `�📅  <b>Смена:</b>`,
         `  /smena — начать смену (отметка в Discord)`,
         `  /smenoff — закрыть смену`,
         `  ⏰ Авто-напоминание в 13:00 если не отмечено`,
@@ -1909,6 +2148,7 @@ function onChannelDelete(data) {
 
     activeTickets.delete(data.id);
     notifiedFirstMessage.delete(data.id);
+    autoGreetedChannels.delete(data.id);
     ps.totalClosed++;
     markDirty();
 
@@ -1991,6 +2231,22 @@ function onMessageCreate(data) {
     if (!activeTickets.has(channelId)) {
         if (!isTicketChannel(channel)) return;
         registerTicket(channel);
+    }
+
+    // Auto-greet on role ping
+    if (config.autoGreetEnabled && data.mention_roles && data.mention_roles.length > 0) {
+        const shouldGreet = data.mention_roles.some(r => (config.autoGreetRoleIds || []).includes(r));
+        if (shouldGreet && !autoGreetedChannels.has(channelId) && isTicketChannel(channel)) {
+            autoGreetedChannels.add(channelId);
+            setTimeout(async () => {
+                try {
+                    await sendDiscordMessage(channelId, config.autoGreetText, GATEWAY_TOKEN);
+                    console.log(`${LOG} 👋 Авто-приветствие отправлено в #${channel.name || channelId}`);
+                } catch (e) {
+                    console.error(`${LOG} ❌ Ошибка авто-приветствия:`, e.message);
+                }
+            }, 1500);
+        }
     }
 
     const author = data.author;
@@ -2146,6 +2402,30 @@ async function pollTelegram() {
                 } else if (cbData === 'tunselect') {
                     await handleUnselectTicket(cbq.id, cbq.message.message_id, cbChatId);
                 }
+                // ── Bind callbacks ──
+                else if (cbData.startsWith('bind_')) {
+                    const bindName = cbData.slice(5);
+                    const uState = getUserState(cbChatId).ticketChat;
+                    if (!uState.activeTicketId) {
+                        await tgAnswerCallbackQuery(cbq.id, '❌ Тикет не выбран');
+                    } else if (config.binds && config.binds[bindName]) {
+                        const bind = config.binds[bindName];
+                        try {
+                            const res = await sendDiscordMessage(uState.activeTicketId, bind.message, cbToken);
+                            if (res.ok) {
+                                try { const j = JSON.parse(res.body); if (j.id) sentByBot.add(j.id); } catch {}
+                                await tgAnswerCallbackQuery(cbq.id, `✅ ${bindName}`);
+                                await tgEditMessageText(cbChatId, cbq.message.message_id, `✅ Отправлено: "<b>${escapeHtml(bindName)}</b>"`);
+                            } else {
+                                await tgAnswerCallbackQuery(cbq.id, `❌ Ошибка ${res.status}`);
+                            }
+                        } catch (e) {
+                            await tgAnswerCallbackQuery(cbq.id, '❌ Ошибка отправки');
+                        }
+                    } else {
+                        await tgAnswerCallbackQuery(cbq.id, '❌ Бинд не найден');
+                    }
+                }
                 continue;
             }
 
@@ -2208,6 +2488,46 @@ async function pollTelegram() {
                 shiftSt.lastShiftContent = null;
                 savePerUserState();
                 enqueueToUser(chatId, { text: '🔄 Состояние смены сброшено. Можно делать /smena заново.' });
+            }
+            // ── History, Binds, Greet commands ──
+            else if (text === '/history' || text.startsWith('/history ')) {
+                const histMsgs = await handleHistory(chatId);
+                for (const m of histMsgs) enqueueToUser(chatId, { text: m.text, replyMarkup: m.markup });
+            }
+            else if (text === '/binds' || text.startsWith('/binds ')) {
+                enqueueToUser(chatId, { text: handleBindsList() });
+            }
+            else if (text.startsWith('/addbind ')) {
+                enqueueToUser(chatId, { text: handleAddBind(text.slice(9)) });
+            }
+            else if (text === '/addbind') {
+                enqueueToUser(chatId, { text: '❌ Формат: /addbind &lt;название&gt; &lt;текст&gt;' });
+            }
+            else if (text.startsWith('/delbind ')) {
+                enqueueToUser(chatId, { text: handleDelBind(text.slice(9).trim()) });
+            }
+            else if (text === '/delbind') {
+                enqueueToUser(chatId, { text: '❌ Формат: /delbind &lt;название&gt;' });
+            }
+            else if (text.startsWith('/setgreet ')) {
+                enqueueToUser(chatId, { text: handleSetGreet(text.slice(10)) });
+            }
+            else if (text === '/setgreet') {
+                enqueueToUser(chatId, { text: '❌ Формат: /setgreet &lt;текст&gt;' });
+            }
+            else if (text === '/greet' || text.startsWith('/greet ')) {
+                const greetArgs = text.startsWith('/greet ') ? text.slice(7) : '';
+                enqueueToUser(chatId, { text: handleGreet(greetArgs) });
+            }
+            // Generic / command → bind search (before free-text relay)
+            else if (text.startsWith('/') && !text.startsWith('//')) {
+                const bindQuery = text.slice(1).split(/\s+/)[0].toLowerCase().trim();
+                if (bindQuery.length >= 2 && config.binds) {
+                    const bindResult = await handleBindSearch(bindQuery, chatId);
+                    if (bindResult) {
+                        enqueueToUser(chatId, { text: bindResult.text, replyMarkup: bindResult.markup });
+                    }
+                }
             }
             // Free-text relay to active ticket (no command, no reply)
             else if (!text.startsWith('/') && getUserState(chatId).ticketChat.activeTicketId && text.trim()) {

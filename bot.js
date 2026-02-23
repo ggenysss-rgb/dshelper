@@ -2463,9 +2463,10 @@ function onMessageCreate(data) {
             } else if (rule.patterns && Array.isArray(rule.patterns)) {
                 matched = rule.patterns.some(p => normalized.includes(p.toLowerCase()));
             } else if (rule.geminiPrompt) {
-                // Gemini AI проверка — только если есть хотя бы одно ключевое слово-триггер
+                // Groq AI проверка — только если есть хотя бы одно ключевое слово-триггер
                 const geminiTriggers = rule.geminiTriggers || [];
                 const hasTrigger = geminiTriggers.length === 0 || geminiTriggers.some(t => normalized.includes(t.toLowerCase()));
+                console.log(`${LOG} 🔍 Groq check: "${normalized.slice(0, 60)}" hasTrigger=${hasTrigger}`);
                 if (!hasTrigger) continue;
 
                 const ruleCopy = rule;

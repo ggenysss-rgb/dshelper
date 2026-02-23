@@ -402,13 +402,24 @@ function snowflakeToTimestamp(id) {
 
 // ── Gemini AI Auto-Reply Check ────────────────────────────────
 
-const geminiCache = new Map(); // кэш чтобы не спамить API одинаковыми сообщениями
+const geminiCache = new Map();
+let lastGeminiCallTime = 0;
+const GEMINI_MIN_INTERVAL_MS = 5000; // не чаще 1 раза в 5 секунд
 
 async function checkWithGemini(message, ruleName, prompt) {
     if (!config.geminiApiKey) return false;
 
     const cacheKey = `${ruleName}:${message.slice(0, 100)}`;
     if (geminiCache.has(cacheKey)) return geminiCache.get(cacheKey);
+
+    // Rate limit — не чаще 1 раза в 5 секунд
+    const now = Date.now();
+    const timeSinceLast = now - lastGeminiCallTime;
+    if (timeSinceLast < GEMINI_MIN_INTERVAL_MS) {
+        console.log(`${LOG} ⏳ Gemini rate limit, пропускаем (${Math.round((GEMINI_MIN_INTERVAL_MS - timeSinceLast) / 1000)}с до следующего)`);
+        return false;
+    }
+    lastGeminiCallTime = Date.now();
 
     try {
         const body = JSON.stringify({

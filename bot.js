@@ -96,6 +96,7 @@ config.autoReplies = config.autoReplies || [
         name: 'ошибочный бан (Gemini AI)',
         guildId: '1266100282551570522',
         channelId: '1475424153057366036',
+        geminiTriggers: ['бан', 'блок', 'забан', 'баннул', 'заблок', 'кик', 'мут'],
         geminiPrompt: 'Ты модератор игрового сервера Minecraft. Определи: человек жалуется на то что его забанили/заблокировали на сервере, и при этом считает что это ошибка или несправедливо? Учитывай любые формулировки: "дали бан", "меня забанили", "заблокировали аккаунт", "получил блокировку", "бан ни за что" и т.д. Не считай ДА если человек спрашивает про чужой бан, про покупку разбана, или уже подал апелляцию.',
         excludeAny: [
             'уже подал апелляц', 'уже подала апелляц', 'уже отправил апелляц',
@@ -2447,7 +2448,11 @@ function onMessageCreate(data) {
             } else if (rule.patterns && Array.isArray(rule.patterns)) {
                 matched = rule.patterns.some(p => normalized.includes(p.toLowerCase()));
             } else if (rule.geminiPrompt) {
-                // Gemini AI проверка — асинхронная, обрабатываем отдельно
+                // Gemini AI проверка — только если есть хотя бы одно ключевое слово-триггер
+                const geminiTriggers = rule.geminiTriggers || [];
+                const hasTrigger = geminiTriggers.length === 0 || geminiTriggers.some(t => normalized.includes(t.toLowerCase()));
+                if (!hasTrigger) continue;
+
                 const ruleCopy = rule;
                 const msgCopy = data.content;
                 const chIdCopy = channelId;

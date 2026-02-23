@@ -77,3 +77,8 @@ export const fetchClosedTickets = async (page = 1, search = '') => {
     const { data } = await client.get(`/closed-tickets?page=${page}&limit=50&search=${encodeURIComponent(search)}`);
     return data;
 };
+
+export const fetchArchivedMessages = async (channelId: string) => {
+    const { data } = await client.get(`/closed-tickets/${channelId}/messages`);
+    return data;
+};

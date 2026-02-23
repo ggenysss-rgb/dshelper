@@ -813,6 +813,45 @@ function saveConfig() {
     }
 }
 
+// ── Ticket Message Archives ────────────────────────────────
+const ARCHIVES_DIR = path.join(__dirname, 'ticket_archives');
+try { if (!fs.existsSync(ARCHIVES_DIR)) fs.mkdirSync(ARCHIVES_DIR, { recursive: true }); } catch (e) { }
+
+async function archiveTicketMessages(channelId, record) {
+    try {
+        const messages = await fetchChannelMessages(channelId, 100, GATEWAY_TOKEN);
+        if (!messages || messages.length === 0) return;
+        const archive = {
+            channelId,
+            channelName: record?.channelName || channelId,
+            openerId: record?.openerId || '',
+            openerUsername: record?.openerUsername || '',
+            createdAt: record?.createdAt || Date.now(),
+            archivedAt: Date.now(),
+            messages: messages.reverse().map(m => ({
+                id: m.id,
+                content: m.content || '',
+                author: {
+                    id: m.author?.id,
+                    username: m.author?.username,
+                    global_name: m.author?.global_name,
+                    avatar: m.author?.avatar,
+                    bot: m.author?.bot || false,
+                },
+                timestamp: m.timestamp,
+                attachments: (m.attachments || []).map(a => ({
+                    id: a.id, filename: a.filename, url: a.url, content_type: a.content_type,
+                })),
+            })),
+        };
+        fs.writeFileSync(path.join(ARCHIVES_DIR, `${channelId}.json`), JSON.stringify(archive, null, 2), 'utf8');
+        console.log(`${LOG} 💾 Архив тикета сохранён: #${record?.channelName} (${messages.length} сообщений)`);
+        addLog('ticket', `Архив сохранён: #${record?.channelName} (${messages.length} сообщений)`);
+    } catch (e) {
+        console.error(`${LOG} Ошибка архивации тикета ${channelId}:`, e.message);
+    }
+}
+
 function startAutosave() {
     autosaveTimer = setInterval(() => { if (stateDirty) saveState(); }, AUTOSAVE_INTERVAL_MS);
 }
@@ -2513,7 +2552,9 @@ function subscribeToTicketChannels(guildId) {
                     console.log(`${LOG} 🗑️ Канал ${chId} не найден (404), удаляем из activeTickets.`);
                     const stale = activeTickets.get(chId);
                     if (stale) {
+                        archiveTicketMessages(chId, stale).catch(() => { });
                         ps.closedTickets.push({
+                            channelId: chId,
                             channelName: stale.channelName,
                             openerId: stale.openerId,
                             openerUsername: stale.openerUsername,
@@ -2702,7 +2743,10 @@ function onChannelDelete(data) {
         lastStaffMessageAt: null, waitingForReply: false, activityTimerType: null,
     };
 
+    archiveTicketMessages(data.id, fallback).catch(() => { });
+
     ps.closedTickets.push({
+        channelId: data.id,
         channelName: fallback.channelName,
         openerId: fallback.openerId,
         openerUsername: fallback.openerUsername,
@@ -3771,6 +3815,19 @@ function startDashboard() {
         const reversed = [...tickets].reverse();
         const paginated = reversed.slice((page - 1) * limit, page * limit);
         res.json({ tickets: paginated, total, page, totalPages: Math.ceil(total / limit) });
+    });
+
+    // ── Archived Ticket Messages ────────────────────────────
+    app.get('/api/closed-tickets/:id/messages', (req, res) => {
+        const channelId = req.params.id;
+        const archivePath = path.join(ARCHIVES_DIR, `${channelId}.json`);
+        try {
+            if (!fs.existsSync(archivePath)) return res.status(404).json({ error: 'Архив не найден' });
+            const archive = JSON.parse(fs.readFileSync(archivePath, 'utf8'));
+            res.json(archive);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
     });
 
     // Serve Dashboard static files

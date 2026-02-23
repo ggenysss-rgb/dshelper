@@ -418,7 +418,7 @@ async function checkWithGemini(message, ruleName, prompt) {
         });
 
         const result = await new Promise((resolve, reject) => {
-            const url = new URL(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${config.geminiApiKey}`);
+            const url = new URL(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiApiKey}`);
             const req = https.request({
                 hostname: url.hostname,
                 path: url.pathname + url.search,

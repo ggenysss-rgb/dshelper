@@ -452,12 +452,13 @@ async function checkWithGemini(message, ruleName, prompt) {
         });
 
         if (!result.ok) {
-            console.error(`${LOG} Groq API ${result.status}:`, result.body.slice(0, 100));
+            console.error(`${LOG} Groq API ${result.status}:`, result.body.slice(0, 200));
             return false;
         }
 
         const data = JSON.parse(result.body);
         const answer = data?.choices?.[0]?.message?.content?.trim().toUpperCase() || '';
+        console.log(`${LOG} 🔍 Groq ответ: "${answer}"`);
         const matched = answer.startsWith('ДА');
 
         geminiCache.set(cacheKey, matched);

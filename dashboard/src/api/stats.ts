@@ -39,3 +39,13 @@ export const fetchMembers = async () => {
     const { data } = await client.get('/members');
     return data;
 };
+
+export const fetchLogs = async (limit = 50) => {
+    const { data } = await client.get(`/logs?limit=${limit}`);
+    return data;
+};
+
+export const fetchProfiles = async () => {
+    const { data } = await client.get('/profiles');
+    return data;
+};

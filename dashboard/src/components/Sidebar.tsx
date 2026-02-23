@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Ticket, Keyboard, Clock, LogOut } from 'lucide-react';
+import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
@@ -9,6 +9,7 @@ const navItems = [
     { to: '/analytics', icon: LayoutDashboard, label: 'Аналитика' },
     { to: '/binds', icon: Keyboard, label: 'Биндлы' },
     { to: '/shifts', icon: Clock, label: 'Смены' },
+    { to: '/logs', icon: ScrollText, label: 'Логи' },
 ];
 
 export default function Sidebar() {

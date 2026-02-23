@@ -422,6 +422,13 @@ const guildCache = new Map();
 const guildRolesCache = new Map();   // roleId -> role object
 const guildMembersCache = new Map(); // userId -> member object
 const guildPresenceCache = new Map(); // userId -> status string
+const dashboardLogs = [];            // { ts, type, message }
+const MAX_LOGS = 200;
+
+function addLog(type, message) {
+    dashboardLogs.unshift({ ts: new Date().toISOString(), type, message });
+    if (dashboardLogs.length > MAX_LOGS) dashboardLogs.length = MAX_LOGS;
+}
 
 let ps = emptyState();
 let stateDirty = false;
@@ -3458,8 +3465,7 @@ function startDashboard() {
     // Public API
     app.post('/api/auth', (req, res) => {
         const { password } = req.body;
-        const dashPassword = process.env.DASHBOARD_PASSWORD || config.dashboardPassword;
-        if (password === dashPassword) {
+        if (password === config.dashboardPassword) {
             const secret = config.jwtSecret || 'ticket-dashboard-secret-key-2026';
             const token = jwt.sign({ role: 'admin' }, secret, { expiresIn: '7d' });
             return res.json({ token });
@@ -3511,6 +3517,7 @@ function startDashboard() {
                 if (j.id) sentByBot.add(j.id);
             } catch (e) { }
 
+            addLog('message', `Сообщение отправлено в тикет ${channelId}`);
             res.json({ ok: true });
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -3538,6 +3545,7 @@ function startDashboard() {
         if (!config.binds) config.binds = {};
         config.binds[name] = { name, message };
         saveConfig();
+        addLog('bind', `Бинд добавлен: ${name}`);
         res.json({ ok: true, bind: config.binds[name] });
     });
 
@@ -3546,6 +3554,7 @@ function startDashboard() {
         if (config.binds && config.binds[name]) {
             delete config.binds[name];
             saveConfig();
+            addLog('bind', `Бинд удалён: ${name}`);
         }
         res.json({ ok: true });
     });
@@ -3567,6 +3576,7 @@ function startDashboard() {
         const { userId } = req.body;
         const targetUser = users.find(u => u.tgChatId === userId) || users[0];
         const result = await handleSmena(targetUser.tgChatId);
+        addLog('shift', `${targetUser.name}: смена начата`);
         res.json({ ok: result.startsWith('✅'), message: result });
     });
 
@@ -3574,7 +3584,23 @@ function startDashboard() {
         const { userId } = req.body;
         const targetUser = users.find(u => u.tgChatId === userId) || users[0];
         const result = await handleSmenoff(targetUser.tgChatId);
+        addLog('shift', `${targetUser.name}: смена завершена`);
         res.json({ ok: result.startsWith('✅'), message: result });
+    });
+
+    // ── Logs ────────────────────────────────────────────────
+    app.get('/api/logs', (req, res) => {
+        const limit = Math.min(parseInt(req.query.limit) || 50, MAX_LOGS);
+        res.json(dashboardLogs.slice(0, limit));
+    });
+
+    // ── Profiles (users from config) ────────────────────────
+    app.get('/api/profiles', (req, res) => {
+        const profiles = users.map(u => ({
+            id: u.tgChatId,
+            name: u.name,
+        }));
+        res.json(profiles);
     });
 
     // ── Guild Members (from Gateway cache) ─────────────────

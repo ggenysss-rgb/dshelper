@@ -8,6 +8,7 @@ import TicketDetail from './pages/TicketDetail';
 import Analytics from './pages/Analytics';
 import Binds from './pages/Binds';
 import Shifts from './pages/Shifts';
+import Logs from './pages/Logs';
 
 export default function App() {
     const { token, loading } = useAuth();
@@ -31,6 +32,7 @@ export default function App() {
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/binds" element={<Binds />} />
                     <Route path="/shifts" element={<Shifts />} />
+                    <Route path="/logs" element={<Logs />} />
                     <Route path="*" element={<Navigate to="/tickets" replace />} />
                 </Route>
             )}

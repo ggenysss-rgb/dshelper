@@ -444,9 +444,15 @@ async function checkWithGemini(message, ruleName, prompt) {
             }, res => {
                 let chunks = '';
                 res.on('data', c => chunks += c);
-                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+                res.on('end', () => {
+                    console.log(`${LOG} 🔍 Groq HTTP статус: ${res.statusCode}`);
+                    resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks });
+                });
             });
-            req.on('error', reject);
+            req.on('error', e => {
+                console.error(`${LOG} Groq request error:`, e.message);
+                reject(e);
+            });
             req.write(body);
             req.end();
         });
@@ -2466,8 +2472,11 @@ function onMessageCreate(data) {
             } else if (rule.geminiPrompt) {
                 // Groq AI проверка — только если есть хотя бы одно ключевое слово-триггер
                 const geminiTriggers = rule.geminiTriggers || [];
-                const hasTrigger = geminiTriggers.length === 0 || geminiTriggers.some(t => normalized.includes(t.toLowerCase()));
-                console.log(`${LOG} 🔍 Groq check: "${normalized.slice(0, 60)}" hasTrigger=${hasTrigger}`);
+                const hasTrigger = geminiTriggers.length === 0 || geminiTriggers.some(t => {
+                    // проверяем как отдельное слово или часть слова (но не одиночную букву)
+                    if (t.length <= 2) return false;
+                    return normalized.includes(t.toLowerCase());
+                });
                 if (!hasTrigger) continue;
 
                 const ruleCopy = rule;

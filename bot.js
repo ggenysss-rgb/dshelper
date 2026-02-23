@@ -2435,6 +2435,21 @@ function onMessageCreate(data) {
     // Player message → clear timer
     if (noReplyTimers.has(channelId)) clearNoReplyTimer(channelId);
 
+    // ── Ticket Chat: forward player messages to ALL users who have this ticket selected ──
+    // Loop protection: ignore our own messages
+    if (!sentByBot.has(data.id) && !(selfUserId && author.id === selfUserId)) {
+        for (const user of users) {
+            const uState = getUserState(user.tgChatId).ticketChat;
+            if (uState.activeTicketId === channelId) {
+                const fwd = buildForwardedMessage(
+                    record.channelName, author, data.member, data.content || '',
+                    data.attachments || []
+                );
+                enqueueToUser(user.tgChatId, { text: fwd, channelId });
+            }
+        }
+    }
+
     // First user message notification
     if (botPaused) return;
     if (!config.includeFirstUserMessage) return;
@@ -2445,21 +2460,6 @@ function onMessageCreate(data) {
     if (!config.forumMode) enqueueToAll({ ...buildFirstMessageNotification(channel, data), channelId });
     if (getPriority(channel?.name || '', data.content || '').high && config.mentionOnHighPriority) {
         enqueueToAll({ ...buildHighPriorityAlert(channel?.name || channelId), channelId });
-    }
-
-    // ── Ticket Chat: forward player messages to ALL users who have this ticket selected ──
-    // Loop protection: ignore our own messages
-    if (sentByBot.has(data.id)) return;
-    if (selfUserId && author.id === selfUserId) return;
-    for (const user of users) {
-        const uState = getUserState(user.tgChatId).ticketChat;
-        if (uState.activeTicketId === channelId) {
-            const fwd = buildForwardedMessage(
-                record.channelName, author, data.member, data.content || '',
-                data.attachments || []
-            );
-            enqueueToUser(user.tgChatId, { text: fwd, channelId });
-        }
     }
 }
 

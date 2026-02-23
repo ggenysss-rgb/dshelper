@@ -18,7 +18,7 @@ try {
     config = {};
 }
 
-if (process.env.GEMINI_API_KEY) config.geminiApiKey = process.env.GEMINI_API_KEY;
+if (process.env.GROQ_API_KEY) config.groqApiKey = process.env.GROQ_API_KEY;
 if (process.env.DISCORD_TOKEN) config.discordToken = process.env.DISCORD_TOKEN;
 if (process.env.DISCORD_BOT_TOKEN) config.discordBotToken = process.env.DISCORD_BOT_TOKEN;
 if (process.env.TG_TOKEN) config.tgToken = process.env.TG_TOKEN;
@@ -400,46 +400,51 @@ function snowflakeToTimestamp(id) {
 
 // ── Helper: get unique guild IDs from autoReplies ─────────────
 
-// ── Gemini AI Auto-Reply Check ────────────────────────────────
+// ── Groq AI Auto-Reply Check ──────────────────────────────────
 
 const geminiCache = new Map();
 let lastGeminiCallTime = 0;
-const GEMINI_MIN_INTERVAL_MS = 5000; // не чаще 1 раза в 5 секунд
+const GEMINI_MIN_INTERVAL_MS = 2000;
 
 async function checkWithGemini(message, ruleName, prompt) {
-    if (!config.geminiApiKey) return false;
+    if (!config.groqApiKey) return false;
 
     const cacheKey = `${ruleName}:${message.slice(0, 100)}`;
     if (geminiCache.has(cacheKey)) return geminiCache.get(cacheKey);
 
-    // Rate limit — не чаще 1 раза в 5 секунд
     const now = Date.now();
     const timeSinceLast = now - lastGeminiCallTime;
     if (timeSinceLast < GEMINI_MIN_INTERVAL_MS) {
-        console.log(`${LOG} ⏳ Gemini rate limit, пропускаем (${Math.round((GEMINI_MIN_INTERVAL_MS - timeSinceLast) / 1000)}с до следующего)`);
+        console.log(`${LOG} ⏳ Groq rate limit, пропускаем (${Math.round((GEMINI_MIN_INTERVAL_MS - timeSinceLast) / 1000)}с)`);
         return false;
     }
     lastGeminiCallTime = Date.now();
 
     try {
         const body = JSON.stringify({
-            contents: [{
-                parts: [{ text: prompt + '\n\nСообщение: "' + message + '"\n\nОтветь только: ДА или НЕТ' }]
-            }],
-            generationConfig: { maxOutputTokens: 10, temperature: 0 },
+            model: 'llama-3.1-8b-instant',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: `Сообщение: "${message}"\n\nОтветь только: ДА или НЕТ` },
+            ],
+            max_tokens: 5,
+            temperature: 0,
         });
 
         const result = await new Promise((resolve, reject) => {
-            const url = new URL(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiApiKey}`);
             const req = https.request({
-                hostname: url.hostname,
-                path: url.pathname + url.search,
+                hostname: 'api.groq.com',
+                path: '/openai/v1/chat/completions',
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.groqApiKey}`,
+                    'Content-Length': Buffer.byteLength(body),
+                },
             }, res => {
                 let chunks = '';
                 res.on('data', c => chunks += c);
-                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: chunks }));
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
             });
             req.on('error', reject);
             req.write(body);
@@ -447,22 +452,21 @@ async function checkWithGemini(message, ruleName, prompt) {
         });
 
         if (!result.ok) {
-            console.error(`${LOG} Gemini API ${JSON.parse(result.body)?.error?.status || 'error'}`);
+            console.error(`${LOG} Groq API ${result.status}:`, result.body.slice(0, 100));
             return false;
         }
 
         const data = JSON.parse(result.body);
-        const answer = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase() || '';
+        const answer = data?.choices?.[0]?.message?.content?.trim().toUpperCase() || '';
         const matched = answer.startsWith('ДА');
 
-        // кэшируем на 5 минут
         geminiCache.set(cacheKey, matched);
         setTimeout(() => geminiCache.delete(cacheKey), 5 * 60 * 1000);
 
-        console.log(`${LOG} 🤖 Gemini [${ruleName}]: "${message.slice(0, 50)}" → ${matched ? 'ДА' : 'НЕТ'}`);
+        console.log(`${LOG} 🤖 Groq [${ruleName}]: "${message.slice(0, 50)}" → ${matched ? 'ДА' : 'НЕТ'}`);
         return matched;
     } catch (e) {
-        console.error(`${LOG} Gemini ошибка:`, e.message);
+        console.error(`${LOG} Groq ошибка:`, e.message);
         return false;
     }
 }

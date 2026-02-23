@@ -1,0 +1,34 @@
+{
+  "2055448078": {
+    "ticketChat": {
+      "activeTicketId": null,
+      "activeTicketName": null,
+      "listPage": 0
+    },
+    "shift": {
+      "lastShiftMessageId": null,
+      "lastShiftDate": null,
+      "lastShiftClosed": false,
+      "reminderSentDate": null,
+      "lateReminderSentDate": "2026-02-23",
+      "closeReminderSentDate": null,
+      "lastShiftContent": null
+    }
+  },
+  "8571113660": {
+    "ticketChat": {
+      "activeTicketId": null,
+      "activeTicketName": null,
+      "listPage": 0
+    },
+    "shift": {
+      "lastShiftMessageId": "1475569362709774538",
+      "lastShiftDate": "2026-02-23",
+      "lastShiftClosed": false,
+      "reminderSentDate": null,
+      "lateReminderSentDate": "2026-02-23",
+      "closeReminderSentDate": null,
+      "lastShiftContent": "Начал\n1. 23.02.2026\n2. 12-0"
+    }
+  }
+}

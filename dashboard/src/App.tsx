@@ -1,0 +1,39 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './hooks/useAuth';
+
+import DashboardLayout from './components/DashboardLayout';
+import Login from './pages/Login';
+import Tickets from './pages/Tickets';
+import TicketDetail from './pages/TicketDetail';
+import Analytics from './pages/Analytics';
+import Binds from './pages/Binds';
+import Shifts from './pages/Shifts';
+
+export default function App() {
+    const { token, loading } = useAuth();
+
+    if (loading) {
+        return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    }
+
+    return (
+        <Routes>
+            {!token ? (
+                <>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="*" element={<Navigate to="/login" replace />} />
+                </>
+            ) : (
+                <Route element={<DashboardLayout />}>
+                    <Route path="/" element={<Navigate to="/tickets" replace />} />
+                    <Route path="/tickets" element={<Tickets />} />
+                    <Route path="/tickets/:id" element={<TicketDetail />} />
+                    <Route path="/analytics" element={<Analytics />} />
+                    <Route path="/binds" element={<Binds />} />
+                    <Route path="/shifts" element={<Shifts />} />
+                    <Route path="*" element={<Navigate to="/tickets" replace />} />
+                </Route>
+            )}
+        </Routes>
+    );
+}

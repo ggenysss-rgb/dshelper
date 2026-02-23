@@ -7,6 +7,13 @@ const WebSocket = require('ws');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
+const cors = require('cors');
+
+let io; // Dashboard Socket.io instance
 
 // ── Config ────────────────────────────────────────────────────
 
@@ -412,6 +419,9 @@ const notifiedFirstMessage = new Set();
 const noReplyTimers = new Map();
 const channelCache = new Map();
 const guildCache = new Map();
+const guildRolesCache = new Map();   // roleId -> role object
+const guildMembersCache = new Map(); // userId -> member object
+const guildPresenceCache = new Map(); // userId -> status string
 
 let ps = emptyState();
 let stateDirty = false;
@@ -517,7 +527,7 @@ function migrateOldState() {
             state.ticketChat.listPage = parsed.listPage || 0;
             console.log(`${LOG} 📦 Migrated old ticket_chat_state for ${firstChatId}`);
         }
-    } catch {}
+    } catch { }
     try {
         if (fs.existsSync(oldShiftFile)) {
             const parsed = JSON.parse(fs.readFileSync(oldShiftFile, 'utf8'));
@@ -530,7 +540,7 @@ function migrateOldState() {
             };
             console.log(`${LOG} 📦 Migrated old shift_state for ${firstChatId}`);
         }
-    } catch {}
+    } catch { }
     savePerUserState();
 }
 
@@ -851,12 +861,12 @@ async function tgSendMessage(chatId, text, replyMarkup, threadId) {
         if (!res.ok) {
             console.error(`${LOG} Telegram API ${res.status}:`, res.body);
             if (res.status === 429) {
-                try { const j = JSON.parse(res.body); await sleep((j?.parameters?.retry_after ?? 5) * 1000); } catch {}
+                try { const j = JSON.parse(res.body); await sleep((j?.parameters?.retry_after ?? 5) * 1000); } catch { }
             }
             return { ok: false, messageId: null };
         }
         let messageId = null;
-        try { const j = JSON.parse(res.body); if (j.ok && j.result) messageId = j.result.message_id; } catch {}
+        try { const j = JSON.parse(res.body); if (j.ok && j.result) messageId = j.result.message_id; } catch { }
         return { ok: true, messageId };
     } catch (e) {
         console.error(`${LOG} Telegram ошибка:`, e.message);
@@ -871,14 +881,14 @@ async function tgCreateForumTopic(name) {
             const data = JSON.parse(res.body);
             if (data.ok && data.result) return data.result.message_thread_id;
         }
-    } catch {}
+    } catch { }
     return null;
 }
 
 async function tgCloseForumTopic(threadId) {
     try {
         await httpPost(`${TELEGRAM_API}/closeForumTopic`, { chat_id: users[0]?.tgChatId, message_thread_id: threadId });
-    } catch {}
+    } catch { }
 }
 
 async function tgGetUpdates() {
@@ -1253,7 +1263,7 @@ async function handleSendToTicket(text, chatId) {
                         for (let i = 0; i < arr.length - 250; i++) sentByBot.delete(arr[i]);
                     }
                 }
-            } catch {}
+            } catch { }
         }
         console.log(`${LOG} ✉️ /s → #${channelName}: ${text.slice(0, 60)}`);
         const partsNote = parts.length > 1 ? `\n(${parts.length} сообщений)` : '';
@@ -1413,7 +1423,7 @@ async function handleBindSearch(query, chatId) {
         try {
             const res = await sendDiscordMessage(channelId, bind.message, token);
             if (res.ok) {
-                try { const j = JSON.parse(res.body); if (j.id) sentByBot.add(j.id); } catch {}
+                try { const j = JSON.parse(res.body); if (j.id) sentByBot.add(j.id); } catch { }
                 console.log(`${LOG} 📎 Бинд "${bind.name}" → #${uState.activeTicketName || channelId}`);
                 return { text: `✅ Отправлено: "<b>${escapeHtml(bind.name)}</b>"`, markup: null };
             }
@@ -1548,7 +1558,7 @@ async function handleSmena(chatId) {
             return `❌ Ошибка Discord (${res.status})`;
         }
         let msgId = null;
-        try { const j = JSON.parse(res.body); msgId = j.id; } catch {}
+        try { const j = JSON.parse(res.body); msgId = j.id; } catch { }
         shiftState.lastShiftMessageId = msgId;
         shiftState.lastShiftDate = today;
         shiftState.lastShiftClosed = false;
@@ -1617,7 +1627,7 @@ function scheduleShiftReminder() {
     const today = getKyivDate();
     const hour = getKyivHour();
     const minute = getKyivMinute();
-    console.log(`${LOG} 📋 scheduleShiftReminder: Kyiv time = ${hour}:${String(minute).padStart(2,'0')}, date = ${today}`);
+    console.log(`${LOG} 📋 scheduleShiftReminder: Kyiv time = ${hour}:${String(minute).padStart(2, '0')}, date = ${today}`);
 
     const allCheckedIn = users.every(u => {
         const ss = getUserState(u.tgChatId).shift;
@@ -1784,7 +1794,7 @@ async function tgAnswerCallbackQuery(callbackQueryId, text) {
             callback_query_id: callbackQueryId,
             text: text || '',
         });
-    } catch {}
+    } catch { }
 }
 
 async function tgEditMessageText(chatId, messageId, text, replyMarkup) {
@@ -1792,7 +1802,7 @@ async function tgEditMessageText(chatId, messageId, text, replyMarkup) {
     if (replyMarkup) payload.reply_markup = replyMarkup;
     try {
         await httpPost(`${TELEGRAM_API}/editMessageText`, payload);
-    } catch {}
+    } catch { }
 }
 
 // ── Forum Thread ──────────────────────────────────────────────
@@ -1914,9 +1924,13 @@ function buildTicketCreatedMessage(channel, guild) {
         ``,
         `<i>💡 Тикет ожидает ответа</i>`,
     ].join('\n');
-    return { text, channelId: channel.id, replyMarkup: { inline_keyboard: [
-        [{ text: '✅ Взять тикет', callback_data: `tsel_${channel.id}` }, { text: '🔗 Открыть в Discord', url: link }]
-    ] } };
+    return {
+        text, channelId: channel.id, replyMarkup: {
+            inline_keyboard: [
+                [{ text: '✅ Взять тикет', callback_data: `tsel_${channel.id}` }, { text: '🔗 Открыть в Discord', url: link }]
+            ]
+        }
+    };
 }
 
 function buildFirstMessageNotification(channel, message) {
@@ -1941,9 +1955,13 @@ function buildFirstMessageNotification(channel, message) {
         `💌  <b>Сообщение:</b>`,
         `<blockquote>${content}</blockquote>`,
     ].join('\n');
-    return { text, channelId: message.channel_id, replyMarkup: { inline_keyboard: [
-        [{ text: '✅ Взять тикет', callback_data: `tsel_${message.channel_id}` }, { text: '🔗 Перейти в Discord', url: link }]
-    ] } };
+    return {
+        text, channelId: message.channel_id, replyMarkup: {
+            inline_keyboard: [
+                [{ text: '✅ Взять тикет', callback_data: `tsel_${message.channel_id}` }, { text: '🔗 Перейти в Discord', url: link }]
+            ]
+        }
+    };
 }
 
 function buildTicketClosedMessage(record) {
@@ -2129,15 +2147,15 @@ function buildStatsMessage() {
 
 const EDITABLE_SETTINGS = {
     activityCheckMin: { type: 'number', min: 1, max: 120, desc: 'Таймер нет ответа (мин.)' },
-    closingCheckMin:  { type: 'number', min: 1, max: 120, desc: 'Таймер закрытия (мин.)' },
+    closingCheckMin: { type: 'number', min: 1, max: 120, desc: 'Таймер закрытия (мин.)' },
     maxMessageLength: { type: 'number', min: 50, max: 2000, desc: 'Макс. длина сообщения' },
     pollingIntervalSec: { type: 'number', min: 1, max: 30, desc: 'Интервал опроса TG (сек.)' },
-    notifyOnClose:    { type: 'bool', desc: 'Уведомление о закрытии' },
+    notifyOnClose: { type: 'bool', desc: 'Уведомление о закрытии' },
     includeFirstUserMessage: { type: 'bool', desc: 'Первое сообщение игрока' },
     mentionOnHighPriority: { type: 'bool', desc: 'Упоминание при приоритете' },
-    forumMode:        { type: 'bool', desc: 'Режим форума' },
-    closingPhrase:    { type: 'string', desc: 'Фразы закрытия (через запятую)' },
-    ticketPrefix:     { type: 'string', desc: 'Префикс тикет-канала' },
+    forumMode: { type: 'bool', desc: 'Режим форума' },
+    closingPhrase: { type: 'string', desc: 'Фразы закрытия (через запятую)' },
+    ticketPrefix: { type: 'string', desc: 'Префикс тикет-канала' },
 };
 
 function buildSettingsMessage() {
@@ -2518,6 +2536,22 @@ function onGuildCreate(guild) {
 
     guildCache.set(guild.id, { id: guild.id, name: guild.name || 'Unknown' });
 
+    // Cache roles and members from gateway
+    if (guild.roles) {
+        for (const r of guild.roles) guildRolesCache.set(r.id, r);
+    }
+    if (guild.members) {
+        for (const m of guild.members) {
+            if (m.user) guildMembersCache.set(m.user.id, m);
+        }
+    }
+    if (guild.presences) {
+        for (const p of guild.presences) {
+            if (p.user?.id) guildPresenceCache.set(p.user.id, p.status || 'offline');
+        }
+    }
+    console.log(`${LOG} 👥 Закэшировано: ${guildRolesCache.size} ролей, ${guildMembersCache.size} участников, ${guildPresenceCache.size} статусов`);
+
     let chCount = 0;
     for (const ch of guild.channels || []) {
         channelCache.set(ch.id, { ...ch, guild_id: guild.id });
@@ -2536,6 +2570,40 @@ function onGuildCreate(guild) {
     }
 
     if (!IS_BOT_TOKEN) subscribeToTicketChannels(guild.id);
+
+    // Request member sidebar to populate member cache for the dashboard
+    if (!IS_BOT_TOKEN && guild.id === config.guildId) {
+        setTimeout(() => {
+            // Find a suitable channel to request the member sidebar from
+            // Preferring channels that aren't ticket channels (e.g., general or rules)
+            let sidebarChannelId = null;
+            for (const [chId, ch] of channelCache) {
+                if (ch.guild_id === config.guildId && ch.type === 0 && ch.parent_id !== config.ticketsCategoryId) {
+                    sidebarChannelId = chId;
+                    break;
+                }
+            }
+            if (sidebarChannelId) {
+                // Request member sidebar with wider range to get more members
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const channels = {};
+                    channels[sidebarChannelId] = [[0, 99], [100, 199], [200, 299]];
+                    ws.send(JSON.stringify({
+                        op: 14,
+                        d: {
+                            guild_id: config.guildId,
+                            typing: true,
+                            threads: true,
+                            activities: true,
+                            members: [],
+                            channels,
+                        }
+                    }));
+                    console.log(`${LOG} 👥 Запрос списка участников для дашборда (канал: ${sidebarChannelId})`);
+                }
+            }
+        }, 3000); // Delay to let channels cache populate first
+    }
 
     scanExistingTickets();
     restoreActivityTimers();
@@ -2563,6 +2631,7 @@ function onChannelCreate(data) {
     setTimeout(() => notifiedTicketIds.delete(data.id), 60_000);
 
     console.log(`${LOG} ✅ Новый тикет (CHANNEL_CREATE): #${data.name}`);
+    if (io) io.emit('ticket:new', record);
     if (!IS_BOT_TOKEN) {
         subscribeToSingleChannel(config.guildId, data.id);
     }
@@ -2623,6 +2692,7 @@ function onChannelDelete(data) {
     autoGreetedChannels.delete(data.id);
     ps.totalClosed++;
     markDirty();
+    if (io) io.emit('ticket:closed', data.id);
 
     if (botPaused) { console.log(`${LOG} ⏸ Пауза — пропускаем уведомление о закрытии.`); return; }
 
@@ -2815,6 +2885,10 @@ function onMessageCreate(data) {
         record.lastMessage = (staffSent ? '[Саппорт] ' : '') + data.content;
         record.lastMessageAt = Date.now();
         markDirty();
+        if (io) {
+            io.emit('ticket:message', { channelId, message: data });
+            io.emit('ticket:updated', record);
+        }
     }
 
     if (config.forumMode) {
@@ -2945,7 +3019,7 @@ async function pollTelegram() {
                         try {
                             const res = await sendDiscordMessage(uState.activeTicketId, bind.message, cbToken);
                             if (res.ok) {
-                                try { const j = JSON.parse(res.body); if (j.id) sentByBot.add(j.id); } catch {}
+                                try { const j = JSON.parse(res.body); if (j.id) sentByBot.add(j.id); } catch { }
                                 await tgAnswerCallbackQuery(cbq.id, `✅ ${bindName}`);
                                 await tgEditMessageText(cbChatId, cbq.message.message_id, `✅ Отправлено: "<b>${escapeHtml(bindName)}</b>"`);
                             } else {
@@ -3239,6 +3313,56 @@ function handleDispatch(event, data) {
         case 'THREAD_LIST_SYNC':
             onThreadListSync(data);
             break;
+        case 'GUILD_MEMBER_LIST_UPDATE': {
+            // Cache members from lazy guild member list updates
+            if (data.guild_id !== config.guildId) break;
+            if (data.ops) {
+                for (const op of data.ops) {
+                    if (op.items) {
+                        for (const item of op.items) {
+                            if (item.member && item.member.user) {
+                                guildMembersCache.set(item.member.user.id, item.member);
+                                if (item.member.presence) {
+                                    guildPresenceCache.set(item.member.user.id, item.member.presence.status || 'offline');
+                                }
+                            }
+                        }
+                    }
+                    if (op.item && op.item.member && op.item.member.user) {
+                        guildMembersCache.set(op.item.member.user.id, op.item.member);
+                        if (op.item.member.presence) {
+                            guildPresenceCache.set(op.item.member.user.id, op.item.member.presence.status || 'offline');
+                        }
+                    }
+                }
+            }
+            // Cache groups (roles) if provided
+            if (data.groups) {
+                // groups are just counts, roles already cached from GUILD_CREATE
+            }
+            break;
+        }
+        case 'GUILD_MEMBERS_CHUNK': {
+            if (data.guild_id !== config.guildId) break;
+            if (data.members) {
+                for (const m of data.members) {
+                    if (m.user) guildMembersCache.set(m.user.id, m);
+                }
+            }
+            if (data.presences) {
+                for (const p of data.presences) {
+                    if (p.user?.id) guildPresenceCache.set(p.user.id, p.status || 'offline');
+                }
+            }
+            break;
+        }
+        case 'PRESENCE_UPDATE': {
+            if (data.guild_id !== config.guildId) break;
+            if (data.user?.id) {
+                guildPresenceCache.set(data.user.id, data.status || 'offline');
+            }
+            break;
+        }
     }
 }
 
@@ -3302,6 +3426,246 @@ function cleanupGateway() {
     guildCreateHandled = false;
 }
 
+// ── Dashboard API ─────────────────────────────────────────────
+
+function startDashboard() {
+    const app = express();
+    const server = http.createServer(app);
+    io = new Server(server, {
+        cors: {
+            origin: '*',
+            methods: ['GET', 'POST', 'DELETE']
+        }
+    });
+
+    app.use(cors());
+    app.use(express.json());
+
+    // Auth Middleware
+    const authenticate = (req, res, next) => {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ error: 'Unauthorized: No token provided' });
+        try {
+            const secret = config.jwtSecret || 'ticket-dashboard-secret-key-2026';
+            const decoded = jwt.verify(token, secret);
+            req.user = decoded;
+            next();
+        } catch (err) {
+            return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+        }
+    };
+
+    // Public API
+    app.post('/api/auth', (req, res) => {
+        const { password } = req.body;
+        if (password === config.dashboardPassword) {
+            const secret = config.jwtSecret || 'ticket-dashboard-secret-key-2026';
+            const token = jwt.sign({ role: 'admin' }, secret, { expiresIn: '7d' });
+            return res.json({ token });
+        }
+        return res.status(401).json({ error: 'Invalid password' });
+    });
+
+    app.get('/api/auth', authenticate, (req, res) => {
+        res.json({ ok: true, user: req.user });
+    });
+
+    // Protected API
+    app.use('/api', authenticate);
+
+    app.get('/api/tickets', (req, res) => {
+        const tickets = Array.from(activeTickets.values()).map(r => ({
+            ...r,
+            priority: getPriority(r.channelName, '').high ? 'high' : 'normal'
+        }));
+        res.json(tickets);
+    });
+
+    app.get('/api/tickets/:id/messages', async (req, res) => {
+        const channelId = req.params.id;
+        const record = activeTickets.get(channelId);
+        if (!record) return res.status(404).json({ error: 'Ticket not found' });
+
+        try {
+            const messages = await fetchChannelMessages(channelId, 100, getDiscordToken(users[0]?.tgChatId));
+            res.json(messages.reverse());
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.post('/api/tickets/:id/send', async (req, res) => {
+        const channelId = req.params.id;
+        const { content } = req.body;
+        const record = activeTickets.get(channelId);
+        if (!record) return res.status(404).json({ error: 'Ticket not found' });
+
+        try {
+            const result = await sendDiscordMessage(channelId, content, getDiscordToken(users[0]?.tgChatId));
+            if (!result.ok) throw new Error(`Discord API ${result.status}`);
+
+            // Mark as sent by bot so we don't reflect it back via telegram
+            try {
+                const j = JSON.parse(result.body);
+                if (j.id) sentByBot.add(j.id);
+            } catch (e) { }
+
+            res.json({ ok: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.get('/api/stats', (req, res) => {
+        res.json({
+            totalCreated: ps.totalCreated,
+            totalClosed: ps.totalClosed,
+            hourlyBuckets: ps.hourlyBuckets,
+            closedTickets: ps.closedTickets.slice(-50), // Send last 50 for top players/etc
+            activeTicketsCount: activeTickets.size,
+            uptime: process.uptime()
+        });
+    });
+
+    app.get('/api/binds', (req, res) => {
+        res.json(Object.values(config.binds || {}));
+    });
+
+    app.post('/api/binds', (req, res) => {
+        const { name, message } = req.body;
+        if (!name || !message) return res.status(400).json({ error: 'name and message required' });
+        if (!config.binds) config.binds = {};
+        config.binds[name] = { name, message };
+        saveConfig();
+        res.json({ ok: true, bind: config.binds[name] });
+    });
+
+    app.delete('/api/binds/:name', (req, res) => {
+        const { name } = req.params;
+        if (config.binds && config.binds[name]) {
+            delete config.binds[name];
+            saveConfig();
+        }
+        res.json({ ok: true });
+    });
+
+    app.get('/api/users', (req, res) => {
+        const result = users.map(u => {
+            const st = getUserState(u.tgChatId).shift;
+            return {
+                id: u.tgChatId,
+                name: u.name,
+                shiftActive: st.lastShiftDate === getKyivDate() && !st.lastShiftClosed,
+                shiftCheckinTime: st.lastShiftDate === getKyivDate() ? new Date().toISOString() : null // Approx
+            };
+        });
+        res.json(result);
+    });
+
+    app.post('/api/smena', async (req, res) => {
+        const { userId } = req.body;
+        const targetUser = users.find(u => u.tgChatId === userId) || users[0];
+        const result = await handleSmena(targetUser.tgChatId);
+        res.json({ ok: result.startsWith('✅'), message: result });
+    });
+
+    app.post('/api/smenoff', async (req, res) => {
+        const { userId } = req.body;
+        const targetUser = users.find(u => u.tgChatId === userId) || users[0];
+        const result = await handleSmenoff(targetUser.tgChatId);
+        res.json({ ok: result.startsWith('✅'), message: result });
+    });
+
+    // ── Guild Members (from Gateway cache) ─────────────────
+    app.get('/api/members', (req, res) => {
+        try {
+            // Build role map from cached roles
+            const roleMap = {};
+            for (const [id, r] of guildRolesCache) {
+                roleMap[id] = { id: r.id, name: r.name, color: r.color, position: r.position, hoist: r.hoist };
+            }
+
+            // Group members by their highest hoisted role
+            const groups = {};
+            for (const [userId, member] of guildMembersCache) {
+                if (!member.roles || member.roles.length === 0) continue;
+                if (member.user?.bot) continue;
+
+                let bestRole = null;
+                for (const rid of member.roles) {
+                    const role = roleMap[rid];
+                    if (!role) continue;
+                    if (!role.hoist) continue;
+                    if (!bestRole || role.position > bestRole.position) bestRole = role;
+                }
+                if (!bestRole) continue;
+
+                if (!groups[bestRole.id]) {
+                    groups[bestRole.id] = {
+                        roleId: bestRole.id,
+                        roleName: bestRole.name,
+                        roleColor: bestRole.color ? `#${bestRole.color.toString(16).padStart(6, '0')}` : '#99aab5',
+                        position: bestRole.position,
+                        members: []
+                    };
+                }
+
+                const avatarHash = member.avatar || member.user?.avatar;
+                const uid = member.user?.id || userId;
+                const avatarUrl = avatarHash
+                    ? `https://cdn.discordapp.com/avatars/${uid}/${avatarHash}.png?size=64`
+                    : `https://cdn.discordapp.com/embed/avatars/0.png`;
+                const status = guildPresenceCache.get(uid) || 'offline';
+
+                groups[bestRole.id].members.push({
+                    id: uid,
+                    username: member.user?.username,
+                    displayName: member.nick || member.user?.global_name || member.user?.username,
+                    avatar: avatarUrl,
+                    status
+                });
+            }
+
+            const result = Object.values(groups)
+                .sort((a, b) => b.position - a.position)
+                .map(g => ({
+                    ...g,
+                    members: g.members.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''))
+                }));
+
+            res.json(result);
+        } catch (err) {
+            console.error(`${LOG} Members API error:`, err.message);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Socket.io Middleware
+    io.use((socket, next) => {
+        const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
+        if (!token) return next(new Error('Authentication error'));
+        try {
+            const secret = config.jwtSecret || 'ticket-dashboard-secret-key-2026';
+            jwt.verify(token, secret);
+            next();
+        } catch (err) {
+            next(new Error('Authentication error'));
+        }
+    });
+
+    io.on('connection', (socket) => {
+        console.log(`${LOG} 🌐 Dashboard client connected: ${socket.id}`);
+        socket.on('disconnect', () => {
+            console.log(`${LOG} 🌐 Dashboard client disconnected: ${socket.id}`);
+        });
+    });
+
+    const port = process.env.PORT || config.dashboardPort || 3001;
+    server.listen(port, () => {
+        console.log(`${LOG} 🚀 Dashboard API is running on port ${port}`);
+    });
+}
+
 // ── Main ──────────────────────────────────────────────────────
 
 async function main() {
@@ -3327,6 +3691,7 @@ async function main() {
     startAutosave();
     connectGateway();
     scheduleShiftReminder();
+    startDashboard();
 
     const shutdown = () => {
         console.log(`${LOG} 🛑 Остановка...`);

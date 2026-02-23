@@ -850,15 +850,25 @@ async function archiveTicketMessages(channelId, record) {
             })),
         };
         fs.writeFileSync(path.join(ARCHIVES_DIR, `${channelId}.json`), JSON.stringify(archive, null, 2), 'utf8');
-        console.log(`${LOG} 💾 Архив тикета сохранён: #${record?.channelName} (${messages.length} сообщений)`);
-        addLog('ticket', `Архив сохранён: #${record?.channelName} (${messages.length} сообщений)`);
     } catch (e) {
         console.error(`${LOG} Ошибка архивации тикета ${channelId}:`, e.message);
     }
 }
 
+// Periodically snapshot all active tickets' messages
+async function snapshotAllActiveTickets() {
+    for (const [chId, record] of activeTickets) {
+        try {
+            await archiveTicketMessages(chId, record);
+            await sleep(500);
+        } catch { }
+    }
+}
+
 function startAutosave() {
     autosaveTimer = setInterval(() => { if (stateDirty) saveState(); }, AUTOSAVE_INTERVAL_MS);
+    // Snapshot active tickets' messages every 2 minutes
+    setInterval(() => { snapshotAllActiveTickets().catch(() => { }); }, 2 * 60 * 1000);
 }
 
 function stopAutosave() {
@@ -2576,6 +2586,8 @@ function subscribeToTicketChannels(guildId) {
             } catch (e) { /* ignore */ }
         }
         console.log(`${LOG} 📡 Сообщения тикетов загружены.`);
+        // Save initial archive snapshot for all active tickets
+        snapshotAllActiveTickets().catch(() => { });
     })();
 }
 

@@ -74,7 +74,7 @@ config.autoGreetEnabled = config.autoGreetEnabled ?? true;
 // Auto-reply defaults
 config.autoReplies = config.autoReplies || [
     {
-        channelId: '717734206586880060',
+        channelId: '1475424153057366036',
         patterns: ['когда вайп'],
         response: 'Здравствуйте, вайп был 30.01.2026, когда будет - неизвестно',
         enabled: true,
@@ -2353,11 +2353,9 @@ function onMessageCreate(data) {
     // Resolve guild_id: may be missing in selfbot mode
     const guildId = data.guild_id || channelCache.get(data.channel_id)?.guild_id;
 
-    if (guildId !== config.guildId) return;
-
     const channelId = data.channel_id;
 
-    // Auto-reply in specific channels (e.g. "когда вайп")
+    // Auto-reply in specific channels (e.g. "когда вайп") — works across ALL servers
     if (config.autoReplies && data.content && data.author && !data.author.bot) {
         const content = data.content.toLowerCase().replace(/[?!.,]/g, '').trim();
         for (const rule of config.autoReplies) {
@@ -2377,6 +2375,8 @@ function onMessageCreate(data) {
             }
         }
     }
+
+    if (guildId !== config.guildId) return;
 
     let channel = channelCache.get(channelId);
 

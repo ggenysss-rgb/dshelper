@@ -73,8 +73,8 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                     {error && (
                         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                             <MessageSquare className="w-12 h-12 mb-4 opacity-30" />
-                            <p className="font-medium">Архив не найден</p>
-                            <p className="text-sm mt-1">Сообщения для этого тикета не были сохранены</p>
+                            <p className="font-medium text-lg">Нет записей</p>
+                            <p className="text-sm mt-1 text-center max-w-xs">Сообщения этого тикета не были сохранены. Архивация работает только для тикетов, закрытых после обновления.</p>
                         </div>
                     )}
                     {archive?.messages.map((msg) => {
@@ -109,8 +109,8 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                                         </span>
                                     </div>
                                     <div className={`px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${!isOpener
-                                            ? 'bg-primary text-primary-foreground rounded-tr-sm'
-                                            : 'bg-secondary text-foreground rounded-tl-sm border border-border/50'
+                                        ? 'bg-primary text-primary-foreground rounded-tr-sm'
+                                        : 'bg-secondary text-foreground rounded-tl-sm border border-border/50'
                                         }`}>
                                         {msg.content || <span className="italic text-muted-foreground text-xs">[без текста]</span>}
                                     </div>
@@ -178,7 +178,7 @@ export default function ClosedTickets() {
     }
 
     const openChat = (t: any) => {
-        if (t.channelId) setViewTicket({ channelId: t.channelId, channelName: t.channelName || t.channelId });
+        setViewTicket({ channelId: t.channelId || t.channelName || 'unknown', channelName: t.channelName || t.channelId || 'ticket' });
     };
 
     return (
@@ -226,7 +226,7 @@ export default function ClosedTickets() {
                                 {tickets.map((t: any, i: number) => (
                                     <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
                                         onClick={() => openChat(t)}
-                                        className={`border-b border-border/30 transition-colors ${t.channelId ? 'hover:bg-primary/5 cursor-pointer' : 'hover:bg-secondary/20'}`}>
+                                        className="border-b border-border/30 transition-colors hover:bg-primary/5 cursor-pointer">
                                         <td className="px-4 py-3 font-medium text-foreground">#{t.channelName || t.channelId?.slice(-6)}</td>
                                         <td className="px-4 py-3 text-muted-foreground">{t.openerUsername || '-'}</td>
                                         <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{formatDate(t.createdAt)}</td>
@@ -244,7 +244,7 @@ export default function ClosedTickets() {
                         {tickets.map((t: any, i: number) => (
                             <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
                                 onClick={() => openChat(t)}
-                                className={`bg-card border border-border rounded-xl p-4 space-y-2 ${t.channelId ? 'cursor-pointer hover:border-primary/30 active:bg-primary/5' : ''} transition-colors`}>
+                                className="bg-card border border-border rounded-xl p-4 space-y-2 cursor-pointer hover:border-primary/30 active:bg-primary/5 transition-colors">
                                 <div className="flex items-center justify-between">
                                     <span className="font-medium text-sm">#{t.channelName || t.channelId?.slice(-6)}</span>
                                     <div className="flex items-center gap-2">

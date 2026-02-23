@@ -838,6 +838,7 @@ function buildActiveTicketMessage(chatId) {
         ].join('\n'),
         markup: {
             inline_keyboard: [
+                [{ text: '📜 История чата', callback_data: 'thistory' }],
                 [{ text: '📋 Открыть список', callback_data: 'tpage_0' }, { text: '❌ Снять выбор', callback_data: 'tunselect' }],
             ],
         },
@@ -2569,6 +2570,10 @@ async function pollTelegram() {
                     await tgEditMessageText(cbChatId, cbq.message.message_id, msg.text, msg.markup);
                 } else if (cbData === 'tunselect') {
                     await handleUnselectTicket(cbq.id, cbq.message.message_id, cbChatId);
+                } else if (cbData === 'thistory') {
+                    await tgAnswerCallbackQuery(cbq.id, '📜 Загружаю историю...');
+                    const histMsgs = await handleHistory(cbChatId);
+                    for (const m of histMsgs) enqueueToUser(cbChatId, { text: m.text, replyMarkup: m.markup });
                 } else if (cbData.startsWith('bind_')) {
                     const bindName = cbData.slice(5);
                     const uState = getUserState(cbChatId).ticketChat;

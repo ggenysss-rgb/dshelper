@@ -971,6 +971,7 @@ async function handleHistory(chatId) {
     const lines = [`📜 <b>История #${escapeHtml(channelName)}</b> (${messages.length} сообщ.)\n`];
     for (const msg of messages) {
         if (!msg.author) continue;
+        if (msg.author.bot) continue;
         const ts = new Date(msg.timestamp);
         const time = ts.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
         const nick = msg.member?.nick || msg.author.global_name || msg.author.username || 'Неизвестно';

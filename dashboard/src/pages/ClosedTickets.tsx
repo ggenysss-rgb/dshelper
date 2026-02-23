@@ -4,11 +4,24 @@ import { fetchClosedTickets, fetchArchivedMessages } from '../api/stats';
 import { Search, TicketX, Clock, User, Hash, ChevronLeft, ChevronRight, X, MessageSquare, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+interface Embed {
+    title?: string;
+    description?: string;
+    color?: number;
+    fields?: { name: string; value: string; inline?: boolean }[];
+    footer?: { text: string };
+    author?: { name: string };
+    url?: string;
+    thumbnail?: { url: string };
+    image?: { url: string };
+}
+
 interface ArchivedMessage {
     id: string;
     content: string;
     author: { id: string; username: string; global_name: string; avatar: string; bot: boolean };
     timestamp: string;
+    embeds?: Embed[];
     attachments: { id: string; filename: string; url: string; content_type: string }[];
 }
 
@@ -108,12 +121,47 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                                             {new Date(msg.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
-                                    <div className={`px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${!isOpener
-                                        ? 'bg-primary text-primary-foreground rounded-tr-sm'
-                                        : 'bg-secondary text-foreground rounded-tl-sm border border-border/50'
-                                        }`}>
-                                        {msg.content || <span className="italic text-muted-foreground text-xs">[без текста]</span>}
-                                    </div>
+                                    {msg.content ? (
+                                        <div className={`px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${!isOpener
+                                            ? 'bg-primary text-primary-foreground rounded-tr-sm'
+                                            : 'bg-secondary text-foreground rounded-tl-sm border border-border/50'
+                                            }`}>
+                                            {msg.content}
+                                        </div>
+                                    ) : null}
+
+                                    {msg.embeds && msg.embeds.length > 0 && msg.embeds.map((embed, ei) => {
+                                        const borderColor = embed.color ? `#${embed.color.toString(16).padStart(6, '0')}` : 'hsl(var(--border))';
+                                        return (
+                                            <div key={ei} className="mt-1 rounded-lg bg-secondary/80 border border-border/50 overflow-hidden max-w-md"
+                                                style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}>
+                                                <div className="p-3 space-y-1.5">
+                                                    {embed.author && <p className="text-xs font-semibold text-muted-foreground">{embed.author.name}</p>}
+                                                    {embed.title && <p className="text-sm font-bold text-foreground">{embed.title}</p>}
+                                                    {embed.description && <p className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed">{embed.description}</p>}
+                                                    {embed.fields && embed.fields.length > 0 && (
+                                                        <div className="grid grid-cols-1 gap-1.5 mt-2">
+                                                            {embed.fields.map((f: any, fi: number) => (
+                                                                <div key={fi}>
+                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">{f.name}</p>
+                                                                    <p className="text-xs text-foreground/80 whitespace-pre-wrap">{f.value}</p>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    {embed.image && <img src={embed.image.url} alt="" className="rounded mt-2 max-h-48 object-cover" />}
+                                                    {embed.thumbnail && <img src={embed.thumbnail.url} alt="" className="rounded mt-1 max-h-16 object-cover" />}
+                                                    {embed.footer && <p className="text-[10px] text-muted-foreground mt-2">{embed.footer.text}</p>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {!msg.content && (!msg.embeds || msg.embeds.length === 0) && (
+                                        <div className="px-3 py-2 rounded-2xl text-sm bg-secondary border border-border/50 rounded-tl-sm">
+                                            <span className="italic text-muted-foreground text-xs">[без текста]</span>
+                                        </div>
+                                    )}
 
                                     {msg.attachments.length > 0 && (
                                         <div className="flex flex-wrap gap-1.5 mt-1.5">

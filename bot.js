@@ -839,6 +839,11 @@ async function archiveTicketMessages(channelId, record) {
                     bot: m.author?.bot || false,
                 },
                 timestamp: m.timestamp,
+                embeds: (m.embeds || []).map(e => ({
+                    title: e.title, description: e.description, color: e.color,
+                    fields: e.fields, footer: e.footer, author: e.author, url: e.url,
+                    thumbnail: e.thumbnail, image: e.image,
+                })),
                 attachments: (m.attachments || []).map(a => ({
                     id: a.id, filename: a.filename, url: a.url, content_type: a.content_type,
                 })),

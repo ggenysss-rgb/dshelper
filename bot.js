@@ -71,6 +71,16 @@ config.autoGreetRoleIds = config.autoGreetRoleIds || ['1334466933273395242'];
 config.autoGreetText = config.autoGreetText || 'Здравствуйте, чем могу помочь?';
 config.autoGreetEnabled = config.autoGreetEnabled ?? true;
 
+// Auto-reply defaults
+config.autoReplies = config.autoReplies || [
+    {
+        channelId: '717734206586880060',
+        patterns: ['когда вайп'],
+        response: 'Здравствуйте, вайп был 30.01.2026, когда будет - неизвестно',
+        enabled: true,
+    }
+];
+
 // Binds defaults
 config.binds = config.binds || {
     '25': { name: '25', message: 'Здравствуйте!** **Вайп состоится: 25.10.2025 **Время: 17:00 по МСК.' },
@@ -2344,6 +2354,28 @@ function onMessageCreate(data) {
     if (guildId !== config.guildId) return;
 
     const channelId = data.channel_id;
+
+    // Auto-reply in specific channels (e.g. "когда вайп")
+    if (config.autoReplies && data.content && data.author && !data.author.bot) {
+        const content = data.content.toLowerCase().replace(/[?!.,]/g, '').trim();
+        for (const rule of config.autoReplies) {
+            if (!rule.enabled) continue;
+            if (rule.channelId !== channelId) continue;
+            const matched = rule.patterns.some(p => content.includes(p.toLowerCase()));
+            if (matched) {
+                setTimeout(async () => {
+                    try {
+                        await sendDiscordMessage(channelId, rule.response, GATEWAY_TOKEN);
+                        console.log(`${LOG} 🤖 Авто-ответ в #${channelId}: ${rule.response.slice(0, 50)}`);
+                    } catch (e) {
+                        console.error(`${LOG} ❌ Ошибка авто-ответа:`, e.message);
+                    }
+                }, 1000);
+                break;
+            }
+        }
+    }
+
     let channel = channelCache.get(channelId);
 
     // If channel not in cache, try to construct minimal info

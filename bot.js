@@ -3695,6 +3695,14 @@ function startDashboard() {
         }
     });
 
+    // Serve Dashboard static files
+    const dashboardDist = path.join(__dirname, 'dashboard', 'dist');
+    app.use(express.static(dashboardDist));
+    // SPA fallback — all non-API routes serve index.html
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(dashboardDist, 'index.html'));
+    });
+
     // Socket.io Middleware
     io.use((socket, next) => {
         const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];

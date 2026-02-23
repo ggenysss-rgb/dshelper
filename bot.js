@@ -1558,7 +1558,9 @@ function buildTicketCreatedMessage(channel, guild) {
         ``,
         `<i>💡 Тикет ожидает ответа</i>`,
     ].join('\n');
-    return { text, replyMarkup: { inline_keyboard: [[{ text: '🔗 Открыть тикет', url: link }]] } };
+    return { text, channelId: channel.id, replyMarkup: { inline_keyboard: [
+        [{ text: '✅ Взять тикет', callback_data: `tsel_${channel.id}` }, { text: '🔗 Открыть в Discord', url: link }]
+    ] } };
 }
 
 function buildFirstMessageNotification(channel, message) {
@@ -1583,7 +1585,9 @@ function buildFirstMessageNotification(channel, message) {
         `💌  <b>Сообщение:</b>`,
         `<blockquote>${content}</blockquote>`,
     ].join('\n');
-    return { text, replyMarkup: { inline_keyboard: [[{ text: '🔗 Перейти в тикет', url: link }]] } };
+    return { text, channelId: message.channel_id, replyMarkup: { inline_keyboard: [
+        [{ text: '✅ Взять тикет', callback_data: `tsel_${message.channel_id}` }, { text: '🔗 Перейти в Discord', url: link }]
+    ] } };
 }
 
 function buildTicketClosedMessage(record) {

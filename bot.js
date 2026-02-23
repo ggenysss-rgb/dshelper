@@ -581,9 +581,11 @@ async function runQueue() {
 
 // ── Discord REST: Send Message ────────────────────────────────
 
-async function sendDiscordMessage(channelId, content, token) {
+async function sendDiscordMessage(channelId, content, token, replyToMessageId) {
     const url = `https://discord.com/api/v9/channels/${channelId}/messages`;
-    const body = JSON.stringify({ content });
+    const payload = { content };
+    if (replyToMessageId) payload.message_reference = { message_id: replyToMessageId };
+    const body = JSON.stringify(payload);
     return new Promise((resolve, reject) => {
         const u = new URL(url);
         const req = https.request({
@@ -2365,7 +2367,7 @@ function onMessageCreate(data) {
             if (matched) {
                 setTimeout(async () => {
                     try {
-                        await sendDiscordMessage(channelId, rule.response, GATEWAY_TOKEN);
+                        await sendDiscordMessage(channelId, rule.response, GATEWAY_TOKEN, data.id);
                         console.log(`${LOG} 🤖 Авто-ответ в #${channelId}: ${rule.response.slice(0, 50)}`);
                     } catch (e) {
                         console.error(`${LOG} ❌ Ошибка авто-ответа:`, e.message);

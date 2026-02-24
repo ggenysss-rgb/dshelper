@@ -3,13 +3,13 @@ import { ru } from 'date-fns/locale';
 import type { DiscordMessage } from '../api/tickets';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
+import { Reply, Pencil, CornerDownRight } from 'lucide-react';
 
 const IMAGE_URL_RE = /(https?:\/\/[^\s]+\.(?:gif|png|jpg|jpeg|webp)(?:\?[^\s]*)?)/gi;
 const URL_RE = /(https?:\/\/[^\s]+)/gi;
 const MENTION_RE = /<@[!&]?(\d+)>/g;
 
 function renderContent(text: string, mentionMap?: Record<string, string>) {
-    // First resolve Discord mentions
     let resolved = text;
     if (mentionMap) {
         resolved = text.replace(MENTION_RE, (match, id) => {
@@ -21,25 +21,21 @@ function renderContent(text: string, mentionMap?: Record<string, string>) {
         });
     }
 
-    // Split by image URLs
     const parts = resolved.split(IMAGE_URL_RE);
     return parts.map((part, i) => {
         if (IMAGE_URL_RE.test(part)) {
             IMAGE_URL_RE.lastIndex = 0;
             return <img key={i} src={part} alt="" className="rounded-lg max-h-64 mt-1 mb-1 object-contain" />;
         }
-        // For non-image parts: handle mentions and URLs
         const fragments = part.split(/(@@MENTION:(?:role|user):[^@]+@@)/g);
         return fragments.map((frag, fi) => {
             const mentionMatch = frag.match(/^@@MENTION:(role|user):(.+)@@$/);
             if (mentionMatch) {
-                const [, type, name] = mentionMatch;
+                const [, , name] = mentionMatch;
                 return (
-                    <span key={`${i}-${fi}`} className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold ${type === 'role' ? 'bg-[#5865F2]/20 text-[#99AAF5]' : 'bg-[#5865F2]/20 text-[#99AAF5]'
-                        }`}>@{name}</span>
+                    <span key={`${i}-${fi}`} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-[#5865F2]/20 text-[#99AAF5]">@{name}</span>
                 );
             }
-            // Linkify URLs in remaining text
             const subParts = frag.split(URL_RE);
             return subParts.map((sub, j) => {
                 if (URL_RE.test(sub)) {
@@ -55,7 +51,16 @@ function renderContent(text: string, mentionMap?: Record<string, string>) {
     });
 }
 
-export default function ChatMessage({ message, isStaff, mentionMap }: { message: DiscordMessage; isStaff: boolean; mentionMap?: Record<string, string> }) {
+type ChatMessageProps = {
+    message: DiscordMessage;
+    isStaff: boolean;
+    mentionMap?: Record<string, string>;
+    onReply?: (msg: DiscordMessage) => void;
+    onEdit?: (msg: DiscordMessage) => void;
+    canEdit?: boolean;
+};
+
+export default function ChatMessage({ message, isStaff, mentionMap, onReply, onEdit, canEdit }: ChatMessageProps) {
     const isBot = message.author.bot;
     const contentIsImageOnly = message.content && IMAGE_URL_RE.test(message.content) && message.content.trim().match(IMAGE_URL_RE)?.join('').length === message.content.trim().length;
     IMAGE_URL_RE.lastIndex = 0;
@@ -64,7 +69,7 @@ export default function ChatMessage({ message, isStaff, mentionMap }: { message:
         <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            className={cn("flex w-full mb-6", isStaff ? "justify-end" : "justify-start")}
+            className={cn("flex w-full mb-6 group/msg", isStaff ? "justify-end" : "justify-start")}
         >
             <div className={cn("flex max-w-[80%] gap-4", isStaff && "flex-row-reverse")}>
                 <div className="shrink-0 mt-1">
@@ -81,7 +86,7 @@ export default function ChatMessage({ message, isStaff, mentionMap }: { message:
                     )}
                 </div>
 
-                <div className={cn("flex flex-col", isStaff ? "items-end" : "items-start")}>
+                <div className={cn("flex flex-col relative", isStaff ? "items-end" : "items-start")}>
                     <div className="flex items-baseline gap-2 mb-1.5 px-1">
                         <span className={cn("text-sm font-semibold", isStaff ? "text-primary" : "text-foreground")}>
                             {message.author.global_name || message.author.username}
@@ -94,7 +99,45 @@ export default function ChatMessage({ message, isStaff, mentionMap }: { message:
                         <span className="text-xs text-muted-foreground">
                             {format(new Date(message.timestamp), 'HH:mm • d MMM', { locale: ru })}
                         </span>
+
+                        {/* Action buttons */}
+                        <div className="opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center gap-0.5 ml-1">
+                            {onReply && (
+                                <button
+                                    onClick={() => onReply(message)}
+                                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                                    title="Ответить"
+                                >
+                                    <Reply className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                            {canEdit && onEdit && (
+                                <button
+                                    onClick={() => onEdit(message)}
+                                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                                    title="Редактировать"
+                                >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
                     </div>
+
+                    {/* Reply reference */}
+                    {message.referenced_message && (
+                        <div className={cn(
+                            "flex items-center gap-1.5 text-xs text-muted-foreground mb-1 px-1",
+                            isStaff ? "flex-row-reverse" : ""
+                        )}>
+                            <CornerDownRight className="w-3 h-3 shrink-0" />
+                            <span className="font-medium text-foreground/70">
+                                {message.referenced_message.author.global_name || message.referenced_message.author.username}
+                            </span>
+                            <span className="truncate max-w-[200px] opacity-60">
+                                {message.referenced_message.content || '[embed]'}
+                            </span>
+                        </div>
+                    )}
 
                     {message.content ? (
                         contentIsImageOnly ? (

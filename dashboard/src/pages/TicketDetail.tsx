@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useTicketMessages, useSendTicketMessage, useTickets } from '../hooks/useTickets';
+import { useTicketMessages, useSendTicketMessage, useTickets, useEditTicketMessage } from '../hooks/useTickets';
 import { fetchBinds } from '../api/stats';
 import { useSocket } from '../hooks/useSocket';
 import ChatMessage from '../components/ChatMessage';
-import { ArrowLeft, Send, AlertCircle } from 'lucide-react';
+import type { DiscordMessage } from '../api/tickets';
+import { ArrowLeft, Send, AlertCircle, X, Reply, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -17,6 +18,7 @@ export default function TicketDetail() {
     const mentionMap = msgData?.mentionMap || {};
     const { data: tickets } = useTickets();
     const { mutateAsync: sendMessage, isPending } = useSendTicketMessage();
+    const { mutateAsync: editMessage, isPending: isEditing } = useEditTicketMessage();
     const socket = useSocket();
     const queryClient = useQueryClient();
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -27,12 +29,18 @@ export default function TicketDetail() {
     const [slashQuery, setSlashQuery] = useState('');
     const [slashIndex, setSlashIndex] = useState(0);
 
+    // Reply & Edit state
+    const [replyTo, setReplyTo] = useState<DiscordMessage | null>(null);
+    const [editingMsg, setEditingMsg] = useState<DiscordMessage | null>(null);
+
     const ticket = tickets?.find(t => t.channelId === id);
 
     const bindList = Object.values(binds);
     const filteredBinds = slashQuery
         ? bindList.filter(b => b.name.toLowerCase().startsWith(slashQuery.toLowerCase()))
         : bindList;
+
+    const inputRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => { fetchBinds().then(setBinds).catch(console.error); }, []);
 
@@ -52,12 +60,12 @@ export default function TicketDetail() {
     const selectBind = async (bind: { name: string; message: string }) => {
         setContent(''); setShowBinds(false); setSlashQuery(''); setSlashIndex(0);
         if (!id) return;
-        try { await sendMessage({ id, content: bind.message }); } catch (_e) { }
+        try { await sendMessage({ id, content: bind.message, replyTo: replyTo?.id }); setReplyTo(null); } catch (_e) { }
     };
 
     const handleContentChange = (val: string) => {
         setContent(val);
-        if (val.startsWith('/')) {
+        if (val.startsWith('/') && !editingMsg) {
             const q = val.slice(1);
             setSlashQuery(q); setShowBinds(true); setSlashIndex(0);
             if (q.length > 0) {
@@ -70,7 +78,40 @@ export default function TicketDetail() {
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!content.trim() || !id) return;
-        try { await sendMessage({ id, content }); setContent(''); } catch (_e) { }
+
+        if (editingMsg) {
+            try {
+                await editMessage({ ticketId: id, msgId: editingMsg.id, content });
+                setContent('');
+                setEditingMsg(null);
+            } catch (_e) { }
+        } else {
+            try {
+                await sendMessage({ id, content, replyTo: replyTo?.id });
+                setContent('');
+                setReplyTo(null);
+            } catch (_e) { }
+        }
+    };
+
+    const handleReply = (msg: DiscordMessage) => {
+        setEditingMsg(null);
+        setReplyTo(msg);
+        setContent('');
+        inputRef.current?.focus();
+    };
+
+    const handleEdit = (msg: DiscordMessage) => {
+        setReplyTo(null);
+        setEditingMsg(msg);
+        setContent(msg.content);
+        inputRef.current?.focus();
+    };
+
+    const cancelAction = () => {
+        setReplyTo(null);
+        setEditingMsg(null);
+        setContent('');
     };
 
     if (isLoading) return <div className="h-full flex items-center justify-center"><span className="animate-pulse">Загрузка истории...</span></div>;
@@ -103,12 +144,60 @@ export default function TicketDetail() {
                         messages.map((msg) => {
                             const isStaff = ticket ? msg.author.id !== ticket.openerId && !msg.author.bot : false;
                             const isBotProxy = !!msg.author.bot && msg.content.includes('[Саппорт]');
-                            return <ChatMessage key={msg.id} message={msg} isStaff={isStaff || isBotProxy} mentionMap={mentionMap} />;
+                            return (
+                                <ChatMessage
+                                    key={msg.id}
+                                    message={msg}
+                                    isStaff={isStaff || isBotProxy}
+                                    mentionMap={mentionMap}
+                                    onReply={handleReply}
+                                    onEdit={handleEdit}
+                                    canEdit={isStaff || isBotProxy}
+                                />
+                            );
                         })
                     )}
                 </div>
 
                 <div className="p-3 md:p-4 bg-background border-t border-border shrink-0 relative">
+                    {/* Reply/Edit indicator */}
+                    <AnimatePresence>
+                        {(replyTo || editingMsg) && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-secondary/50 border border-border/50 text-sm">
+                                    {replyTo ? (
+                                        <>
+                                            <Reply className="w-4 h-4 text-primary shrink-0" />
+                                            <span className="text-muted-foreground">Ответ</span>
+                                            <span className="font-semibold text-foreground truncate">
+                                                {replyTo.author.global_name || replyTo.author.username}
+                                            </span>
+                                            <span className="text-muted-foreground truncate flex-1 text-xs">
+                                                {replyTo.content?.slice(0, 60) || '[embed]'}{replyTo.content && replyTo.content.length > 60 ? '…' : ''}
+                                            </span>
+                                        </>
+                                    ) : editingMsg ? (
+                                        <>
+                                            <Pencil className="w-4 h-4 text-yellow-500 shrink-0" />
+                                            <span className="text-muted-foreground">Редактирование</span>
+                                            <span className="text-muted-foreground truncate flex-1 text-xs">
+                                                {editingMsg.content?.slice(0, 60) || ''}{editingMsg.content && editingMsg.content.length > 60 ? '…' : ''}
+                                            </span>
+                                        </>
+                                    ) : null}
+                                    <button onClick={cancelAction} className="p-1 hover:bg-secondary rounded text-muted-foreground hover:text-foreground transition-colors shrink-0">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
                     <AnimatePresence>
                         {showBinds && content.startsWith('/') && filteredBinds.length > 0 && (
                             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
@@ -126,8 +215,11 @@ export default function TicketDetail() {
                         )}
                     </AnimatePresence>
                     <form onSubmit={handleSend} className="relative">
-                        <textarea value={content} onChange={e => handleContentChange(e.target.value)}
-                            placeholder="Напишите ответ или / для бинда..."
+                        <textarea
+                            ref={inputRef}
+                            value={content}
+                            onChange={e => handleContentChange(e.target.value)}
+                            placeholder={editingMsg ? 'Введите новый текст...' : replyTo ? 'Напишите ответ...' : 'Напишите ответ или / для бинда...'}
                             className="w-full bg-secondary/50 border border-border rounded-xl pl-4 pr-16 py-3 custom-scrollbar min-h-[48px] md:min-h-[56px] max-h-32 resize-none focus:outline-none focus:border-primary transition-colors text-sm"
                             onKeyDown={e => {
                                 if (showBinds && content.startsWith('/') && filteredBinds.length > 0) {
@@ -136,11 +228,12 @@ export default function TicketDetail() {
                                     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); selectBind(filteredBinds[slashIndex]); return; }
                                     if (e.key === 'Escape') { e.preventDefault(); setShowBinds(false); setContent(''); return; }
                                 }
+                                if (e.key === 'Escape') { e.preventDefault(); cancelAction(); return; }
                                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e as any); }
                             }} />
                         <div className="absolute right-2 top-2">
-                            <button type="submit" disabled={isPending || !content.trim()} className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50">
-                                <Send className="w-4 h-4 md:w-5 md:h-5" />
+                            <button type="submit" disabled={(isPending || isEditing) || !content.trim()} className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50">
+                                {editingMsg ? <Pencil className="w-4 h-4 md:w-5 md:h-5" /> : <Send className="w-4 h-4 md:w-5 md:h-5" />}
                             </button>
                         </div>
                     </form>

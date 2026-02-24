@@ -46,6 +46,17 @@ export type DiscordMessage = {
         roles: string[];
         nick?: string;
     };
+    message_reference?: {
+        message_id: string;
+    };
+    referenced_message?: {
+        id: string;
+        content: string;
+        author: {
+            username: string;
+            global_name?: string;
+        };
+    };
 };
 
 export const fetchTickets = async (): Promise<Ticket[]> => {
@@ -63,6 +74,10 @@ export const fetchTicketMessages = async (id: string): Promise<TicketMessagesRes
     return data;
 };
 
-export const sendTicketMessage = async (id: string, content: string): Promise<void> => {
-    await client.post(`/tickets/${id}/send`, { content });
+export const sendTicketMessage = async (id: string, content: string, replyTo?: string): Promise<void> => {
+    await client.post(`/tickets/${id}/send`, { content, replyTo });
+};
+
+export const editTicketMessage = async (id: string, msgId: string, content: string): Promise<void> => {
+    await client.patch(`/tickets/${id}/messages/${msgId}`, { content });
 };

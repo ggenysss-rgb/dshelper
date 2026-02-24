@@ -3602,12 +3602,12 @@ function startDashboard() {
 
     app.post('/api/tickets/:id/send', async (req, res) => {
         const channelId = req.params.id;
-        const { content } = req.body;
+        const { content, replyTo } = req.body;
         const record = activeTickets.get(channelId);
         if (!record) return res.status(404).json({ error: 'Ticket not found' });
 
         try {
-            const result = await sendDiscordMessage(channelId, content, getDiscordToken(users[0]?.tgChatId));
+            const result = await sendDiscordMessage(channelId, content, getDiscordToken(users[0]?.tgChatId), replyTo || undefined);
             if (!result.ok) throw new Error(`Discord API ${result.status}`);
 
             // Mark as sent by bot so we don't reflect it back via telegram
@@ -3617,6 +3617,22 @@ function startDashboard() {
             } catch (e) { }
 
             addLog('message', `Сообщение отправлено в тикет ${channelId}`);
+            res.json({ ok: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.patch('/api/tickets/:id/messages/:msgId', async (req, res) => {
+        const { id: channelId, msgId } = req.params;
+        const { content } = req.body;
+        const record = activeTickets.get(channelId);
+        if (!record) return res.status(404).json({ error: 'Ticket not found' });
+
+        try {
+            const result = await editDiscordMessage(channelId, msgId, content, getDiscordToken(users[0]?.tgChatId));
+            if (!result.ok) throw new Error(`Discord API ${result.status}`);
+            addLog('message', `Сообщение отредактировано в тикете ${channelId}`);
             res.json({ ok: true });
         } catch (err) {
             res.status(500).json({ error: err.message });

@@ -204,6 +204,9 @@ function handleDispatch(bot, event, d) {
 
             // Auto-reply check — runs on ALL guilds, rule.guildId does filtering
             if (!isBot && cfg.autoReplies?.length > 0) {
+                // Mark as processed to prevent REST polling from double-processing
+                if (!bot._arProcessed) bot._arProcessed = new Set();
+                bot._arProcessed.add(d.id);
                 let matched = false;
                 for (const rule of cfg.autoReplies) {
                     if (matchAutoReply(rule, d.content || '', d.channel_id, d.guild_id)) {
@@ -312,54 +315,6 @@ function handleDispatch(bot, event, d) {
         case 'GUILD_ROLE_DELETE':
             if (d.guild_id === guildId) bot.guildRolesCache.delete(d.role_id);
             break;
-
-        case 'MESSAGE_ACK': {
-            // Detect own messages: Gateway doesn't send MESSAGE_CREATE for selfbot's own messages,
-            // but it DOES send MESSAGE_ACK. Fetch the message and check auto-replies.
-            if (!d.channel_id || !d.message_id) break;
-            // Deduplicate: skip if we already processed this message
-            if (!bot._ackProcessed) bot._ackProcessed = new Set();
-            if (bot._ackProcessed.has(d.message_id)) break;
-            bot._ackProcessed.add(d.message_id);
-            // Keep set small
-            if (bot._ackProcessed.size > 50) {
-                const arr = [...bot._ackProcessed];
-                bot._ackProcessed = new Set(arr.slice(-25));
-            }
-            // Fetch the message via REST and check auto-replies
-            const ackToken = cfg.discordBotToken || cfg.discordToken;
-            if (cfg.autoReplies?.length > 0) {
-                (async () => {
-                    try {
-                        const res = await bot.httpGet(
-                            `https://discord.com/api/v9/channels/${d.channel_id}/messages?limit=1&around=${d.message_id}`,
-                            { Authorization: ackToken }
-                        );
-                        if (!res.ok) return;
-                        const msgs = JSON.parse(res.body);
-                        const msg = msgs.find(m => m.id === d.message_id);
-                        if (!msg || !msg.author || msg.author.bot) return;
-                        // Determine which guild this channel belongs to
-                        const ch = bot.channelCache.get(d.channel_id);
-                        const msgGuildId = ch?.guild_id || msg.guild_id || '';
-                        for (const rule of cfg.autoReplies) {
-                            if (matchAutoReply(rule, msg.content || '', d.channel_id, msgGuildId)) {
-                                bot.log(`🤖 Auto-reply matched (own msg): "${rule.name}" ch:${d.channel_id}`);
-                                await sleep((rule.delay || 2) * 1000);
-                                try {
-                                    await bot.sendDiscordMessage(d.channel_id, rule.response, d.message_id);
-                                    bot.log(`✅ Auto-reply sent: "${rule.name}"`);
-                                } catch (e) {
-                                    bot.log(`❌ Auto-reply send failed: ${e.message}`);
-                                }
-                                break;
-                            }
-                        }
-                    } catch { }
-                })();
-            }
-            break;
-        }
     }
 }
 
@@ -500,6 +455,91 @@ async function fetchAndScanChannels(bot) {
             bot.log(`🎭 REST: ${roles.length} roles loaded`);
         }
     } catch (e) { bot.log(`Roles fetch error: ${e.message}`); }
+
+    // Start REST polling for own messages (Gateway doesn't send MESSAGE_CREATE for selfbot's own msgs)
+    startAutoReplyPolling(bot);
+}
+
+// REST polling: check auto-reply target channels for new messages every 5s
+function startAutoReplyPolling(bot) {
+    if (bot._arPollTimer) clearInterval(bot._arPollTimer);
+    const cfg = bot.config;
+    if (!cfg.autoReplies?.length) return;
+
+    const token = cfg.discordBotToken || cfg.discordToken;
+    const guildId = cfg.guildId;
+    // Track last seen message ID per channel
+    if (!bot._arLastMsgId) bot._arLastMsgId = {};
+    // Track messages already processed by MESSAGE_CREATE to avoid duplicates
+    if (!bot._arProcessed) bot._arProcessed = new Set();
+
+    // Collect channels to poll: specific channelIds from rules + first few text channels if any rule has no channelId
+    const pollChannels = new Set();
+    for (const rule of cfg.autoReplies) {
+        if (rule.guildId === guildId && rule.channelId) pollChannels.add(rule.channelId);
+    }
+    const hasAnyChannel = cfg.autoReplies.some(r => r.guildId === guildId && !r.channelId);
+    if (hasAnyChannel) {
+        let count = 0;
+        for (const [chId, ch] of bot.channelCache) {
+            if (ch.guild_id === guildId && ch.type === 0 && count < 5) {
+                pollChannels.add(chId);
+                count++;
+            }
+        }
+    }
+
+    if (pollChannels.size === 0) return;
+    const channelList = [...pollChannels];
+    bot.log(`🔄 Auto-reply polling started: ${channelList.length} channels, every 5s`);
+
+    let pollIndex = 0;
+    bot._arPollTimer = setInterval(async () => {
+        if (bot.destroyed) { clearInterval(bot._arPollTimer); return; }
+        // Round-robin through channels (1 per tick to spread load)
+        const channelId = channelList[pollIndex % channelList.length];
+        pollIndex++;
+
+        try {
+            const res = await bot.httpGet(
+                `https://discord.com/api/v9/channels/${channelId}/messages?limit=1`,
+                { Authorization: token }
+            );
+            if (!res.ok) return;
+            const msgs = JSON.parse(res.body);
+            if (!msgs.length) return;
+            const msg = msgs[0];
+
+            // Skip if already seen or bot message
+            if (msg.id === bot._arLastMsgId[channelId]) return;
+            bot._arLastMsgId[channelId] = msg.id;
+            if (msg.author?.bot) return;
+            if (bot._arProcessed.has(msg.id)) return;
+            bot._arProcessed.add(msg.id);
+            // Keep set manageable
+            if (bot._arProcessed.size > 100) {
+                const arr = [...bot._arProcessed];
+                bot._arProcessed = new Set(arr.slice(-50));
+            }
+
+            // Check auto-replies
+            const ch = bot.channelCache.get(channelId);
+            const msgGuildId = ch?.guild_id || guildId;
+            for (const rule of cfg.autoReplies) {
+                if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
+                    bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
+                    await sleep((rule.delay || 2) * 1000);
+                    try {
+                        await bot.sendDiscordMessage(channelId, rule.response, msg.id);
+                        bot.log(`✅ Auto-reply sent: "${rule.name}"`);
+                    } catch (e) {
+                        bot.log(`❌ Auto-reply send failed: ${e.message}`);
+                    }
+                    break;
+                }
+            }
+        } catch { }
+    }, 5000);
 }
 
 module.exports = { connectGateway, cleanupGateway };

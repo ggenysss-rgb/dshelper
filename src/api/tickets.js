@@ -45,6 +45,12 @@ function createTicketRoutes(db, botManager) {
             const staffRoleIds = bot.config.staffRoleIds || [];
             const selfId = bot.selfUserId || null;
 
+            // DEBUG: Log what data we have for staff detection
+            if (rawMessages.length > 0) {
+                const sample = rawMessages[0];
+                bot.log(`🔍 DEBUG messages API: staffRoleIds=${JSON.stringify(staffRoleIds)}, selfId=${selfId}, sample_author=${sample.author?.username}(${sample.author?.id}), sample_member_roles=${JSON.stringify(sample.member?.roles || 'NO_MEMBER')}`);
+            }
+
             // Tag each message with _isStaff on the server (definitive source of truth)
             const messages = rawMessages.reverse().map(msg => {
                 let isStaff = false;

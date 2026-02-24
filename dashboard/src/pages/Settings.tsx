@@ -118,6 +118,9 @@ export default function Settings() {
                 <TextField label="Ключевые слова приоритета" desc="Слова для определения высокого приоритета (через запятую)"
                     value={(() => { const pk = s.priorityKeywords; if (Array.isArray(pk)) return pk.join(', '); if (pk && typeof pk === 'object') return (pk.high || []).join(', '); return String(pk || ''); })()}
                     onChange={v => update('priorityKeywords', v.split(',').map((w: string) => w.trim()).filter(Boolean))} />
+                <TextField label="ID ролей стаффа" desc="ID ролей стаффа (через запятую) — определяет кто справа в чате"
+                    value={Array.isArray(s.staffRoleIds) ? s.staffRoleIds.join(', ') : String(s.staffRoleIds || '')}
+                    onChange={v => update('staffRoleIds', v.split(',').map((w: string) => w.trim()).filter(Boolean))} />
                 <TextField label="ID категории тикетов" desc="ID дискорд-категории где создаются тикеты" value={s.ticketsCategoryId || ''} onChange={v => update('ticketsCategoryId', v.trim())} />
                 <TextField label="Канал смены (ID)" desc="ID дискорд-канала для отметки смен" value={s.shiftChannelId || ''} onChange={v => update('shiftChannelId', v.trim())} />
                 <TextField label="Роли для авто-приветствия" desc="ID ролей (через запятую), при пинге которых отправляется приветствие"

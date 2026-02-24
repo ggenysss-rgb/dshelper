@@ -788,7 +788,7 @@ function loadState() {
             rec.activityTimerType = rec.activityTimerType ?? null;
             activeTickets.set(id, rec);
         }
-        console.log(`${LOG} 💾 Состояние загружено: ${activeTickets.size} активных, ${ps.closedTickets.length} в истории.`);
+        console.log(`${LOG} 💾 Состояние загружено: ${activeTickets.size} активных, ${dbGetClosedCount()} в истории (SQLite).`);
     } catch (e) {
         console.error(`${LOG} Ошибка загрузки состояния:`, e.message);
         ps = emptyState();
@@ -817,6 +817,194 @@ function saveConfig() {
 // ── Ticket Message Archives ────────────────────────────────
 const ARCHIVES_DIR = path.join(__dirname, 'ticket_archives');
 try { if (!fs.existsSync(ARCHIVES_DIR)) fs.mkdirSync(ARCHIVES_DIR, { recursive: true }); } catch (e) { }
+
+// ── SQLite Database ────────────────────────────────────────
+const Database = require('better-sqlite3');
+const DB_FILE = path.join(DATA_DIR, 'tickets.db');
+const db = new Database(DB_FILE);
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS closed_tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id TEXT NOT NULL,
+        channel_name TEXT NOT NULL DEFAULT '',
+        opener_id TEXT NOT NULL DEFAULT '',
+        opener_username TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL DEFAULT 0,
+        closed_at INTEGER NOT NULL DEFAULT 0,
+        first_staff_reply_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_ct_closed_at ON closed_tickets(closed_at);
+    CREATE INDEX IF NOT EXISTS idx_ct_channel_id ON closed_tickets(channel_id);
+
+    CREATE TABLE IF NOT EXISTS ticket_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id TEXT NOT NULL,
+        message_id TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL DEFAULT '',
+        author_id TEXT NOT NULL DEFAULT '',
+        author_username TEXT NOT NULL DEFAULT '',
+        author_global_name TEXT,
+        author_avatar TEXT,
+        author_bot INTEGER NOT NULL DEFAULT 0,
+        timestamp TEXT NOT NULL DEFAULT '',
+        embeds TEXT,
+        attachments TEXT,
+        member_roles TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_tm_channel_id ON ticket_messages(channel_id);
+`);
+console.log(`${LOG} 💾 SQLite база данных готова: ${DB_FILE}`);
+
+// ── SQLite Helpers ─────────────────────────────────────────
+const stmtInsertClosed = db.prepare(`
+    INSERT INTO closed_tickets (channel_id, channel_name, opener_id, opener_username, created_at, closed_at, first_staff_reply_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+
+const stmtInsertMessage = db.prepare(`
+    INSERT INTO ticket_messages (channel_id, message_id, content, author_id, author_username, author_global_name, author_avatar, author_bot, timestamp, embeds, attachments, member_roles)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+function dbInsertClosedTicket(ticket) {
+    stmtInsertClosed.run(
+        ticket.channelId, ticket.channelName || '',
+        ticket.openerId || '', ticket.openerUsername || '',
+        ticket.createdAt || 0, ticket.closedAt || Date.now(),
+        ticket.firstStaffReplyAt || null
+    );
+}
+
+const dbInsertMessages = db.transaction((channelId, messages) => {
+    // Clear old messages for this channel first (re-archive support)
+    db.prepare('DELETE FROM ticket_messages WHERE channel_id = ?').run(channelId);
+    for (const m of messages) {
+        stmtInsertMessage.run(
+            channelId,
+            m.id || '',
+            m.content || '',
+            m.author?.id || '',
+            m.author?.username || '',
+            m.author?.global_name || null,
+            m.author?.avatar || null,
+            m.author?.bot ? 1 : 0,
+            m.timestamp || '',
+            m.embeds ? JSON.stringify(m.embeds) : null,
+            m.attachments ? JSON.stringify(m.attachments) : null,
+            m.member?.roles ? JSON.stringify(m.member.roles) : null
+        );
+    }
+});
+
+function dbGetClosedTickets({ page = 1, limit = 50, search = '' } = {}) {
+    let where = '';
+    const params = [];
+    if (search) {
+        where = 'WHERE channel_name LIKE ? OR opener_username LIKE ?';
+        params.push(`%${search}%`, `%${search}%`);
+    }
+    const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM closed_tickets ${where}`).get(...params);
+    const total = countRow.cnt;
+    const offset = (page - 1) * limit;
+    params.push(limit, offset);
+    const rows = db.prepare(`SELECT * FROM closed_tickets ${where} ORDER BY closed_at DESC LIMIT ? OFFSET ?`).all(...params);
+    return {
+        tickets: rows.map(r => ({
+            channelId: r.channel_id,
+            channelName: r.channel_name,
+            openerId: r.opener_id,
+            openerUsername: r.opener_username,
+            createdAt: r.created_at,
+            closedAt: r.closed_at,
+            firstStaffReplyAt: r.first_staff_reply_at,
+        })),
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+    };
+}
+
+function dbGetAllClosedTickets() {
+    const rows = db.prepare('SELECT * FROM closed_tickets ORDER BY closed_at DESC').all();
+    return rows.map(r => ({
+        channelId: r.channel_id,
+        channelName: r.channel_name,
+        openerId: r.opener_id,
+        openerUsername: r.opener_username,
+        createdAt: r.created_at,
+        closedAt: r.closed_at,
+        firstStaffReplyAt: r.first_staff_reply_at,
+    }));
+}
+
+function dbGetTicketMessages(channelId) {
+    const rows = db.prepare('SELECT * FROM ticket_messages WHERE channel_id = ? ORDER BY id ASC').all(channelId);
+    return rows.map(r => ({
+        id: r.message_id,
+        content: r.content,
+        author: {
+            id: r.author_id,
+            username: r.author_username,
+            global_name: r.author_global_name,
+            avatar: r.author_avatar,
+            bot: !!r.author_bot,
+        },
+        timestamp: r.timestamp,
+        embeds: r.embeds ? JSON.parse(r.embeds) : [],
+        attachments: r.attachments ? JSON.parse(r.attachments) : [],
+        member: r.member_roles ? { roles: JSON.parse(r.member_roles) } : undefined,
+    }));
+}
+
+function dbGetClosedCount() {
+    return db.prepare('SELECT COUNT(*) as cnt FROM closed_tickets').get().cnt;
+}
+
+// ── Migrate existing JSON data to SQLite (one-time) ────────
+function migrateJsonToSqlite() {
+    const existing = db.prepare('SELECT COUNT(*) as cnt FROM closed_tickets').get().cnt;
+    if (existing > 0) return; // Already migrated
+
+    // Migrate closed tickets from persistent_state
+    try {
+        const stateData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        const closed = stateData.closedTickets || [];
+        if (closed.length > 0) {
+            const insertMany = db.transaction((tickets) => {
+                for (const t of tickets) {
+                    if (!t.channelId) continue; // skip invalid entries
+                    try { dbInsertClosedTicket(t); } catch { }
+                }
+            });
+            insertMany(closed);
+            console.log(`${LOG} 📦 Мигрировано ${closed.length} закрытых тикетов в SQLite.`);
+        }
+    } catch (e) {
+        console.log(`${LOG} ℹ️ Нет данных для миграции closedTickets: ${e.message}`);
+    }
+
+    // Migrate JSON archives to SQLite
+    try {
+        const files = fs.readdirSync(ARCHIVES_DIR).filter(f => f.endsWith('.json'));
+        let count = 0;
+        for (const file of files) {
+            try {
+                const archive = JSON.parse(fs.readFileSync(path.join(ARCHIVES_DIR, file), 'utf8'));
+                if (archive.messages && archive.messages.length > 0) {
+                    dbInsertMessages(archive.channelId || file.replace('.json', ''), archive.messages);
+                    count++;
+                }
+            } catch { }
+        }
+        if (count > 0) console.log(`${LOG} 📦 Мигрировано ${count} архивов сообщений в SQLite.`);
+    } catch (e) {
+        console.log(`${LOG} ℹ️ Нет архивов для миграции: ${e.message}`);
+    }
+}
+migrateJsonToSqlite();
 
 async function archiveTicketMessages(channelId, record) {
     try {
@@ -851,6 +1039,8 @@ async function archiveTicketMessages(channelId, record) {
             })),
         };
         fs.writeFileSync(path.join(ARCHIVES_DIR, `${channelId}.json`), JSON.stringify(archive, null, 2), 'utf8');
+        // Also save to SQLite
+        try { dbInsertMessages(channelId, archive.messages); } catch (e) { console.error(`${LOG} SQLite archive error:`, e.message); }
     } catch (e) {
         console.error(`${LOG} Ошибка архивации тикета ${channelId}:`, e.message);
     }
@@ -2326,7 +2516,7 @@ function handleReset() {
     ps.totalCreated = 0;
     ps.totalClosed = 0;
     ps.totalMessagesSent = 0;
-    ps.closedTickets = [];
+    try { db.prepare('DELETE FROM closed_tickets').run(); db.prepare('DELETE FROM ticket_messages').run(); } catch (e) { console.error(e); }
     ps.hourlyBuckets = new Array(24).fill(0);
     sessionStats.messagesFailed = 0;
     markDirty();
@@ -2345,7 +2535,7 @@ function handleReset() {
 }
 
 function buildAnalyticsMessage() {
-    const closed = ps.closedTickets;
+    const closed = dbGetAllClosedTickets();
     const avgDuration = closed.length > 0
         ? closed.reduce((a, t) => a + (t.closedAt - t.createdAt), 0) / closed.length
         : null;
@@ -2569,7 +2759,7 @@ function subscribeToTicketChannels(guildId) {
                     const stale = activeTickets.get(chId);
                     if (stale) {
                         archiveTicketMessages(chId, stale).catch(() => { });
-                        ps.closedTickets.push({
+                        dbInsertClosedTicket({
                             channelId: chId,
                             channelName: stale.channelName,
                             openerId: stale.openerId,
@@ -2763,7 +2953,7 @@ function onChannelDelete(data) {
 
     archiveTicketMessages(data.id, fallback).catch(() => { });
 
-    ps.closedTickets.push({
+    dbInsertClosedTicket({
         channelId: data.id,
         channelName: fallback.channelName,
         openerId: fallback.openerId,
@@ -2772,9 +2962,6 @@ function onChannelDelete(data) {
         closedAt: Date.now(),
         firstStaffReplyAt: fallback.firstStaffReplyAt,
     });
-    if (ps.closedTickets.length > MAX_CLOSED_HISTORY) {
-        ps.closedTickets = ps.closedTickets.slice(-MAX_CLOSED_HISTORY);
-    }
 
     activeTickets.delete(data.id);
     notifiedFirstMessage.delete(data.id);
@@ -3668,7 +3855,7 @@ function startDashboard() {
             totalCreated: ps.totalCreated,
             totalClosed: ps.totalClosed,
             hourlyBuckets: ps.hourlyBuckets,
-            closedTickets: ps.closedTickets.slice(-50), // Send last 50 for top players/etc
+            closedTickets: dbGetClosedTickets({ page: 1, limit: 50 }).tickets,
             activeTicketsCount: activeTickets.size,
             uptime: process.uptime()
         });
@@ -3869,30 +4056,25 @@ function startDashboard() {
         const page = parseInt(req.query.page) || 1;
         const limit = Math.min(parseInt(req.query.limit) || 50, 200);
         const search = (req.query.search || '').toLowerCase();
-        let tickets = ps.closedTickets || [];
-        if (search) {
-            tickets = tickets.filter(t =>
-                (t.channelName || '').toLowerCase().includes(search) ||
-                (t.openerUsername || '').toLowerCase().includes(search)
-            );
-        }
-        const total = tickets.length;
-        const reversed = [...tickets].reverse();
-        const paginated = reversed.slice((page - 1) * limit, page * limit);
-        res.json({ tickets: paginated, total, page, totalPages: Math.ceil(total / limit) });
+        res.json(dbGetClosedTickets({ page, limit, search }));
     });
 
     // ── Archived Ticket Messages ────────────────────────────
     app.get('/api/closed-tickets/:id/messages', (req, res) => {
         const channelId = req.params.id;
-        const archivePath = path.join(ARCHIVES_DIR, `${channelId}.json`);
-        try {
-            if (!fs.existsSync(archivePath)) return res.status(404).json({ error: 'Архив не найден' });
-            const archive = JSON.parse(fs.readFileSync(archivePath, 'utf8'));
-            res.json(archive);
-        } catch (e) {
-            res.status(500).json({ error: e.message });
+        const messages = dbGetTicketMessages(channelId);
+        if (messages.length === 0) {
+            // Fallback to JSON archive if not in DB
+            const archivePath = path.join(ARCHIVES_DIR, `${channelId}.json`);
+            try {
+                if (fs.existsSync(archivePath)) {
+                    const archive = JSON.parse(fs.readFileSync(archivePath, 'utf8'));
+                    return res.json(archive);
+                }
+            } catch { }
+            return res.status(404).json({ error: 'Архив не найден' });
         }
+        res.json({ channelId, messages });
     });
 
     // Serve Dashboard static files

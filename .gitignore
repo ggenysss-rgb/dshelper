@@ -3,4 +3,8 @@ config.json
 state.json
 shift_state.json
 ticket_chat_state.json
+per_user_state.json
 *.log
+*.db
+*.db-wal
+*.db-shm

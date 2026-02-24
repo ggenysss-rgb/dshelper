@@ -3015,7 +3015,7 @@ function onMessageCreate(data) {
     if (noReplyTimers.has(channelId)) clearNoReplyTimer(channelId);
 
     // ── Auto-reply: match user message against binds ──────────
-    if (config.autoReplyInTickets !== false && data.content && !botPaused) {
+    if (config.autoReplyInTickets !== false && data.content && !botPaused && data.content.length <= (config.autoReplyMaxLength || 50)) {
         const userText = data.content.toLowerCase();
         for (const [key, bind] of Object.entries(config.binds || {})) {
             if (userText.includes(key.toLowerCase())) {

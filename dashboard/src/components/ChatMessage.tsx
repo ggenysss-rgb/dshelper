@@ -4,8 +4,38 @@ import type { DiscordMessage } from '../api/tickets';
 import { cn } from '../lib/utils';
 import { motion } from 'framer-motion';
 
+const IMAGE_URL_RE = /(https?:\/\/[^\s]+\.(?:gif|png|jpg|jpeg|webp)(?:\?[^\s]*)?)/gi;
+const URL_RE = /(https?:\/\/[^\s]+)/gi;
+
+function renderContent(text: string) {
+    // Split by image URLs first
+    const parts = text.split(IMAGE_URL_RE);
+    return parts.map((part, i) => {
+        if (IMAGE_URL_RE.test(part)) {
+            IMAGE_URL_RE.lastIndex = 0;
+            return (
+                <img key={i} src={part} alt="" className="rounded-lg max-h-64 mt-1 mb-1 object-contain" />
+            );
+        }
+        // For non-image parts, linkify remaining URLs
+        const subParts = part.split(URL_RE);
+        return subParts.map((sub, j) => {
+            if (URL_RE.test(sub)) {
+                URL_RE.lastIndex = 0;
+                return (
+                    <a key={`${i}-${j}`} href={sub} target="_blank" rel="noreferrer"
+                        className="underline opacity-80 hover:opacity-100 break-all">{sub}</a>
+                );
+            }
+            return sub;
+        });
+    });
+}
+
 export default function ChatMessage({ message, isStaff }: { message: DiscordMessage; isStaff: boolean }) {
     const isBot = message.author.bot;
+    const contentIsImageOnly = message.content && IMAGE_URL_RE.test(message.content) && message.content.trim().match(IMAGE_URL_RE)?.join('').length === message.content.trim().length;
+    IMAGE_URL_RE.lastIndex = 0;
 
     return (
         <motion.div
@@ -44,14 +74,20 @@ export default function ChatMessage({ message, isStaff }: { message: DiscordMess
                     </div>
 
                     {message.content ? (
-                        <div className={cn(
-                            "p-3.5 rounded-2xl relative shadow-sm text-sm whitespace-pre-wrap leading-relaxed",
-                            isStaff
-                                ? "bg-primary text-primary-foreground rounded-tr-sm"
-                                : "bg-secondary text-foreground rounded-tl-sm border border-border/50"
-                        )}>
-                            {message.content}
-                        </div>
+                        contentIsImageOnly ? (
+                            <div className="rounded-2xl overflow-hidden">
+                                {renderContent(message.content)}
+                            </div>
+                        ) : (
+                            <div className={cn(
+                                "p-3.5 rounded-2xl relative shadow-sm text-sm whitespace-pre-wrap leading-relaxed",
+                                isStaff
+                                    ? "bg-primary text-primary-foreground rounded-tr-sm"
+                                    : "bg-secondary text-foreground rounded-tl-sm border border-border/50"
+                            )}>
+                                {renderContent(message.content)}
+                            </div>
+                        )
                     ) : null}
 
                     {message.embeds && message.embeds.length > 0 && message.embeds.map((embed, ei) => {

@@ -43,15 +43,22 @@ function connectGateway(bot) {
                 if (bot.sessionId && bot.seq) {
                     ws.send(JSON.stringify({ op: 6, d: { token, session_id: bot.sessionId, seq: bot.seq } }));
                 } else {
-                    const identify = {
-                        op: 2, d: {
-                            token, properties: { os: 'linux', browser: isBotToken ? 'discord.js' : 'Chrome', device: isBotToken ? 'discord.js' : 'Windows' },
-                            intents: isBotToken ? 33281 : undefined,
-                            presence: isBotToken ? { status: 'online', afk: false } : undefined,
+                    const payload = isBotToken
+                        ? {
+                            token,
+                            intents: 33283,
+                            properties: { os: 'linux', browser: 'ticket-notifier', device: 'ticket-notifier' },
+                            compress: false,
+                            large_threshold: 250,
                         }
-                    };
-                    if (!isBotToken) { identify.d.capabilities = 30717; identify.d.compress = false; }
-                    ws.send(JSON.stringify(identify));
+                        : {
+                            token,
+                            properties: { os: 'Windows', browser: 'Chrome', device: '' },
+                            presence: { status: 'online', activities: [], since: 0, afk: false },
+                            compress: false,
+                            large_threshold: 250,
+                        };
+                    ws.send(JSON.stringify({ op: 2, d: payload }));
                 }
                 break;
             case 11: bot.receivedAck = true; break; // HEARTBEAT_ACK
@@ -323,9 +330,13 @@ function scanChannelsList(bot, channels, guildId, guildName, prefixes, categoryI
         }
 
         if (bot.activeTickets.has(ch.id)) continue;
+        // Extract opener username from channel name (e.g. тикет-от-ptx2226 → ptx2226)
+        const nameMatch = (ch.name || '').match(/тикет-от-(.+)/i);
+        const openerUsername = nameMatch ? nameMatch[1] : '';
         bot.activeTickets.set(ch.id, {
             channelId: ch.id, channelName: ch.name, guildId, guildName: guildName || '',
             createdAt: snowflakeToTimestamp(ch.id), firstStaffReplyAt: null,
+            openerId: null, openerUsername,
             lastMessage: null, lastMessageAt: null, lastStaffMessageAt: null,
             waitingForReply: false, activityTimerType: null, tgThreadId: null,
         });

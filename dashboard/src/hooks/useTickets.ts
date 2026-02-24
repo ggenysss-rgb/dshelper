@@ -5,6 +5,7 @@ export const useTickets = () => {
     return useQuery({
         queryKey: ['tickets'],
         queryFn: fetchTickets,
+        refetchInterval: 10000,
     });
 };
 
@@ -13,7 +14,7 @@ export const useTicketMessages = (id: string | undefined) => {
         queryKey: ['tickets', id, 'messages'],
         queryFn: () => fetchTicketMessages(id!),
         enabled: !!id,
-        refetchInterval: false,
+        refetchInterval: 15000,
     });
 };
 

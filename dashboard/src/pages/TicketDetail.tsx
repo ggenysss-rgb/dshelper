@@ -51,19 +51,23 @@ export default function TicketDetail() {
     useEffect(() => {
         if (!socket || !id) return;
         const handleNewMessage = (data: any) => {
-            if (data.channelId === id) {
+            if (!data.channelId || data.channelId === id) {
                 queryClient.invalidateQueries({ queryKey: ['tickets', id, 'messages'] });
-                queryClient.invalidateQueries({ queryKey: ['tickets'] });
             }
+            queryClient.invalidateQueries({ queryKey: ['tickets'] });
         };
-        const handleTicketUpdated = (data: any) => {
-            if (data.channelId === id) queryClient.invalidateQueries({ queryKey: ['tickets'] });
+        const handleTicketUpdated = () => {
+            queryClient.invalidateQueries({ queryKey: ['tickets'] });
         };
         socket.on('ticket:message', handleNewMessage);
         socket.on('ticket:updated', handleTicketUpdated);
+        socket.on('ticket:new', handleTicketUpdated);
+        socket.on('ticket:closed', handleTicketUpdated);
         return () => {
             socket.off('ticket:message', handleNewMessage);
             socket.off('ticket:updated', handleTicketUpdated);
+            socket.off('ticket:new', handleTicketUpdated);
+            socket.off('ticket:closed', handleTicketUpdated);
         };
     }, [socket, id, queryClient]);
 

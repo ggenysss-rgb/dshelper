@@ -218,7 +218,7 @@ function handleDispatch(bot, event, d) {
                                 await bot.sendDiscordMessage(d.channel_id, rule.response, replyMsgId);
                                 bot.log(`✅ Auto-reply sent: "${rule.name}"`);
                                 // Telegram notification
-                                bot.tgSendMessage(null, `🤖 <b>Авто-ответ:</b> "${rule.name}"\n👤 <b>${d.author?.username || 'unknown'}</b>\n💬 "${(d.content || '').slice(0, 80)}"\n📢 #${d.channel_id}`);
+                                bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${rule.name}\n👤 <b>Игрок:</b> ${d.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(d.content || '').slice(0, 150)}</i>` });
                             } catch (e) {
                                 bot.log(`❌ Auto-reply send failed: ${e.message}`);
                             }
@@ -538,7 +538,7 @@ function startAutoReplyPolling(bot) {
                                 await bot.sendDiscordMessage(channelId, rule.response, msg.id);
                                 bot.log(`✅ Auto-reply sent: "${rule.name}"`);
                                 // Telegram notification
-                                bot.tgSendMessage(null, `🤖 <b>Авто-ответ:</b> "${rule.name}"\n👤 <b>${msg.author?.username || 'unknown'}</b>\n💬 "${(msg.content || '').slice(0, 80)}"\n📢 #${channelId}`);
+                                bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${rule.name}\n👤 <b>Игрок:</b> ${msg.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(msg.content || '').slice(0, 150)}</i>` });
                             } catch (e) {
                                 bot.log(`❌ Auto-reply send failed: ${e.message}`);
                             }

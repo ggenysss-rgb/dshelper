@@ -180,6 +180,9 @@ function createStatsRoutes(db, botManager) {
             maxMessageLength: bot.config.maxMessageLength || 300,
             forumMode: bot.config.forumMode ?? false,
             priorityKeywords: bot.config.priorityKeywords || [],
+            staffRoleIds: bot.config.staffRoleIds || [],
+            ticketsCategoryId: bot.config.ticketsCategoryId || '',
+            shiftChannelId: bot.config.shiftChannelId || '',
         });
     });
 

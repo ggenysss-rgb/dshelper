@@ -39,7 +39,7 @@ class BotManager {
             guildId: row.discord_guild_id || env.GUILD_ID || '',
             ticketsCategoryId: row.tickets_category_id || env.TICKETS_CATEGORY_ID || '',
             staffRoleIds: row.staff_role_ids ? JSON.parse(row.staff_role_ids) : envStaffRoleIds,
-            shiftChannelId: env.SHIFT_CHANNEL_ID || '',
+            shiftChannelId: row.shift_channel_id || env.SHIFT_CHANNEL_ID || '',
             userName: row.username || '',
 
             autoGreetEnabled: row.auto_greet_enabled === 1,

@@ -810,7 +810,24 @@ class Bot {
     getLogs(limit = 50) { return this.dashboardLogs.slice(0, limit); }
 
     getSettings() {
-        return { autoGreetEnabled: this.config.autoGreetEnabled, autoGreetText: this.config.autoGreetText || '', activityCheckMin: this.config.activityCheckMin || 10, closingCheckMin: this.config.closingCheckMin || 15, maxMessageLength: this.config.maxMessageLength || 300, ticketPrefix: this.config.ticketPrefix || '', closingPhrase: this.config.closingPhrase || '', forumMode: this.config.forumMode || false };
+        return {
+            autoGreetEnabled: this.config.autoGreetEnabled,
+            autoGreetText: this.config.autoGreetText || '',
+            activityCheckMin: this.config.activityCheckMin || 10,
+            closingCheckMin: this.config.closingCheckMin || 15,
+            maxMessageLength: this.config.maxMessageLength || 300,
+            ticketPrefix: this.config.ticketPrefix || '',
+            closingPhrase: this.config.closingPhrase || '',
+            forumMode: this.config.forumMode || false,
+            includeFirstUserMessage: this.config.includeFirstUserMessage || false,
+            notifyOnClose: this.config.notifyOnClose || false,
+            mentionOnHighPriority: this.config.mentionOnHighPriority || false,
+            pollingIntervalSec: this.config.pollingIntervalSec || 3,
+            rateLimitMs: this.config.rateLimitMs || 200,
+            priorityKeywords: this.config.priorityKeywords || [],
+            ticketsCategoryId: this.config.ticketsCategoryId || '',
+            shiftChannelId: this.config.shiftChannelId || '',
+        };
     }
 
     updateSettings(settings) {

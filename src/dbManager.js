@@ -107,6 +107,16 @@ function initDb(dataDir) {
         console.error("[DB] Migration error on ticket_messages:", e.message);
     }
 
+    // Add shift_channel_id column if missing
+    try {
+        const usersInfo = db.pragma('table_info(users)');
+        if (!usersInfo.some(col => col.name === 'shift_channel_id')) {
+            db.exec("ALTER TABLE users ADD COLUMN shift_channel_id TEXT DEFAULT '';");
+        }
+    } catch (e) {
+        console.error("[DB] Migration error on users.shift_channel_id:", e.message);
+    }
+
     console.log("[DB] SQLite check/migration complete.");
     return db;
 }

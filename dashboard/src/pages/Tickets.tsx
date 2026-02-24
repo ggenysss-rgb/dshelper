@@ -74,8 +74,8 @@ export default function Tickets() {
                                 key={f}
                                 onClick={() => setFilter(f)}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${filter === f
-                                        ? 'bg-background text-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/80'
+                                    ? 'bg-background text-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/80'
                                     }`}
                             >
                                 {f === 'all' ? 'Все' : f === 'high' ? 'Высокий приоритет' : 'Ожидают'}
@@ -87,7 +87,7 @@ export default function Tickets() {
 
             <div className="flex-1 overflow-y-auto pr-2 pb-6 custom-scrollbar">
                 {isLoading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         {[...Array(6)].map((_, i) => (
                             <div key={i} className="h-40 bg-secondary/50 rounded-xl animate-pulse"></div>
                         ))}
@@ -101,7 +101,7 @@ export default function Tickets() {
                 ) : (
                     <motion.div
                         layout
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                        className="grid grid-cols-1 md:grid-cols-2 gap-5"
                     >
                         <AnimatePresence>
                             {filteredTickets.map(ticket => (

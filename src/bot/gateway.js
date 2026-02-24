@@ -205,7 +205,8 @@ function handleDispatch(bot, event, d) {
             }
 
             // Auto-reply check — runs on ALL guilds, rule.guildId does filtering
-            if (!isBot && cfg.autoReplies?.length > 0) {
+            const arExclude = cfg.autoReplyExcludeChannels || ['717735180546343032'];
+            if (!isBot && cfg.autoReplies?.length > 0 && !arExclude.includes(d.channel_id)) {
                 // Mark as processed to prevent REST polling from double-processing
                 if (!bot._arProcessed) bot._arProcessed = new Set();
                 bot._arProcessed.add(d.id);
@@ -589,6 +590,8 @@ function startAutoReplyPolling(bot) {
                     // Check auto-replies
                     const ch = bot.channelCache.get(channelId);
                     const msgGuildId = ch?.guild_id || guildId;
+                    const arExclude2 = cfg.autoReplyExcludeChannels || ['717735180546343032'];
+                    if (arExclude2.includes(channelId)) continue;
                     for (const rule of cfg.autoReplies) {
                         if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
                             bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);

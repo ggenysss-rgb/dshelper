@@ -312,6 +312,54 @@ function handleDispatch(bot, event, d) {
         case 'GUILD_ROLE_DELETE':
             if (d.guild_id === guildId) bot.guildRolesCache.delete(d.role_id);
             break;
+
+        case 'MESSAGE_ACK': {
+            // Detect own messages: Gateway doesn't send MESSAGE_CREATE for selfbot's own messages,
+            // but it DOES send MESSAGE_ACK. Fetch the message and check auto-replies.
+            if (!d.channel_id || !d.message_id) break;
+            // Deduplicate: skip if we already processed this message
+            if (!bot._ackProcessed) bot._ackProcessed = new Set();
+            if (bot._ackProcessed.has(d.message_id)) break;
+            bot._ackProcessed.add(d.message_id);
+            // Keep set small
+            if (bot._ackProcessed.size > 50) {
+                const arr = [...bot._ackProcessed];
+                bot._ackProcessed = new Set(arr.slice(-25));
+            }
+            // Fetch the message via REST and check auto-replies
+            const ackToken = cfg.discordBotToken || cfg.discordToken;
+            if (cfg.autoReplies?.length > 0) {
+                (async () => {
+                    try {
+                        const res = await bot.httpGet(
+                            `https://discord.com/api/v9/channels/${d.channel_id}/messages?limit=1&around=${d.message_id}`,
+                            { Authorization: ackToken }
+                        );
+                        if (!res.ok) return;
+                        const msgs = JSON.parse(res.body);
+                        const msg = msgs.find(m => m.id === d.message_id);
+                        if (!msg || !msg.author || msg.author.bot) return;
+                        // Determine which guild this channel belongs to
+                        const ch = bot.channelCache.get(d.channel_id);
+                        const msgGuildId = ch?.guild_id || msg.guild_id || '';
+                        for (const rule of cfg.autoReplies) {
+                            if (matchAutoReply(rule, msg.content || '', d.channel_id, msgGuildId)) {
+                                bot.log(`🤖 Auto-reply matched (own msg): "${rule.name}" ch:${d.channel_id}`);
+                                await sleep((rule.delay || 2) * 1000);
+                                try {
+                                    await bot.sendDiscordMessage(d.channel_id, rule.response, d.message_id);
+                                    bot.log(`✅ Auto-reply sent: "${rule.name}"`);
+                                } catch (e) {
+                                    bot.log(`❌ Auto-reply send failed: ${e.message}`);
+                                }
+                                break;
+                            }
+                        }
+                    } catch { }
+                })();
+            }
+            break;
+        }
     }
 }
 

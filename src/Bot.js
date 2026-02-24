@@ -1,539 +1,843 @@
-const { EventEmitter } = require('events');
+// ═══════════════════════════════════════════════════════════════
+//  Bot Class — Full-featured ticket notifier bot
+//  Ported from bot.js (4158 lines) into multi-tenant class
+// ═══════════════════════════════════════════════════════════════
+
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
-const { URL } = require('url');
-const WebSocket = require('ws');
+const Database = require('better-sqlite3');
 
-const LOG = '[Bot]';
+const { escapeHtml, truncate, formatDuration, sleep, isStaffFromMember, isClosingPhrase,
+    getKyivDate, formatKyivDate, msUntilKyivHour, getKyivHour, getKyivMinute, getMemberDisplayName,
+    matchAutoReply } = require('./bot/helpers');
+const { buildActivityMessage } = require('./bot/builders');
+const { connectGateway, cleanupGateway } = require('./bot/gateway');
+const { startPolling, stopPolling } = require('./bot/telegram');
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
-function nowTime() { return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kiev' }); }
-function formatDateTime(ts) { return new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Kiev' }); }
-function formatDuration(ms) {
-    const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
-    if (d > 0) return `${d}д ${h % 24}ч`;
-    if (h > 0) return `${h}ч ${m % 60}м`;
-    return `${m}м`;
-}
-function snowflakeToTimestamp(id) { return Number(BigInt(id) >> 22n) + 1420070400000; }
-function channelLink(guildId, channelId) { return `https://discord.com/channels/${guildId}/${channelId}`; }
-
-class Bot extends EventEmitter {
-    constructor(userId, config, db, logsConfig) {
-        super();
+class Bot {
+    constructor(userId, config, dataDir, io) {
         this.userId = userId;
-        this.config = config;
-        this.db = db;
-        this.logsConfig = logsConfig;
+        this.config = {
+            tgToken: config.tgToken || '',
+            tgChatId: config.tgChatId || '',
+            discordToken: config.discordToken || '',
+            discordBotToken: config.discordBotToken || '',
+            guildId: config.guildId || '',
+            ticketsCategoryId: config.ticketsCategoryId || '',
+            ticketPrefix: config.ticketPrefix || 'тикет-от',
+            staffRoleIds: config.staffRoleIds || [],
+            maxMessageLength: config.maxMessageLength || 300,
+            rateLimitMs: config.rateLimitMs || 200,
+            activityCheckMin: config.activityCheckMin || 10,
+            closingCheckMin: config.closingCheckMin || 15,
+            closingPhrase: config.closingPhrase || 'остались вопросы',
+            autoGreetEnabled: config.autoGreetEnabled ?? false,
+            autoGreetText: config.autoGreetText || '',
+            autoGreetDelay: config.autoGreetDelay || 3,
+            autoGreetRoleIds: config.autoGreetRoleIds || [],
+            shiftChannelId: config.shiftChannelId || '',
+            priorityKeywords: config.priorityKeywords || [],
+            binds: config.binds || {},
+            autoReplies: config.autoReplies || [],
+            forumMode: config.forumMode || false,
+            ...config,
+        };
+        this.dataDir = dataDir;
+        this.io = io;
 
+        // ── Runtime State ───────────────────────────
+        this.destroyed = false;
+        this.botPaused = false;
+        this.ws = null;
+        this.sessionId = null;
+        this.resumeUrl = null;
+        this.seq = null;
+        this.heartbeatTimer = null;
+        this.receivedAck = true;
+        this.guildCreateHandled = false;
+        this.pollingOffset = 0;
+        this.pollingTimer = null;
+
+        // ── Telegram Queue ──────────────────────────
+        this.sendQueue = [];
+        this.queueRunning = false;
+        this.lastSendTime = 0;
+
+        // ── Ticket State ────────────────────────────
         this.activeTickets = new Map();
+        this.notifiedFirstMessage = new Set();
+        this.sentByBot = new Set();
+        this.tgMsgToChannel = new Map();
+        this.noReplyTimers = new Map();
+
+        // ── Caches ──────────────────────────────────
         this.channelCache = new Map();
         this.guildCache = new Map();
         this.guildRolesCache = new Map();
         this.guildMembersCache = new Map();
         this.guildPresenceCache = new Map();
 
-        this.ws = null;
-        this.sessionId = null;
-        this.resumeGatewayUrl = null;
-        this.seq = null;
-        this.heartbeatTimer = null;
-        this.receivedAck = true;
-        this.gatewayReady = false;
-        this.selfUserId = null;
-        this.guildCreateHandled = false;
-        this.channelsFetched = false;
-        this.botPaused = false;
+        // ── Persistent State ────────────────────────
+        this.ps = { totalCreated: 0, totalClosed: 0, totalMessagesSent: 0, hourlyBuckets: {} };
+        this.stateDirty = false;
+        this.autosaveTimer = null;
 
-        this.pollingTimer = null;
-        this.pollingRunning = false;
-        this.pollingOffset = 0;
-        this.processedUpdateIds = new Set();
-        this.sendQueue = [];
-        this.queueRunning = false;
-        this.lastSendTime = 0;
-        this.tgMsgToChannel = new Map();
-        this.sentByBot = new Set();
+        // ── Per-user TG state ───────────────────────
+        this.userStates = {}; // { chatId: { activeTicketId, activeTicketName, listPage, shift: {...} } }
 
-        this.noReplyTimers = new Map();
-        this.notifiedTicketIds = new Set();
-        this.notifiedFirstMessage = new Set();
-        this.autoGreetedChannels = new Set();
-        this.autoRepliedBinds = new Set();
+        // ── Shift timers ────────────────────────────
         this.shiftReminderTimer = null;
         this.shiftCloseReminderTimer = null;
-        this.autosaveTimer = null;
-        this.stateDirty = false;
 
+        // ── Dashboard Logs ──────────────────────────
         this.dashboardLogs = [];
-        this.sessionStats = { messagesFailed: 0 };
 
-        this.TELEGRAM_API = `https://api.telegram.org/bot${this.config.tgToken}`;
-        this.IS_BOT_TOKEN = (this.config.discordToken || '').startsWith('Bot ');
-        this.GATEWAY_TOKEN = this.config.discordToken;
-        this.GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
-        this.SAFE_MESSAGE_TYPES = new Set([0, 19, 20]);
+        // ── Telegram API URL ────────────────────────
+        this.telegramApi = `https://api.telegram.org/bot${this.config.tgToken}`;
 
-        this.STATE_FILE = path.join(logsConfig.stateDir, `state_${userId}.json`);
-        this.ARCHIVES_DIR = path.join(logsConfig.dataDir, 'ticket_archives', String(userId));
-        try { if (!fs.existsSync(this.ARCHIVES_DIR)) fs.mkdirSync(this.ARCHIVES_DIR, { recursive: true }); } catch (e) { }
-
-        this.ps = this.emptyState();
-
-        // Prepare DB statements
-        this.stmtInsertClosed = db.prepare(`INSERT INTO closed_tickets (user_id, channel_id, channel_name, opener_id, opener_username, created_at, closed_at, first_staff_reply_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-        this.stmtInsertMessage = db.prepare(`INSERT INTO ticket_messages (user_id, channel_id, message_id, content, author_id, author_username, author_global_name, author_avatar, author_bot, timestamp, embeds, attachments, member_roles) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        // ── SQLite DB ───────────────────────────────
+        this.db = null;
+        this.stmtInsertClosed = null;
+        this.stmtInsertMessage = null;
     }
 
-    emptyState() {
-        return { activeTickets: {}, closedTickets: [], hourlyBuckets: new Array(24).fill(0), totalCreated: 0, totalClosed: 0, totalMessagesSent: 0 };
+    // ═══════════════════════════════════════════════════════
+    //  LIFECYCLE
+    // ═══════════════════════════════════════════════════════
+
+    async start() {
+        const token = this.config.discordBotToken || this.config.discordToken;
+        if (!token) { this.log('❌ No Discord token configured'); return; }
+        if (!this.config.tgToken) { this.log('❌ No Telegram token configured'); return; }
+
+        this.log('═══════════════════════════════════════');
+        this.log(' Telegram Ticket Notifier — Starting');
+        this.log('═══════════════════════════════════════');
+
+        this.initDb();
+        this.loadState();
+        this.startAutosave();
+        connectGateway(this);
+        startPolling(this);
+        this.scheduleShiftReminder();
     }
+
+    stop() {
+        this.log('🛑 Stopping bot...');
+        this.destroyed = true;
+        stopPolling(this);
+        this.stopAutosave();
+        if (this.shiftReminderTimer) { clearTimeout(this.shiftReminderTimer); this.shiftReminderTimer = null; }
+        if (this.shiftCloseReminderTimer) { clearTimeout(this.shiftCloseReminderTimer); this.shiftCloseReminderTimer = null; }
+        this.noReplyTimers.forEach(t => clearTimeout(t));
+        this.noReplyTimers.clear();
+        this.saveState();
+        if (this.ws) try { this.ws.close(1000); } catch { }
+        if (this.db) try { this.db.close(); } catch { }
+    }
+
+    log(msg) { console.log(`[Bot:${this.userId}] ${msg}`); }
+
+    // ═══════════════════════════════════════════════════════
+    //  DATABASE
+    // ═══════════════════════════════════════════════════════
+
+    initDb() {
+        const dbFile = path.join(this.dataDir, `tickets_${this.userId}.db`);
+        this.db = new Database(dbFile);
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('busy_timeout = 5000');
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS closed_tickets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT NOT NULL,
+                channel_name TEXT DEFAULT '', opener_id TEXT DEFAULT '', opener_username TEXT DEFAULT '',
+                created_at INTEGER DEFAULT 0, closed_at INTEGER DEFAULT 0, first_staff_reply_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_ct_closed ON closed_tickets(closed_at);
+            CREATE TABLE IF NOT EXISTS ticket_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT NOT NULL,
+                message_id TEXT DEFAULT '', content TEXT DEFAULT '',
+                author_id TEXT DEFAULT '', author_username TEXT DEFAULT '',
+                author_global_name TEXT, author_avatar TEXT, author_bot INTEGER DEFAULT 0,
+                timestamp TEXT DEFAULT '', embeds TEXT, attachments TEXT, member_roles TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_tm_ch ON ticket_messages(channel_id);
+        `);
+        this.stmtInsertClosed = this.db.prepare(
+            `INSERT INTO closed_tickets (channel_id, channel_name, opener_id, opener_username, created_at, closed_at, first_staff_reply_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        );
+        this.stmtInsertMessage = this.db.prepare(
+            `INSERT INTO ticket_messages (channel_id, message_id, content, author_id, author_username, author_global_name, author_avatar, author_bot, timestamp, embeds, attachments, member_roles) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        this.log(`💾 DB ready: ${dbFile}`);
+    }
+
+    dbInsertClosedTicket(ticket) {
+        try {
+            this.stmtInsertClosed.run(ticket.channelId, ticket.channelName || '', ticket.openerId || '', ticket.openerUsername || '', ticket.createdAt || 0, ticket.closedAt || Date.now(), ticket.firstStaffReplyAt || null);
+        } catch (e) { this.log(`DB insert error: ${e.message}`); }
+    }
+
+    dbInsertMessages(channelId, messages) {
+        const tx = this.db.transaction((msgs) => {
+            this.db.prepare('DELETE FROM ticket_messages WHERE channel_id = ?').run(channelId);
+            for (const m of msgs) {
+                this.stmtInsertMessage.run(channelId, m.id || '', m.content || '', m.author?.id || '', m.author?.username || '', m.author?.global_name || null, m.author?.avatar || null, m.author?.bot ? 1 : 0, m.timestamp || '', m.embeds ? JSON.stringify(m.embeds) : null, m.attachments ? JSON.stringify(m.attachments) : null, m.member?.roles ? JSON.stringify(m.member.roles) : null);
+            }
+        });
+        tx(messages);
+    }
+
+    dbGetClosedTickets({ page = 1, limit = 50, search = '' } = {}) {
+        let where = ''; const params = [];
+        if (search) { where = 'WHERE channel_name LIKE ? OR opener_username LIKE ?'; params.push(`%${search}%`, `%${search}%`); }
+        const total = this.db.prepare(`SELECT COUNT(*) as cnt FROM closed_tickets ${where}`).get(...params).cnt;
+        params.push(limit, (page - 1) * limit);
+        const rows = this.db.prepare(`SELECT * FROM closed_tickets ${where} ORDER BY closed_at DESC LIMIT ? OFFSET ?`).all(...params);
+        return {
+            tickets: rows.map(r => ({ channelId: r.channel_id, channelName: r.channel_name, openerId: r.opener_id, openerUsername: r.opener_username, createdAt: r.created_at, closedAt: r.closed_at, firstStaffReplyAt: r.first_staff_reply_at })),
+            total, page, totalPages: Math.ceil(total / limit),
+        };
+    }
+
+    dbGetTicketMessages(channelId) {
+        return this.db.prepare('SELECT * FROM ticket_messages WHERE channel_id = ? ORDER BY id ASC').all(channelId).map(r => ({
+            id: r.message_id, content: r.content,
+            author: { id: r.author_id, username: r.author_username, global_name: r.author_global_name, avatar: r.author_avatar, bot: !!r.author_bot },
+            timestamp: r.timestamp, embeds: r.embeds ? JSON.parse(r.embeds) : [], attachments: r.attachments ? JSON.parse(r.attachments) : [],
+        }));
+    }
+
+    dbGetClosedCount() { return this.db.prepare('SELECT COUNT(*) as cnt FROM closed_tickets').get().cnt; }
+
+    dbGetAllClosedTickets() {
+        return this.db.prepare('SELECT * FROM closed_tickets ORDER BY closed_at DESC').all().map(r => ({
+            channelId: r.channel_id, channelName: r.channel_name, openerId: r.opener_id,
+            openerUsername: r.opener_username, createdAt: r.created_at, closedAt: r.closed_at,
+            firstStaffReplyAt: r.first_staff_reply_at,
+        }));
+    }
+
+    // Save config changes back to DB (called by dashboard API)
+    saveConfigToDb() {
+        // If we have a reference to the shared DB, update the users row
+        if (this._sharedDb) {
+            try {
+                this._sharedDb.prepare(`UPDATE users SET
+                    auto_greet_enabled = ?, auto_greet_text = ?,
+                    activity_check_min = ?, closing_check_min = ?,
+                    closing_phrase = ?, ticket_prefix = ?,
+                    rate_limit_ms = ?, max_message_length = ?,
+                    forum_mode = ?, binds = ?, auto_replies = ?,
+                    priority_keywords = ?
+                    WHERE id = ?`).run(
+                    this.config.autoGreetEnabled ? 1 : 0, this.config.autoGreetText || '',
+                    this.config.activityCheckMin || 10, this.config.closingCheckMin || 15,
+                    this.config.closingPhrase || '', this.config.ticketPrefix || '',
+                    this.config.rateLimitMs || 200, this.config.maxMessageLength || 300,
+                    this.config.forumMode ? 1 : 0,
+                    JSON.stringify(this.config.binds || {}),
+                    JSON.stringify(this.config.autoReplies || []),
+                    JSON.stringify(this.config.priorityKeywords || []),
+                    this.userId
+                );
+            } catch (e) { this.log(`saveConfigToDb error: ${e.message}`); }
+        }
+    }
+
+    updateConfig(newConfig) {
+        Object.assign(this.config, newConfig);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  STATE PERSISTENCE
+    // ═══════════════════════════════════════════════════════
+
+    get stateFile() { return path.join(this.dataDir, `state_${this.userId}.json`); }
+
     markDirty() { this.stateDirty = true; }
+
+    loadState() {
+        try {
+            if (!fs.existsSync(this.stateFile)) return;
+            const data = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
+            this.ps = { ...this.ps, ...data.ps };
+            this.pollingOffset = data.pollingOffset || 0;
+            this.userStates = data.userStates || {};
+            if (data.activeTickets) {
+                for (const [k, v] of Object.entries(data.activeTickets)) this.activeTickets.set(k, v);
+            }
+            if (data.notifiedFirstMessage) {
+                for (const id of data.notifiedFirstMessage) this.notifiedFirstMessage.add(id);
+            }
+            this.log(`📂 State loaded (${this.activeTickets.size} active tickets)`);
+        } catch (e) { this.log(`State load error: ${e.message}`); }
+    }
+
+    saveState() {
+        try {
+            const data = {
+                ps: this.ps, pollingOffset: this.pollingOffset,
+                userStates: this.userStates,
+                activeTickets: Object.fromEntries(this.activeTickets.entries()),
+                notifiedFirstMessage: [...this.notifiedFirstMessage],
+            };
+            fs.writeFileSync(this.stateFile, JSON.stringify(data, null, 2), 'utf8');
+            this.stateDirty = false;
+        } catch (e) { this.log(`State save error: ${e.message}`); }
+    }
+
+    startAutosave() {
+        this.autosaveTimer = setInterval(() => { if (this.stateDirty) this.saveState(); }, 30000);
+        // Snapshot active ticket messages periodically
+        setInterval(() => { this.snapshotAllActiveTickets().catch(() => { }); }, 2 * 60 * 1000);
+    }
+
+    stopAutosave() { if (this.autosaveTimer) { clearInterval(this.autosaveTimer); this.autosaveTimer = null; } }
+
     addLog(type, message) {
         this.dashboardLogs.unshift({ type, message, timestamp: Date.now() });
         if (this.dashboardLogs.length > 200) this.dashboardLogs.length = 200;
     }
 
-    // ── State Persistence ─────────────────────────────
-    loadState() {
-        try {
-            if (!fs.existsSync(this.STATE_FILE)) return;
-            const raw = fs.readFileSync(this.STATE_FILE, 'utf8');
-            const parsed = JSON.parse(raw);
-            this.ps = { ...this.emptyState(), ...parsed };
-            for (const [id, rec] of Object.entries(this.ps.activeTickets)) {
-                rec.lastStaffMessageAt = rec.lastStaffMessageAt ?? null;
-                rec.waitingForReply = rec.waitingForReply ?? false;
-                rec.activityTimerType = rec.activityTimerType ?? null;
-                this.activeTickets.set(id, rec);
-            }
-            console.log(`${LOG} [${this.userId}] State loaded: ${this.activeTickets.size} active tickets`);
-        } catch (e) {
-            console.error(`${LOG} [${this.userId}] State load error:`, e.message);
-            this.ps = this.emptyState();
-        }
-    }
-    saveState() {
-        try {
-            this.ps.activeTickets = Object.fromEntries(this.activeTickets.entries());
-            fs.writeFileSync(this.STATE_FILE, JSON.stringify(this.ps, null, 2), 'utf8');
-            this.stateDirty = false;
-        } catch (e) { console.error(`${LOG} [${this.userId}] State save error:`, e.message); }
-    }
-    saveConfigToDb() {
-        try {
-            const camelToSnake = s => s.replace(/[A-Z]/g, l => `_${l.toLowerCase()}`);
-            const fields = ['binds', 'autoReplies', 'autoGreetEnabled', 'autoGreetText', 'autoGreetRoleIds',
-                'activityCheckMin', 'closingCheckMin', 'notifyOnClose', 'includeFirstUserMessage',
-                'mentionOnHighPriority', 'forumMode', 'closingPhrase', 'priorityKeywords', 'ticketPrefix',
-                'pollingIntervalSec', 'rateLimitMs', 'maxMessageLength'];
-            const updates = []; const params = [];
-            for (const k of fields) {
-                let v = this.config[k]; if (v === undefined) continue;
-                if (typeof v === 'boolean') v = v ? 1 : 0;
-                else if (typeof v === 'object') v = JSON.stringify(v);
-                updates.push(`${camelToSnake(k)} = ?`); params.push(v);
-            }
-            if (updates.length > 0) {
-                params.push(this.userId);
-                this.db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-            }
-        } catch (e) { console.error(`${LOG} [${this.userId}] Config save error:`, e.message); }
-    }
+    // ═══════════════════════════════════════════════════════
+    //  HTTP HELPERS
+    // ═══════════════════════════════════════════════════════
 
-    // ── DB Helpers ─────────────────────────────────────
-    dbInsertClosedTicket(t) {
-        this.stmtInsertClosed.run(this.userId, t.channelId, t.channelName || '', t.openerId || '', t.openerUsername || '', t.createdAt || 0, t.closedAt || Date.now(), t.firstStaffReplyAt || null);
-    }
-    dbGetClosedTickets({ page = 1, limit = 50, search = '' } = {}) {
-        let where = 'WHERE user_id = ?'; const params = [this.userId];
-        if (search) { where += ' AND (channel_name LIKE ? OR opener_username LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
-        const total = this.db.prepare(`SELECT COUNT(*) as cnt FROM closed_tickets ${where}`).get(...params).cnt;
-        const offset = (page - 1) * limit; params.push(limit, offset);
-        const rows = this.db.prepare(`SELECT * FROM closed_tickets ${where} ORDER BY closed_at DESC LIMIT ? OFFSET ?`).all(...params);
-        return { tickets: rows.map(r => ({ channelId: r.channel_id, channelName: r.channel_name, openerId: r.opener_id, openerUsername: r.opener_username, createdAt: r.created_at, closedAt: r.closed_at, firstStaffReplyAt: r.first_staff_reply_at })), total, page, totalPages: Math.ceil(total / limit) };
-    }
-    dbGetAllClosedTickets() {
-        return this.db.prepare('SELECT * FROM closed_tickets WHERE user_id = ? ORDER BY closed_at DESC').all(this.userId)
-            .map(r => ({ channelId: r.channel_id, channelName: r.channel_name, openerId: r.opener_id, openerUsername: r.opener_username, createdAt: r.created_at, closedAt: r.closed_at, firstStaffReplyAt: r.first_staff_reply_at }));
-    }
-    dbGetTicketMessages(channelId) {
-        return this.db.prepare('SELECT * FROM ticket_messages WHERE user_id = ? AND channel_id = ? ORDER BY id ASC').all(this.userId, channelId)
-            .map(r => ({ id: r.message_id, content: r.content, author: { id: r.author_id, username: r.author_username, global_name: r.author_global_name, avatar: r.author_avatar, bot: !!r.author_bot }, timestamp: r.timestamp, embeds: r.embeds ? JSON.parse(r.embeds) : [], attachments: r.attachments ? JSON.parse(r.attachments) : [], member: r.member_roles ? { roles: JSON.parse(r.member_roles) } : undefined }));
-    }
-    dbGetClosedCount() { return this.db.prepare('SELECT COUNT(*) as cnt FROM closed_tickets WHERE user_id = ?').get(this.userId).cnt; }
-
-    // ── HTTP Helpers ──────────────────────────────────
     httpPost(url, body) {
         return new Promise((resolve, reject) => {
             const u = new URL(url); const data = JSON.stringify(body);
             const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, res => {
-                let chunks = ''; res.on('data', c => chunks += c); res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
-            }); req.on('error', reject); req.write(data); req.end();
+                let chunks = ''; res.on('data', c => chunks += c);
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+            });
+            req.on('error', reject); req.write(data); req.end();
         });
     }
+
     httpGet(url, headers = {}) {
         return new Promise((resolve, reject) => {
             const u = new URL(url);
             const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers }, res => {
-                let chunks = ''; res.on('data', c => chunks += c); res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
-            }); req.on('error', reject); req.end();
+                let chunks = ''; res.on('data', c => chunks += c);
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+            });
+            req.on('error', reject); req.end();
         });
     }
 
-    // ── Telegram API ─────────────────────────────────
+    // ═══════════════════════════════════════════════════════
+    //  TELEGRAM API
+    // ═══════════════════════════════════════════════════════
+
     async tgSendMessage(chatId, text, replyMarkup, threadId) {
         const payload = { chat_id: chatId || this.config.tgChatId, text, parse_mode: 'HTML', disable_web_page_preview: true };
         if (replyMarkup) payload.reply_markup = replyMarkup;
         if (threadId) payload.message_thread_id = threadId;
         try {
-            const res = await this.httpPost(`${this.TELEGRAM_API}/sendMessage`, payload);
-            if (!res.ok) { if (res.status === 429) { try { const j = JSON.parse(res.body); await sleep((j?.parameters?.retry_after ?? 5) * 1000); } catch { } } return { ok: false, messageId: null }; }
-            let messageId = null; try { const j = JSON.parse(res.body); if (j.ok && j.result) messageId = j.result.message_id; } catch { }
+            const res = await this.httpPost(`${this.telegramApi}/sendMessage`, payload);
+            if (!res.ok) {
+                this.log(`TG API ${res.status}: ${res.body?.slice(0, 100)}`);
+                if (res.status === 429) try { const j = JSON.parse(res.body); await sleep((j?.parameters?.retry_after ?? 5) * 1000); } catch { }
+                return { ok: false, messageId: null };
+            }
+            let messageId = null;
+            try { const j = JSON.parse(res.body); if (j.ok && j.result) messageId = j.result.message_id; } catch { }
             return { ok: true, messageId };
-        } catch (e) { return { ok: false, messageId: null }; }
+        } catch (e) { this.log(`TG error: ${e.message}`); return { ok: false, messageId: null }; }
     }
 
-    // ── Discord REST ─────────────────────────────────
+    async tgGetUpdates() {
+        try {
+            const res = await this.httpGet(`${this.telegramApi}/getUpdates?offset=${this.pollingOffset}&timeout=1&allowed_updates=["message","callback_query"]`);
+            if (!res.ok) return [];
+            const data = JSON.parse(res.body);
+            return data.ok ? (data.result || []) : [];
+        } catch { return []; }
+    }
+
+    async tgAnswerCallbackQuery(cbqId, text) {
+        try { await this.httpPost(`${this.telegramApi}/answerCallbackQuery`, { callback_query_id: cbqId, text: text || '' }); } catch { }
+    }
+
+    async tgEditMessageText(chatId, messageId, text, replyMarkup) {
+        const payload = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', disable_web_page_preview: true };
+        if (replyMarkup) payload.reply_markup = replyMarkup;
+        try { await this.httpPost(`${this.telegramApi}/editMessageText`, payload); } catch { }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  DISCORD REST
+    // ═══════════════════════════════════════════════════════
+
     async sendDiscordMessage(channelId, content, replyToMessageId) {
+        const token = this.config.discordBotToken || this.config.discordToken;
         const url = `https://discord.com/api/v9/channels/${channelId}/messages`;
-        const payload = { content }; if (replyToMessageId) payload.message_reference = { message_id: replyToMessageId };
+        const payload = { content };
+        if (replyToMessageId) payload.message_reference = { message_id: replyToMessageId };
         const body = JSON.stringify(payload);
         return new Promise((resolve, reject) => {
             const u = new URL(url);
-            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'Authorization': this.GATEWAY_TOKEN, 'User-Agent': 'Mozilla/5.0' } }, res => {
-                let chunks = ''; res.on('data', c => chunks += c); res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
-            }); req.on('error', reject); req.write(body); req.end();
+            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: token, 'User-Agent': 'Mozilla/5.0' } }, res => {
+                let chunks = ''; res.on('data', c => chunks += c);
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+            });
+            req.on('error', reject); req.write(body); req.end();
         });
     }
+
     async editDiscordMessage(channelId, messageId, content) {
+        const token = this.config.discordBotToken || this.config.discordToken;
         const url = `https://discord.com/api/v9/channels/${channelId}/messages/${messageId}`;
         const body = JSON.stringify({ content });
         return new Promise((resolve, reject) => {
             const u = new URL(url);
-            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'Authorization': this.GATEWAY_TOKEN, 'User-Agent': 'Mozilla/5.0' } }, res => {
-                let chunks = ''; res.on('data', c => chunks += c); res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
-            }); req.on('error', reject); req.write(body); req.end();
+            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: token, 'User-Agent': 'Mozilla/5.0' } }, res => {
+                let chunks = ''; res.on('data', c => chunks += c);
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+            });
+            req.on('error', reject); req.write(body); req.end();
         });
     }
+
     async fetchChannelMessages(channelId, limit = 100) {
+        const token = this.config.discordBotToken || this.config.discordToken;
         try {
-            const res = await this.httpGet(`https://discord.com/api/v9/channels/${channelId}/messages?limit=${limit}`, { Authorization: this.GATEWAY_TOKEN });
-            if (!res.ok) return [];
-            return JSON.parse(res.body);
+            const res = await this.httpGet(`https://discord.com/api/v9/channels/${channelId}/messages?limit=${limit}`, { Authorization: token });
+            return res.ok ? JSON.parse(res.body) : [];
         } catch { return []; }
     }
 
-    // ── Queue & Send ─────────────────────────────────
-    enqueue(item) { this.sendQueue.push({ retries: 0, ...item }); if (!this.queueRunning) this.runQueue(); }
+    // ═══════════════════════════════════════════════════════
+    //  TELEGRAM QUEUE
+    // ═══════════════════════════════════════════════════════
+
+    enqueue(item) {
+        this.sendQueue.push({ retries: 0, ...item });
+        if (!this.queueRunning) this.runQueue();
+    }
+
     async runQueue() {
-        if (this.queueRunning) return; this.queueRunning = true;
+        if (this.queueRunning) return;
+        this.queueRunning = true;
         while (this.sendQueue.length > 0) {
             const item = this.sendQueue[0];
-            const wait = (this.config.rateLimitMs || 1500) - (Date.now() - this.lastSendTime);
+            const wait = this.config.rateLimitMs - (Date.now() - this.lastSendTime);
             if (wait > 0) await sleep(wait);
             this.lastSendTime = Date.now();
             const result = await this.tgSendMessage(item.chatId || this.config.tgChatId, item.text, item.replyMarkup, item.threadId);
             if (result.ok) {
-                this.sendQueue.shift(); this.ps.totalMessagesSent++; this.markDirty();
-                if (result.messageId && item.channelId) { this.tgMsgToChannel.set(result.messageId, { channelId: item.channelId, chatId: item.chatId }); if (this.tgMsgToChannel.size > 400) { const ks = [...this.tgMsgToChannel.keys()]; for (let i = 0; i < ks.length - 200; i++)this.tgMsgToChannel.delete(ks[i]); } }
+                this.sendQueue.shift();
+                this.ps.totalMessagesSent++;
+                this.markDirty();
+                if (result.messageId && item.channelId) {
+                    this.tgMsgToChannel.set(result.messageId, { channelId: item.channelId, chatId: item.chatId });
+                    if (this.tgMsgToChannel.size > 400) { const keys = [...this.tgMsgToChannel.keys()]; for (let i = 0; i < keys.length - 200; i++) this.tgMsgToChannel.delete(keys[i]); }
+                }
             } else {
                 item.retries = (item.retries || 0) + 1;
-                if (item.retries >= 3) { this.sendQueue.shift(); this.sessionStats.messagesFailed++; } else { await sleep(2000 * item.retries); }
+                if (item.retries >= 3) { this.sendQueue.shift(); this.addLog('error', 'Сообщение потеряно после 3 попыток'); }
+                else await sleep(2000 * item.retries);
             }
         }
         this.queueRunning = false;
     }
 
-    // ── Ticket helpers ───────────────────────────────
-    isTicketChannel(ch) {
-        const prefix = this.config.ticketPrefix || 'ticket-';
-        const catId = this.config.ticketsCategoryId;
-        if (catId && ch.parent_id === catId) return true;
-        return (ch.name || '').startsWith(prefix);
-    }
-    isStaffFromMember(member) {
-        if (!member?.roles) return false;
-        return member.roles.some(r => (this.config.staffRoleIds || []).includes(r));
-    }
-    getPriority(name, content = '') {
-        const kws = this.config.priorityKeywords || { high: [], medium: [] };
-        const lower = `${name} ${content}`.toLowerCase();
-        const high = (kws.high || []).some(k => lower.includes(k.toLowerCase()));
-        const medium = (kws.medium || []).some(k => lower.includes(k.toLowerCase()));
-        return { high, medium, emoji: high ? '🔴' : medium ? '🟡' : '🟢', badge: high ? 'ВЫСОКИЙ' : medium ? 'Средний' : 'Обычный' };
-    }
-    registerTicket(channel, silent = false) {
-        if (this.activeTickets.has(channel.id)) return this.activeTickets.get(channel.id);
-        if (!this.isTicketChannel(channel)) return null;
-        const guild = this.guildCache.get(channel.guild_id || this.config.guildId);
-        const record = { channelId: channel.id, channelName: channel.name || channel.id, guildId: channel.guild_id || this.config.guildId, guildName: guild?.name || 'Unknown', createdAt: snowflakeToTimestamp(channel.id), tgThreadId: null, lastMessage: '', lastMessageAt: 0, firstStaffReplyAt: null, openerId: '', openerUsername: '', lastStaffMessageAt: null, waitingForReply: false, activityTimerType: null };
-        this.activeTickets.set(channel.id, record);
-        if (!silent) { this.ps.totalCreated++; this.ps.hourlyBuckets[new Date().getHours()]++; }
-        this.markDirty();
-        return record;
+    // ═══════════════════════════════════════════════════════
+    //  USER STATE (per TG chat)
+    // ═══════════════════════════════════════════════════════
+
+    getUserState(chatId) {
+        if (!this.userStates[chatId]) {
+            this.userStates[chatId] = { activeTicketId: null, activeTicketName: null, listPage: 0, shift: { lastShiftDate: null, lastShiftMessageId: null, lastShiftClosed: false, lastShiftContent: null, reminderSentDate: null, lateReminderSentDate: null, closeReminderSentDate: null } };
+        }
+        return this.userStates[chatId];
     }
 
-    // ── Gateway ──────────────────────────────────────
-    connectGateway() {
-        const url = this.resumeGatewayUrl ? `${this.resumeGatewayUrl}/?v=9&encoding=json` : this.GATEWAY_URL;
-        console.log(`${LOG} [${this.userId}] 🔌 Connecting to Gateway...`);
-        this.ws = new WebSocket(url);
-        this.ws.on('open', () => { console.log(`${LOG} [${this.userId}] 🔌 Connected.`); this.addLog('gateway', 'Connected to Discord Gateway'); });
-        this.ws.on('message', raw => { try { this.handleGatewayMessage(JSON.parse(raw)); } catch (e) { } });
-        this.ws.on('close', (code) => {
-            console.log(`${LOG} [${this.userId}] 🔌 Disconnected: ${code}`);
-            this.cleanupGateway();
-            if (code === 4004) { console.error(`${LOG} [${this.userId}] Invalid token!`); return; }
-            if (code === 4002) { this.sessionId = null; this.resumeGatewayUrl = null; this.seq = null; }
-            // Only reconnect if not manually stopped
-            if (!this._stopped) { setTimeout(() => this.connectGateway(), 5000); }
-        });
-        this.ws.on('error', err => { console.error(`${LOG} [${this.userId}] WS error:`, err.message); });
-    }
-    handleGatewayMessage(msg) {
-        const { op, d, s, t } = msg;
-        if (s !== null && s !== undefined) this.seq = s;
-        switch (op) {
-            case 10: this.startHeartbeat(d.heartbeat_interval); this.sessionId ? this.sendResume() : this.sendIdentify(); break;
-            case 11: this.receivedAck = true; break;
-            case 0: this.handleDispatch(t, d); break;
-            case 7: this.ws.close(4000); break;
-            case 9: this.sessionId = null; this.resumeGatewayUrl = null; setTimeout(() => this.sendIdentify(), Math.random() * 4000 + 1000); break;
-        }
-    }
-    handleDispatch(event, data) {
-        switch (event) {
-            case 'READY':
-                this.sessionId = data.session_id; this.resumeGatewayUrl = data.resume_gateway_url;
-                this.gatewayReady = true; this.selfUserId = data.user.id;
-                console.log(`${LOG} [${this.userId}] ✅ Authorized as ${data.user.username}`);
-                this.addLog('gateway', `Authorized as ${data.user.username}`);
-                if (!this.pollingTimer) this.schedulePolling();
-                if (data.guilds) { for (const g of data.guilds) { if (g.id === this.config.guildId && (g.channels || g.name)) { this.onGuildCreate(g); this.guildCreateHandled = true; } } }
-                break;
-            case 'RESUMED':
-                console.log(`${LOG} [${this.userId}] ✅ Session resumed.`); break;
-            case 'GUILD_CREATE':
-                if (data.id === this.config.guildId && this.guildCreateHandled) break;
-                this.onGuildCreate(data); break;
-            case 'MESSAGE_CREATE': this.onMessageCreate(data); break;
-            case 'CHANNEL_CREATE': this.onChannelCreate(data); break;
-            case 'CHANNEL_UPDATE': if (data.guild_id === this.config.guildId) this.channelCache.set(data.id, data); break;
-            case 'CHANNEL_DELETE': this.onChannelDelete(data); break;
-            case 'THREAD_CREATE': this.onThreadCreate(data); break;
-            case 'GUILD_MEMBER_LIST_UPDATE':
-                if (data.guild_id !== this.config.guildId) break;
-                if (data.ops) for (const op of data.ops) {
-                    if (op.items) for (const item of op.items) { if (item.member?.user) { this.guildMembersCache.set(item.member.user.id, item.member); if (item.member.presence) this.guildPresenceCache.set(item.member.user.id, item.member.presence.status || 'offline'); } }
-                    if (op.item?.member?.user) { this.guildMembersCache.set(op.item.member.user.id, op.item.member); if (op.item.member.presence) this.guildPresenceCache.set(op.item.member.user.id, op.item.member.presence.status || 'offline'); }
-                } break;
-            case 'PRESENCE_UPDATE':
-                if (data.guild_id === this.config.guildId && data.user?.id) this.guildPresenceCache.set(data.user.id, data.status || 'offline'); break;
-        }
-    }
-    sendIdentify() {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        const payload = this.IS_BOT_TOKEN
-            ? { token: this.GATEWAY_TOKEN, intents: 33283, properties: { os: 'linux', browser: 'ticket-notifier', device: 'ticket-notifier' }, compress: false, large_threshold: 250 }
-            : { token: this.GATEWAY_TOKEN, properties: { os: 'Windows', browser: 'Chrome', device: '' }, presence: { status: 'online', activities: [], since: 0, afk: false }, compress: false, large_threshold: 250 };
-        this.ws.send(JSON.stringify({ op: 2, d: payload }));
-    }
-    sendResume() {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        this.ws.send(JSON.stringify({ op: 6, d: { token: this.GATEWAY_TOKEN, session_id: this.sessionId, seq: this.seq } }));
-    }
-    startHeartbeat(interval) {
-        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-        this.receivedAck = true;
-        const jitter = Math.floor(interval * Math.random());
-        setTimeout(() => {
-            if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ op: 1, d: this.seq }));
-            this.heartbeatTimer = setInterval(() => {
-                if (!this.receivedAck) { if (this.ws) this.ws.close(4000); return; }
-                this.receivedAck = false;
-                if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ op: 1, d: this.seq }));
-            }, interval);
-        }, jitter);
-    }
-    cleanupGateway() { if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; } this.receivedAck = true; this.guildCreateHandled = false; }
-
-    // ── Event Handlers ───────────────────────────────
-    onGuildCreate(guild) {
-        if (guild.id !== this.config.guildId) return;
-        this.guildCache.set(guild.id, { id: guild.id, name: guild.name || 'Unknown' });
-        if (guild.roles) for (const r of guild.roles) this.guildRolesCache.set(r.id, r);
-        if (guild.members) for (const m of guild.members) { if (m.user) this.guildMembersCache.set(m.user.id, m); }
-        if (guild.presences) for (const p of guild.presences) { if (p.user?.id) this.guildPresenceCache.set(p.user.id, p.status || 'offline'); }
-        let chCount = 0;
-        for (const ch of guild.channels || []) { this.channelCache.set(ch.id, { ...ch, guild_id: guild.id }); chCount++; }
-        for (const th of guild.threads || []) { this.channelCache.set(th.id, { ...th, guild_id: guild.id }); chCount++; }
-        console.log(`${LOG} [${this.userId}] 🏠 Guild ${guild.name}: ${chCount} channels, ${this.guildRolesCache.size} roles, ${this.guildMembersCache.size} members`);
-        this.scanExistingTickets();
-        if (!this.IS_BOT_TOKEN) this.fetchGuildChannelsREST(guild.id);
-    }
-    onChannelCreate(data) {
-        if ((data.guild_id || this.config.guildId) !== this.config.guildId) return;
-        data.guild_id = this.config.guildId;
-        this.channelCache.set(data.id, data);
-        if (this.activeTickets.has(data.id)) return;
-        const record = this.registerTicket(data);
-        if (!record || this.botPaused) return;
-        if (this.notifiedTicketIds.has(data.id)) return;
-        this.notifiedTicketIds.add(data.id); setTimeout(() => this.notifiedTicketIds.delete(data.id), 60000);
-        console.log(`${LOG} [${this.userId}] ✅ New ticket: #${data.name}`);
-        this.addLog('ticket', `New ticket: #${data.name || data.id}`);
-        const guild = this.guildCache.get(this.config.guildId);
-        const msg = this.buildTicketCreatedMessage(data, guild);
-        this.enqueue({ ...msg, channelId: data.id });
-    }
-    onChannelDelete(data) {
-        if ((data.guild_id || this.channelCache.get(data.id)?.guild_id) !== this.config.guildId) return;
-        this.channelCache.delete(data.id);
-        if (!this.config.notifyOnClose) return;
-        const record = this.activeTickets.get(data.id);
-        if (!record && !this.isTicketChannel(data)) return;
-        const fallback = record || { channelId: data.id, channelName: data.name || data.id, guildId: this.config.guildId, guildName: this.guildCache.get(this.config.guildId)?.name || 'Unknown', createdAt: Date.now() - 60000 };
-        this.dbInsertClosedTicket({ channelId: data.id, channelName: fallback.channelName, openerId: fallback.openerId || '', openerUsername: fallback.openerUsername || '', createdAt: fallback.createdAt, closedAt: Date.now(), firstStaffReplyAt: fallback.firstStaffReplyAt || null });
-        this.activeTickets.delete(data.id); this.ps.totalClosed++; this.markDirty();
-        this.addLog('ticket', `Ticket closed: #${fallback.channelName}`);
-        if (!this.botPaused) { this.enqueue(this.buildTicketClosedMessage(fallback)); }
-    }
-    onThreadCreate(data) {
-        if ((data.guild_id || this.config.guildId) !== this.config.guildId) return;
-        data.guild_id = this.config.guildId; this.channelCache.set(data.id, data);
-        if (this.activeTickets.has(data.id)) return;
-        this.registerTicket(data, !data.newly_created);
-    }
-    onMessageCreate(data) {
-        const guildId = data.guild_id || this.channelCache.get(data.channel_id)?.guild_id;
-        if (guildId !== this.config.guildId) return;
-        const channelId = data.channel_id;
-        let channel = this.channelCache.get(channelId);
-        if (!channel) { if (this.activeTickets.has(channelId)) { channel = { id: channelId, name: this.activeTickets.get(channelId).channelName, guild_id: guildId, parent_id: this.config.ticketsCategoryId, type: 0 }; this.channelCache.set(channelId, channel); } else return; }
-        if (!this.activeTickets.has(channelId)) { if (!this.isTicketChannel(channel)) return; this.registerTicket(channel); }
-        const author = data.author; if (!author || author.bot || data.webhook_id) return;
-        const record = this.activeTickets.get(channelId); if (!record) return;
-        const staffSent = this.isStaffFromMember(data.member);
-        if (!staffSent && !record.openerId) { record.openerId = author.id || ''; record.openerUsername = author.username || ''; this.markDirty(); }
-        if (staffSent && record.firstStaffReplyAt === null) { record.firstStaffReplyAt = Date.now(); this.markDirty(); }
-        if (data.content) { record.lastMessage = (staffSent ? '[Саппорт] ' : '') + data.content; record.lastMessageAt = Date.now(); this.markDirty(); }
-        if (staffSent) return; // Don't notify staff messages to TG
-        if (this.botPaused || !this.config.includeFirstUserMessage) return;
-        if (this.notifiedFirstMessage.has(channelId)) return;
-        if (!this.SAFE_MESSAGE_TYPES.has(data.type ?? 0)) return;
-        this.notifiedFirstMessage.add(channelId);
-        this.addLog('ticket', `First message in #${channel?.name || channelId}`);
-        this.enqueue({ ...this.buildFirstMessageNotification(channel, data), channelId });
+    getTicketList() {
+        return [...this.activeTickets.values()].sort((a, b) => (b.lastMessageAt || b.createdAt) - (a.lastMessageAt || a.createdAt));
     }
 
-    scanExistingTickets() {
-        let found = 0;
-        for (const [id, ch] of this.channelCache) {
-            if (this.activeTickets.has(id) || !this.isTicketChannel(ch)) continue;
-            this.registerTicket(ch, true); found++;
-        }
-        if (found > 0) { console.log(`${LOG} [${this.userId}] Scanned ${found} tickets.`); this.markDirty(); }
-    }
-    async fetchGuildChannelsREST(guildId) {
-        if (this.channelsFetched) return;
+    // ═══════════════════════════════════════════════════════
+    //  COMMAND HANDLERS
+    // ═══════════════════════════════════════════════════════
+
+    async handleMsgCommand(argsStr) {
+        const match = argsStr.trim().match(/^(\d+)\s+(.+)$/s);
+        if (!match) return '❌ Формат: /msg <номер> <текст>\n\nНомер тикета из /list';
+        const num = parseInt(match[1], 10);
+        const text = match[2].trim();
+        const tickets = [...this.activeTickets.values()];
+        if (num < 1 || num > tickets.length) return `❌ Тикет #${num} не найден. Открытых: ${tickets.length}`;
+        const record = tickets[num - 1];
         try {
-            const res = await this.httpGet(`https://discord.com/api/v9/guilds/${guildId}/channels`, { Authorization: this.GATEWAY_TOKEN });
-            if (!res.ok) return;
-            const channels = JSON.parse(res.body);
-            for (const ch of channels) this.channelCache.set(ch.id, { ...ch, guild_id: guildId });
-            this.channelsFetched = true;
-            this.scanExistingTickets();
-        } catch (e) { }
+            const res = await this.sendDiscordMessage(record.channelId, text);
+            if (res.ok) return `✅ Отправлено в <code>#${escapeHtml(record.channelName)}</code>:\n\n<blockquote>${escapeHtml(truncate(text, 200))}</blockquote>`;
+            return `❌ Ошибка Discord (${res.status})`;
+        } catch (e) { return `❌ Ошибка: ${e.message}`; }
     }
 
-    // ── Message Builders ─────────────────────────────
-    buildTicketCreatedMessage(channel, guild) {
-        const name = escapeHtml(channel.name || channel.id); const link = channelLink(this.config.guildId, channel.id);
-        const text = [`╔══════════════════════╗`, `║  🎫  <b>НОВЫЙ ТИКЕТ</b>`, `╚══════════════════════╝`, ``, `📋  <b>Канал:</b>   <code>#${name}</code>`, `🏠  <b>Сервер:</b>  ${escapeHtml(guild?.name || 'Unknown')}`, `🕐  <b>Время:</b>   ${nowTime()}`].join('\n');
-        return { text, replyMarkup: { inline_keyboard: [[{ text: '🔗 Открыть', url: link }]] } };
-    }
-    buildFirstMessageNotification(channel, message) {
-        const chName = escapeHtml(channel?.name || message.channel_id); const link = channelLink(this.config.guildId, message.channel_id);
-        const author = message.author; const content = escapeHtml(truncate(message.content || '(вложение)', 300));
-        const text = [`╔══════════════════════╗`, `║  💬  <b>НОВОЕ СООБЩЕНИЕ</b>`, `╚══════════════════════╝`, ``, `📋  <b>Тикет:</b>   <code>#${chName}</code>`, `👤  <b>Игрок:</b>   ${escapeHtml(author?.username || '?')}`, `🕐  <b>Время:</b>   ${nowTime()}`, ``, `💌  <b>Сообщение:</b>`, `<blockquote>${content}</blockquote>`].join('\n');
-        return { text, replyMarkup: { inline_keyboard: [[{ text: '🔗 Перейти', url: link }]] } };
-    }
-    buildTicketClosedMessage(record) {
-        const text = [`╔══════════════════════╗`, `║  🔒  <b>ТИКЕТ ЗАКРЫТ</b>`, `╚══════════════════════╝`, ``, `📋  <b>Канал:</b>   <code>#${escapeHtml(record.channelName)}</code>`, `⏱  <b>Жил:</b>     ${formatDuration(Date.now() - record.createdAt)}`, `🕐  <b>Закрыт:</b>  ${nowTime()}`].join('\n');
-        return { text };
-    }
-
-    // ── Telegram Polling ─────────────────────────────
-    schedulePolling() {
-        const sec = this.config.pollingIntervalSec || 3;
-        this.pollingTimer = setTimeout(async () => {
-            this.pollingTimer = null;
-            if (!this.pollingRunning) { this.pollingRunning = true; try { await this.pollTelegram(); } finally { this.pollingRunning = false; } }
-            if (!this._stopped) this.schedulePolling();
-        }, sec * 1000);
-    }
-    async pollTelegram() {
+    async handleReplyToTicket(replyToMsgId, text) {
+        const mapping = this.tgMsgToChannel.get(replyToMsgId);
+        const channelId = mapping?.channelId || mapping;
+        if (!channelId) return '❌ Не удалось определить тикет. Используй /msg <номер> <текст>';
         try {
-            const res = await this.httpGet(`${this.TELEGRAM_API}/getUpdates?offset=${this.pollingOffset}&timeout=1&allowed_updates=["message","callback_query"]`);
-            if (!res.ok) return;
-            const data = JSON.parse(res.body); if (!data.ok) return;
-            for (const update of data.result || []) {
-                const uid = update.update_id; this.pollingOffset = uid + 1;
-                if (this.processedUpdateIds.has(uid)) continue; this.processedUpdateIds.add(uid);
-                if (this.processedUpdateIds.size > 100) { const a = [...this.processedUpdateIds]; for (let i = 0; i < a.length - 50; i++)this.processedUpdateIds.delete(a[i]); }
-                const text = update?.message?.text || '';
-                const chatId = String(update?.message?.chat?.id || '');
-                if (chatId !== String(this.config.tgChatId)) continue;
-                // Basic command handling
-                if (text === '/start') this.enqueue({ text: '🤖 Бот работает! /list для тикетов' });
-                else if (text === '/list' || text.startsWith('/list ')) { const msg = this.buildListMessage(); this.enqueue({ text: msg }); }
-                else if (text === '/stats') { this.enqueue({ text: this.buildStatsMessage() }); }
-                else if (text === '/pause') { this.botPaused = true; this.enqueue({ text: '⏸ Бот на паузе.' }); }
-                else if (text === '/resume') { this.botPaused = false; this.enqueue({ text: '▶️ Бот возобновлён.' }); }
+            const res = await this.sendDiscordMessage(channelId, text);
+            const record = this.activeTickets.get(channelId);
+            if (res.ok) return `✅ Отправлено в <code>#${escapeHtml(record?.channelName || channelId)}</code>:\n\n<blockquote>${escapeHtml(truncate(text, 200))}</blockquote>`;
+            return `❌ Ошибка Discord (${res.status})`;
+        } catch (e) { return `❌ Ошибка: ${e.message}`; }
+    }
+
+    async handleSendToTicket(text, chatId) {
+        const uState = this.getUserState(chatId);
+        if (!uState.activeTicketId) return { text: '📭 Тикет не выбран. Нажми /list.', markup: { inline_keyboard: [[{ text: '📋 Список', callback_data: 'tpage_0' }]] } };
+        if (!text.trim()) return { text: '❌ Пустое сообщение.', markup: null };
+        const channelId = uState.activeTicketId;
+        const record = this.activeTickets.get(channelId);
+        const channelName = record?.channelName || channelId;
+        // Split long messages
+        const parts = []; let remaining = text;
+        while (remaining.length > 0) {
+            if (remaining.length <= 1900) { parts.push(remaining); break; }
+            let cut = remaining.lastIndexOf('\n', 1900);
+            if (cut < 950) cut = remaining.lastIndexOf(' ', 1900);
+            if (cut < 950) cut = 1900;
+            parts.push(remaining.slice(0, cut)); remaining = remaining.slice(cut).trimStart();
+        }
+        try {
+            for (const part of parts) {
+                const res = await this.sendDiscordMessage(channelId, part);
+                if (!res.ok) return { text: `❌ Ошибка Discord (${res.status})`, markup: null };
+                try { const j = JSON.parse(res.body); if (j.id) this.sentByBot.add(j.id); } catch { }
             }
-        } catch (e) { console.error(`${LOG} [${this.userId}] Polling error:`, e.message); }
+            this.addLog('message', `Сообщение → #${channelName}`);
+            return { text: `✅ <b>Отправлено в</b> <code>#${escapeHtml(channelName)}</code>\n\n<blockquote>${escapeHtml(truncate(text, 200))}</blockquote>`, markup: null };
+        } catch (e) { return { text: `❌ Ошибка: ${e.message}`, markup: null }; }
     }
 
-    buildListMessage() {
-        if (this.activeTickets.size === 0) return '📭 Нет открытых тикетов 🎉';
-        const lines = [`📋 <b>ОТКРЫТЫЕ ТИКЕТЫ</b> (${this.activeTickets.size})`, ``];
-        let i = 1;
-        for (const r of this.activeTickets.values()) {
-            lines.push(`${i}. <code>#${escapeHtml(r.channelName)}</code> — ${formatDuration(Date.now() - r.createdAt)}`);
-            i++;
+    async handleHistory(chatId) {
+        const uState = this.getUserState(chatId);
+        if (!uState.activeTicketId) return [{ text: '❌ Сначала выбери тикет через /list', markup: null }];
+        const messages = await this.fetchChannelMessages(uState.activeTicketId, 100);
+        if (!messages?.length) return [{ text: '📭 Нет сообщений.', markup: null }];
+        messages.reverse();
+        const lines = [`📜 <b>История #${escapeHtml(uState.activeTicketName || '?')}</b> (${messages.length})\n`];
+        for (const msg of messages) {
+            if (!msg.author || msg.author.bot) continue;
+            const time = new Date(msg.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const nick = msg.member?.nick || msg.author.global_name || msg.author.username || '?';
+            const isStaff = isStaffFromMember(msg.member, this.config.staffRoleIds);
+            lines.push(`${isStaff ? '👮' : '👤'} ${escapeHtml(nick)} (${time}): ${escapeHtml(truncate(msg.content || '(вложение)', 200))}`);
         }
+        const full = lines.join('\n');
+        if (full.length <= 4096) return [{ text: full, markup: null }];
+        const chunks = []; let rem = full;
+        while (rem.length > 0) { if (rem.length <= 4096) { chunks.push({ text: rem, markup: null }); break; } let c = rem.lastIndexOf('\n', 4096); if (c < 2000) c = 4096; chunks.push({ text: rem.slice(0, c), markup: null }); rem = rem.slice(c).trimStart(); }
+        return chunks;
+    }
+
+    // ── Binds ────────────────────────────────────────────
+
+    handleBindsList() {
+        const binds = this.config.binds || {};
+        if (Object.keys(binds).length === 0) return '📭 Нет биндов.';
+        const lines = ['╔══════════════════════════╗', '║  📋  <b>БИНДЫ</b>', '╚══════════════════════════╝', ''];
+        for (const [key, bind] of Object.entries(binds)) lines.push(`  <b>/${escapeHtml(key)}</b> — <i>${escapeHtml(truncate(bind.message || '', 60))}</i>`);
+        lines.push('', `Всего: ${Object.keys(binds).length}`);
         return lines.join('\n');
     }
-    buildStatsMessage() {
-        return [`📊 <b>СТАТИСТИКА</b>`, ``, `🎫 Создано: ${this.ps.totalCreated}`, `🔒 Закрыто: ${this.ps.totalClosed}`, `🟢 Открыто: ${this.activeTickets.size}`, `✉️ Сообщений: ${this.ps.totalMessagesSent}`].join('\n');
+
+    handleAddBind(argsStr) {
+        const idx = argsStr.indexOf(' ');
+        if (idx === -1 || !argsStr.trim()) return '❌ Формат: /addbind <имя> <текст>';
+        const name = argsStr.slice(0, idx).trim(), message = argsStr.slice(idx + 1).trim();
+        if (!name || !message) return '❌ Формат: /addbind <имя> <текст>';
+        if (!this.config.binds) this.config.binds = {};
+        this.config.binds[name] = { name, message };
+        this.addLog('bind', `Бинд «${name}» добавлен`);
+        return `✅ Бинд "<b>${escapeHtml(name)}</b>" добавлен.`;
     }
 
-    // ── Config update ────────────────────────────────
-    updateConfig(newConfig) { this.config = newConfig; }
-
-    // ── Lifecycle ────────────────────────────────────
-    start() {
-        this._stopped = false;
-        this.loadState();
-        this.autosaveTimer = setInterval(() => { if (this.stateDirty) this.saveState(); }, 30000);
-        this.connectGateway();
-        console.log(`${LOG} [${this.userId}] 🚀 Bot started.`);
+    handleDelBind(name) {
+        if (!name.trim()) return '❌ Формат: /delbind <имя>';
+        if (!this.config.binds?.[name]) return `❌ Бинд "${escapeHtml(name)}" не найден.`;
+        delete this.config.binds[name];
+        this.addLog('bind', `Бинд «${name}» удалён`);
+        return `✅ Бинд "<b>${escapeHtml(name)}</b>" удалён.`;
     }
-    stop() {
-        this._stopped = true;
-        if (this.pollingTimer) { clearTimeout(this.pollingTimer); this.pollingTimer = null; }
-        if (this.autosaveTimer) { clearInterval(this.autosaveTimer); this.autosaveTimer = null; }
-        if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
-        this.noReplyTimers.forEach(t => clearTimeout(t)); this.noReplyTimers.clear();
-        if (this.shiftReminderTimer) { clearTimeout(this.shiftReminderTimer); this.shiftReminderTimer = null; }
-        if (this.shiftCloseReminderTimer) { clearTimeout(this.shiftCloseReminderTimer); this.shiftCloseReminderTimer = null; }
-        this.saveState();
-        if (this.ws) this.ws.close(1000);
-        console.log(`${LOG} [${this.userId}] 🛑 Bot stopped.`);
+
+    async handleBindSearch(query, chatId) {
+        const uState = this.getUserState(chatId);
+        if (!uState.activeTicketId) return null;
+        const binds = this.config.binds || {};
+        if (Object.keys(binds).length === 0) return null;
+        const q = query.toLowerCase().trim();
+        if (q.length < 2) return null;
+        const matches = Object.entries(binds).filter(([k]) => k.toLowerCase().startsWith(q) || q.startsWith(k.toLowerCase())).map(([, v]) => v);
+        if (matches.length === 0) return null;
+        if (matches.length === 1) {
+            const bind = matches[0];
+            try {
+                const res = await this.sendDiscordMessage(uState.activeTicketId, bind.message);
+                if (res.ok) { try { const j = JSON.parse(res.body); if (j.id) this.sentByBot.add(j.id); } catch { } this.addLog('bind', `Бинд «${bind.name}»`); return { text: `✅ Отправлено: "${escapeHtml(bind.name)}"`, markup: null }; }
+                return { text: `❌ Ошибка Discord (${res.status})`, markup: null };
+            } catch (e) { return { text: `❌ ${e.message}`, markup: null }; }
+        }
+        const buttons = [];
+        for (let i = 0; i < matches.length; i += 2) {
+            const row = [{ text: matches[i].name, callback_data: `bind_${matches[i].name}` }];
+            if (i + 1 < matches.length) row.push({ text: matches[i + 1].name, callback_data: `bind_${matches[i + 1].name}` });
+            buttons.push(row);
+        }
+        return { text: `🔍 Найдено ${matches.length} биндов:`, markup: { inline_keyboard: buttons } };
+    }
+
+    // ── Greet ────────────────────────────────────────────
+
+    handleGreet(args) {
+        if (!args?.trim()) {
+            const status = this.config.autoGreetEnabled ? '✅ Включено' : '❌ Выключено';
+            return ['╔══════════════════════════╗', '║  👋  <b>АВТО-ПРИВЕТСТВИЕ</b>', '╚══════════════════════════╝', '', `Статус: <b>${status}</b>`, `Текст: <i>${escapeHtml(this.config.autoGreetText || '')}</i>`, '', '/greet on — включить', '/greet off — выключить', '/setgreet <текст> — изменить'].join('\n');
+        }
+        const arg = args.trim().toLowerCase();
+        if (arg === 'on') { this.config.autoGreetEnabled = true; this.addLog('greet', 'Включено'); return '✅ Авто-приветствие <b>включено</b>.'; }
+        if (arg === 'off') { this.config.autoGreetEnabled = false; this.addLog('greet', 'Выключено'); return '❌ Авто-приветствие <b>выключено</b>.'; }
+        return '❌ /greet on или /greet off';
+    }
+
+    handleSetGreet(text) {
+        if (!text.trim()) return '❌ Формат: /setgreet <текст>';
+        this.config.autoGreetText = text.trim();
+        this.addLog('greet', 'Текст обновлён');
+        return `✅ Текст обновлён:\n\n<blockquote>${escapeHtml(this.config.autoGreetText)}</blockquote>`;
+    }
+
+    // ── Settings ─────────────────────────────────────────
+
+    handleSet(argsStr) {
+        const match = argsStr.match(/^(\S+)\s+(.+)$/s);
+        if (!match) return '❌ Формат: /set <key> <value>';
+        const [, key, value] = match;
+        const numKeys = ['activityCheckMin', 'closingCheckMin', 'maxMessageLength', 'rateLimitMs', 'autoGreetDelay'];
+        const boolKeys = ['autoGreetEnabled', 'forumMode'];
+        if (numKeys.includes(key)) { this.config[key] = parseInt(value, 10); }
+        else if (boolKeys.includes(key)) { this.config[key] = value === 'true' || value === '1' || value === 'on'; }
+        else if (['ticketPrefix', 'closingPhrase', 'autoGreetText', 'shiftChannelId', 'ticketsCategoryId'].includes(key)) { this.config[key] = value.trim(); }
+        else return `❌ Неизвестный ключ: ${key}`;
+        this.addLog('settings', `${key} = ${value}`);
+        return `✅ <b>${escapeHtml(key)}</b> = <code>${escapeHtml(value)}</code>`;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  SHIFTS
+    // ═══════════════════════════════════════════════════════
+
+    async handleSmena(chatId) {
+        const today = getKyivDate();
+        const shiftState = this.getUserState(chatId).shift;
+        if (shiftState.lastShiftDate === today) return '⚠️ Сегодня уже отмечено.';
+        const dateStr = formatKyivDate();
+        const content = `Начал\n1. ${dateStr}\n2. 12-0`;
+        const chId = this.config.shiftChannelId;
+        if (!chId) return '❌ Канал смены не настроен (shiftChannelId)';
+        try {
+            const res = await this.sendDiscordMessage(chId, content);
+            if (!res.ok) return `❌ Ошибка Discord (${res.status})`;
+            let msgId = null; try { msgId = JSON.parse(res.body).id; } catch { }
+            shiftState.lastShiftMessageId = msgId;
+            shiftState.lastShiftDate = today;
+            shiftState.lastShiftClosed = false;
+            shiftState.lastShiftContent = content;
+            this.addLog('shift', `Смена начата (${dateStr})`);
+            return `✅ <b>Смена начата!</b>\n\n📅 ${escapeHtml(dateStr)}\n🕐 12-0`;
+        } catch (e) { return `❌ ${e.message}`; }
+    }
+
+    async handleSmenoff(chatId) {
+        const shiftState = this.getUserState(chatId).shift;
+        if (!shiftState.lastShiftMessageId) return '❌ Нет активной смены.';
+        if (shiftState.lastShiftClosed) return '⚠️ Смена уже закрыта.';
+        const chId = this.config.shiftChannelId;
+        if (!chId) return '❌ Канал смены не настроен';
+        try {
+            let oldContent = shiftState.lastShiftContent || `Начал\n1. ${formatKyivDate()}\n2. 12-0`;
+            const newContent = oldContent.replace(/^Начал/, 'Начал/ Закрыл');
+            const res = await this.editDiscordMessage(chId, shiftState.lastShiftMessageId, newContent);
+            if (!res.ok) return `❌ Ошибка (${res.status})`;
+            shiftState.lastShiftClosed = true;
+            this.addLog('shift', 'Смена закрыта');
+            return `✅ <b>Смена закрыта!</b>`;
+        } catch (e) { return `❌ ${e.message}`; }
+    }
+
+    scheduleShiftReminder() {
+        // Simple reminder at 11:00 and 12:00 Kyiv time
+        if (this.shiftReminderTimer) clearTimeout(this.shiftReminderTimer);
+        const hour = getKyivHour();
+        const today = getKyivDate();
+        const chatId = String(this.config.tgChatId);
+        const shiftState = this.getUserState(chatId).shift;
+
+        if (shiftState.lastShiftDate === today) {
+            // Already checked in, schedule for tomorrow 11:00
+            const ms = msUntilKyivHour(11, 0);
+            this.shiftReminderTimer = setTimeout(() => this.scheduleShiftReminder(), ms);
+            return;
+        }
+
+        if (hour < 11) {
+            const ms = msUntilKyivHour(11, 0);
+            this.shiftReminderTimer = setTimeout(async () => {
+                const keyboard = { inline_keyboard: [[{ text: '✅ Отметиться', callback_data: 'shift_checkin' }, { text: '⏭ Пропустить', callback_data: 'shift_skip' }]] };
+                await this.tgSendMessage(chatId, '🕚 <b>Пора отмечаться на смену!</b>\n\nВремя 11:00.', keyboard);
+                this.scheduleShiftReminder();
+            }, ms);
+        } else if (hour < 12) {
+            const ms = msUntilKyivHour(12, 0);
+            this.shiftReminderTimer = setTimeout(async () => {
+                if (this.getUserState(chatId).shift.lastShiftDate !== getKyivDate()) {
+                    const keyboard = { inline_keyboard: [[{ text: '✅ Отметиться', callback_data: 'shift_checkin' }]] };
+                    await this.tgSendMessage(chatId, '🚨 <b>Вы опаздываете на смену!</b>\n\nУже 12:00.', keyboard);
+                }
+                this.scheduleShiftReminder();
+            }, ms);
+        } else if (hour >= 23) {
+            // Remind to close shift
+            if (shiftState.lastShiftDate === today && !shiftState.lastShiftClosed) {
+                const keyboard = { inline_keyboard: [[{ text: '🔒 Закрыть', callback_data: 'shift_close' }]] };
+                this.tgSendMessage(chatId, '🕐 <b>Не забудьте закрыть смену!</b>\n\n/smenoff', keyboard);
+            }
+            const ms = msUntilKyivHour(11, 0);
+            this.shiftReminderTimer = setTimeout(() => this.scheduleShiftReminder(), ms);
+        } else {
+            const ms = msUntilKyivHour(23, 0);
+            this.shiftReminderTimer = setTimeout(() => this.scheduleShiftReminder(), ms);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  ACTIVITY TIMERS
+    // ═══════════════════════════════════════════════════════
+
+    clearNoReplyTimer(channelId) {
+        const t = this.noReplyTimers.get(channelId);
+        if (t) { clearTimeout(t); this.noReplyTimers.delete(channelId); }
+        const record = this.activeTickets.get(channelId);
+        if (record?.waitingForReply) { record.waitingForReply = false; record.activityTimerType = null; this.markDirty(); }
+    }
+
+    startActivityTimer(channelId, type) {
+        const timeoutMin = type === 'closing' ? (this.config.closingCheckMin || 15) : (this.config.activityCheckMin || 10);
+        if (timeoutMin <= 0) return;
+        this.clearNoReplyTimer(channelId);
+        const record = this.activeTickets.get(channelId);
+        if (!record) return;
+        record.lastStaffMessageAt = Date.now();
+        record.waitingForReply = true;
+        record.activityTimerType = type;
+        this.markDirty();
+        const timer = setTimeout(() => {
+            this.noReplyTimers.delete(channelId);
+            record.waitingForReply = false;
+            record.activityTimerType = null;
+            this.markDirty();
+            if (!this.botPaused) this.enqueue({ ...buildActivityMessage(record, type, timeoutMin), channelId });
+        }, timeoutMin * 60 * 1000);
+        this.noReplyTimers.set(channelId, timer);
+    }
+
+    restoreActivityTimers() {
+        let restored = 0;
+        for (const [channelId, record] of this.activeTickets) {
+            if (!record.waitingForReply || !record.lastStaffMessageAt) continue;
+            const type = record.activityTimerType || 'regular';
+            const timeoutMin = type === 'closing' ? (this.config.closingCheckMin || 15) : (this.config.activityCheckMin || 10);
+            const elapsed = Date.now() - record.lastStaffMessageAt;
+            const totalMs = timeoutMin * 60 * 1000;
+            if (elapsed >= totalMs) {
+                record.waitingForReply = false; record.activityTimerType = null; this.markDirty();
+                this.enqueue({ ...buildActivityMessage(record, type, timeoutMin), channelId });
+            } else {
+                const timer = setTimeout(() => { this.noReplyTimers.delete(channelId); record.waitingForReply = false; record.activityTimerType = null; this.markDirty(); this.enqueue({ ...buildActivityMessage(record, type, timeoutMin), channelId }); }, totalMs - elapsed);
+                this.noReplyTimers.set(channelId, timer);
+            }
+            restored++;
+        }
+        if (restored > 0) this.log(`⏰ Restored ${restored} activity timers`);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  ARCHIVES
+    // ═══════════════════════════════════════════════════════
+
+    async archiveTicketMessages(channelId, record) {
+        try {
+            const messages = await this.fetchChannelMessages(channelId, 100);
+            if (!messages?.length) return;
+            const mapped = messages.reverse().map(m => ({ id: m.id, content: m.content || '', author: { id: m.author?.id, username: m.author?.username, global_name: m.author?.global_name, avatar: m.author?.avatar, bot: m.author?.bot || false }, timestamp: m.timestamp, embeds: m.embeds || [], attachments: m.attachments || [], member: m.member }));
+            try { this.dbInsertMessages(channelId, mapped); } catch (e) { this.log(`Archive DB error: ${e.message}`); }
+        } catch (e) { this.log(`Archive error: ${e.message}`); }
+    }
+
+    async snapshotAllActiveTickets() {
+        for (const [chId, record] of this.activeTickets) {
+            try { await this.archiveTicketMessages(chId, record); await sleep(500); } catch { }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  DASHBOARD DATA (exposed for server.js API routes)
+    // ═══════════════════════════════════════════════════════
+
+    getActiveTicketsArray() {
+        return Array.from(this.activeTickets.values()).map(r => ({ ...r, priority: r.channelName?.toLowerCase().includes('urgent') ? 'high' : 'normal' }));
+    }
+
+    getStats() {
+        return { totalCreated: this.ps.totalCreated, totalClosed: this.ps.totalClosed, hourlyBuckets: this.ps.hourlyBuckets, activeTicketsCount: this.activeTickets.size, uptime: process.uptime(), closedTickets: this.dbGetClosedTickets({ page: 1, limit: 50 }).tickets };
+    }
+
+    getBinds() { return Object.values(this.config.binds || {}); }
+
+    getUsers() {
+        const chatId = String(this.config.tgChatId);
+        const st = this.getUserState(chatId).shift;
+        return [{ id: chatId, name: this.config.userName || 'User', shiftActive: st.lastShiftDate === getKyivDate() && !st.lastShiftClosed }];
+    }
+
+    getLogs(limit = 50) { return this.dashboardLogs.slice(0, limit); }
+
+    getSettings() {
+        return { autoGreetEnabled: this.config.autoGreetEnabled, autoGreetText: this.config.autoGreetText || '', activityCheckMin: this.config.activityCheckMin || 10, closingCheckMin: this.config.closingCheckMin || 15, maxMessageLength: this.config.maxMessageLength || 300, ticketPrefix: this.config.ticketPrefix || '', closingPhrase: this.config.closingPhrase || '', forumMode: this.config.forumMode || false };
+    }
+
+    updateSettings(settings) {
+        for (const [k, v] of Object.entries(settings)) {
+            if (k in this.config) this.config[k] = v;
+        }
+        this.addLog('settings', 'Настройки обновлены');
+    }
+
+    getAutoReplies() { return this.config.autoReplies || []; }
+    updateAutoReplies(rules) { this.config.autoReplies = rules; this.addLog('autoreplies', `Обновлено ${rules.length} правил`); }
+
+    getMembers() {
+        const roleMap = {};
+        for (const [id, r] of this.guildRolesCache) roleMap[id] = { id: r.id, name: r.name, color: r.color, position: r.position, hoist: r.hoist };
+        const groups = {};
+        for (const [uid, member] of this.guildMembersCache) {
+            if (!member.roles?.length || member.user?.bot) continue;
+            let bestRole = null;
+            for (const rid of member.roles) { const role = roleMap[rid]; if (role?.hoist && (!bestRole || role.position > bestRole.position)) bestRole = role; }
+            if (!bestRole) continue;
+            if (!groups[bestRole.id]) groups[bestRole.id] = { roleId: bestRole.id, roleName: bestRole.name, roleColor: bestRole.color ? `#${bestRole.color.toString(16).padStart(6, '0')}` : '#99aab5', position: bestRole.position, members: [] };
+            const avatarHash = member.avatar || member.user?.avatar;
+            const id = member.user?.id || uid;
+            groups[bestRole.id].members.push({ id, username: member.user?.username, displayName: member.nick || member.user?.global_name || member.user?.username, avatar: avatarHash ? `https://cdn.discordapp.com/avatars/${id}/${avatarHash}.png?size=64` : `https://cdn.discordapp.com/embed/avatars/0.png`, status: this.guildPresenceCache.get(id) || 'offline' });
+        }
+        return Object.values(groups).sort((a, b) => b.position - a.position).map(g => ({ ...g, members: g.members.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '')) }));
     }
 }
 

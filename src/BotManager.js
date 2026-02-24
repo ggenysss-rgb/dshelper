@@ -68,17 +68,13 @@ class BotManager {
 
         console.log(`[Manager] Starting bot for user ${userId}...`);
 
-        const logsConfig = {
-            logsDir: this.logsDir,
-            stateDir: this.stateDir,
-            dataDir: this.dataDir
-        };
-
-        const bot = new Bot(userId, config, this.db, logsConfig);
+        const bot = new Bot(userId, config, this.dataDir, this.io);
+        // Give bot a reference to the shared DB so it can persist config changes
+        bot._sharedDb = this.db;
         this.bots.set(userId, bot);
 
         try {
-            bot.start(); // We will add start() to Bot class
+            bot.start();
             return true;
         } catch (error) {
             console.error(`[Manager] Error starting bot for user ${userId}:`, error);

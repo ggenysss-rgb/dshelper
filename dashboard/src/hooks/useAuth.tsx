@@ -4,7 +4,8 @@ import client from '../api/client';
 type AuthContextType = {
     token: string | null;
     user: any;
-    login: (password: string) => Promise<boolean>;
+    login: (username: string, password: string) => Promise<boolean>;
+    register: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
     logout: () => void;
     loading: boolean;
 };
@@ -18,7 +19,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         if (token) {
-            client.get('/auth')
+            client.get('/auth/me')
                 .then(res => setUser(res.data.user))
                 .catch(() => {
                     localStorage.removeItem('dashboard_token');
@@ -31,14 +32,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     }, [token]);
 
-    const login = async (password: string) => {
+    const login = async (username: string, password: string) => {
         try {
-            const { data } = await client.post('/auth', { password });
+            const { data } = await client.post('/auth/login', { username, password });
             localStorage.setItem('dashboard_token', data.token);
             setToken(data.token);
+            setUser(data.user);
             return true;
         } catch {
             return false;
+        }
+    };
+
+    const register = async (username: string, password: string) => {
+        try {
+            const { data } = await client.post('/auth/register', { username, password });
+            localStorage.setItem('dashboard_token', data.token);
+            setToken(data.token);
+            setUser(data.user);
+            return { success: true };
+        } catch (err: any) {
+            const message = err.response?.data?.error || 'Registration failed';
+            return { success: false, error: message };
         }
     };
 
@@ -49,11 +64,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <AuthContext.Provider value= {{ token, user, login, logout, loading }
-}>
-    { children }
-    </AuthContext.Provider>
-  );
+        <AuthContext.Provider value={{ token, user, login, register, logout, loading }}>
+            {children}
+        </AuthContext.Provider>
+    );
 };
 
 export const useAuth = () => {

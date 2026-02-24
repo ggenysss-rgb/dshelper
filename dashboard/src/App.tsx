@@ -3,6 +3,8 @@ import { useAuth } from './hooks/useAuth';
 
 import DashboardLayout from './components/DashboardLayout';
 import Login from './pages/Login';
+import Register from './pages/Register';
+import Profile from './pages/Profile';
 import Tickets from './pages/Tickets';
 import TicketDetail from './pages/TicketDetail';
 import Analytics from './pages/Analytics';
@@ -25,6 +27,7 @@ export default function App() {
             {!token ? (
                 <>
                     <Route path="/login" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
                     <Route path="*" element={<Navigate to="/login" replace />} />
                 </>
             ) : (
@@ -39,6 +42,7 @@ export default function App() {
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/autoreplies" element={<AutoReplies />} />
                     <Route path="/closed-tickets" element={<ClosedTickets />} />
+                    <Route path="/profile" element={<Profile />} />
                     <Route path="*" element={<Navigate to="/tickets" replace />} />
                 </Route>
             )}

@@ -1,0 +1,41 @@
+{
+    "name": "ticket-notifier",
+    "version": "1.0.0",
+    "description": "Telegram Ticket Notifier — Desktop App",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "build": "electron-builder --win portable",
+        "build-installer": "electron-builder --win nsis"
+    },
+    "author": "TicketNotifier",
+    "build": {
+        "appId": "com.ticketnotifier.app",
+        "productName": "Ticket Notifier",
+        "forceCodeSigning": false,
+        "win": {
+            "target": [
+                "portable"
+            ],
+            "icon": "icon.png"
+        },
+        "portable": {
+            "artifactName": "TicketNotifier.exe"
+        },
+        "nsis": {
+            "oneClick": true,
+            "artifactName": "TicketNotifier-Setup.exe"
+        },
+        "files": [
+            "main.js",
+            "preload.js",
+            "icon.png"
+        ]
+    },
+    "devDependencies": {
+        "@napi-rs/canvas": "^0.1.95",
+        "electron": "^33.0.0",
+        "electron-builder": "^25.0.0",
+        "png-to-ico": "^3.0.1"
+    }
+}

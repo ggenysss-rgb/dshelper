@@ -4,9 +4,11 @@
   "description": "Discord Bot — Telegram уведомления для тикетов 24/7",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "start:saas": "node src/server.js"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.6.2",
     "cors": "^2.8.6",
     "express": "^4.22.1",

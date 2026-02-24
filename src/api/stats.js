@@ -163,10 +163,15 @@ function createStatsRoutes(db, botManager) {
         const bot = botManager.bots.get(userId);
         if (!bot) return res.json({});
 
+        const DEFAULT_STAFF_ROLES = ['1475932249017946133', '1475961602619478116'];
+        const DEFAULT_GREET_ROLES = ['1475932249017946133'];
+        const staffRoles = bot.config.staffRoleIds;
+        const greetRoles = bot.config.autoGreetRoleIds;
+
         res.json({
             autoGreetEnabled: bot.config.autoGreetEnabled ?? true,
             autoGreetText: bot.config.autoGreetText || '',
-            autoGreetRoleIds: bot.config.autoGreetRoleIds || [],
+            autoGreetRoleIds: (Array.isArray(greetRoles) && greetRoles.length > 0) ? greetRoles : DEFAULT_GREET_ROLES,
             autoGreetAllChannels: bot.config.autoGreetAllChannels ?? false,
             includeFirstUserMessage: bot.config.includeFirstUserMessage ?? true,
             notifyOnClose: bot.config.notifyOnClose ?? true,
@@ -180,7 +185,7 @@ function createStatsRoutes(db, botManager) {
             maxMessageLength: bot.config.maxMessageLength || 300,
             forumMode: bot.config.forumMode ?? false,
             priorityKeywords: bot.config.priorityKeywords || [],
-            staffRoleIds: bot.config.staffRoleIds || [],
+            staffRoleIds: (Array.isArray(staffRoles) && staffRoles.length > 0) ? staffRoles : DEFAULT_STAFF_ROLES,
             ticketsCategoryId: bot.config.ticketsCategoryId || '',
             shiftChannelId: bot.config.shiftChannelId || '',
         });

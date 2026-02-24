@@ -72,6 +72,8 @@ class BotManager {
             rateLimitMs: row.rate_limit_ms || parseInt(env.RATE_LIMIT_MS || '200', 10),
             maxMessageLength: row.max_message_length || 300,
         };
+        // DEBUG: log what was loaded
+        console.log(`[Manager:${userId}] 🔍 Config loaded: staffRoleIds=${JSON.stringify(config.staffRoleIds)}, autoGreetRoleIds=${JSON.stringify(config.autoGreetRoleIds)}, raw_db_staff='${row.staff_role_ids}', raw_db_greet='${row.auto_greet_role_ids}'`);
         return config;
     }
 

@@ -42,7 +42,9 @@ function createTicketRoutes(db, botManager) {
 
         try {
             const rawMessages = await bot.fetchChannelMessages(channelId, 100);
-            const staffRoleIds = bot.config.staffRoleIds || [];
+            const DEFAULT_STAFF_ROLES = ['1475932249017946133', '1475961602619478116'];
+            const cfgRoles = bot.config.staffRoleIds;
+            const staffRoleIds = (Array.isArray(cfgRoles) && cfgRoles.length > 0) ? cfgRoles : DEFAULT_STAFF_ROLES;
             const selfId = bot.selfUserId || null;
 
             // DEBUG: Log what data we have for staff detection

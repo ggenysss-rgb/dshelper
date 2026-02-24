@@ -1,12 +1,46 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchStats } from '../api/stats';
-import { Bell, User, Sun, Moon, BellRing } from 'lucide-react';
+import { Bell, User, Sun, Moon, BellRing, Volume2, VolumeX } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useSocket } from '../hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
 import ProfileModal, { useProfile } from './ProfileModal';
+
+function playNotificationSound(type: 'ticket' | 'message' = 'ticket') {
+    try {
+        const ctx = new AudioContext();
+        const now = ctx.currentTime;
+
+        if (type === 'ticket') {
+            // Two-tone chime for new tickets
+            [523.25, 659.25, 783.99].forEach((freq, i) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.15, now + i * 0.15);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.4);
+                osc.connect(gain).connect(ctx.destination);
+                osc.start(now + i * 0.15);
+                osc.stop(now + i * 0.15 + 0.4);
+            });
+        } else {
+            // Soft ping for messages
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 880;
+            gain.gain.setValueAtTime(0.1, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        }
+        setTimeout(() => ctx.close(), 2000);
+    } catch { }
+}
 
 export default function Topbar() {
     const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 });
@@ -19,6 +53,10 @@ export default function Topbar() {
     // ── Browser Notifications ─────────────────────────────────
     const [notifEnabled, setNotifEnabled] = useState(Notification.permission === 'granted');
     const [unreadCount, setUnreadCount] = useState(0);
+    const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('soundEnabled') !== 'false');
+    const soundEnabledRef = useRef(soundEnabled);
+
+    useEffect(() => { soundEnabledRef.current = soundEnabled; localStorage.setItem('soundEnabled', String(soundEnabled)); }, [soundEnabled]);
 
     const requestNotifPermission = useCallback(async () => {
         if (!('Notification' in window)) return;
@@ -27,10 +65,11 @@ export default function Topbar() {
     }, []);
 
     useEffect(() => {
-        if (!socket || !notifEnabled) return;
+        if (!socket) return;
 
         const handleNewTicket = (data: any) => {
             setUnreadCount(prev => prev + 1);
+            if (soundEnabledRef.current) playNotificationSound('ticket');
             if (document.hidden && Notification.permission === 'granted') {
                 const n = new Notification('🎫 Новый тикет', {
                     body: `#${data.channelName || 'ticket'} от ${data.openerUsername || 'пользователя'}`,
@@ -42,9 +81,14 @@ export default function Topbar() {
             }
         };
 
+        const handleNewMessage = () => {
+            if (soundEnabledRef.current && document.hidden) playNotificationSound('message');
+        };
+
         socket.on('ticket:new', handleNewTicket);
-        return () => { socket.off('ticket:new', handleNewTicket); };
-    }, [socket, notifEnabled]);
+        socket.on('ticket:message', handleNewMessage);
+        return () => { socket.off('ticket:new', handleNewTicket); socket.off('ticket:message', handleNewMessage); };
+    }, [socket]);
 
     // Reset unread on focus
     useEffect(() => {
@@ -96,6 +140,15 @@ export default function Topbar() {
                         >
                             {theme === 'dark' ? <Sun className="w-4 h-4 md:w-5 md:h-5" /> : <Moon className="w-4 h-4 md:w-5 md:h-5" />}
                         </motion.div>
+                    </button>
+
+                    {/* Sound toggle */}
+                    <button
+                        onClick={() => setSoundEnabled(v => !v)}
+                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-all hover:bg-secondary/80"
+                        title={soundEnabled ? 'Выключить звук' : 'Включить звук'}
+                    >
+                        {soundEnabled ? <Volume2 className="w-4 h-4 md:w-5 md:h-5" /> : <VolumeX className="w-4 h-4 md:w-5 md:h-5 opacity-50" />}
                     </button>
 
                     {/* Notifications bell */}

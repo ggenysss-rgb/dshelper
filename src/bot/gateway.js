@@ -370,6 +370,30 @@ async function fetchAndScanChannels(bot) {
         bot.guildCreateHandled = true;
         scanChannelsList(bot, channels, guildId, '', prefixes, categoryId);
         bot.restoreActivityTimers();
+
+        // Background: fetch last message for each ticket to populate preview
+        (async () => {
+            for (const [channelId, record] of bot.activeTickets) {
+                if (record.lastMessage) continue; // already has data
+                try {
+                    const msgRes = await bot.httpGet(
+                        `https://discord.com/api/v9/channels/${channelId}/messages?limit=1`,
+                        { Authorization: token }
+                    );
+                    if (msgRes.ok) {
+                        const msgs = JSON.parse(msgRes.body);
+                        if (msgs.length > 0) {
+                            record.lastMessage = msgs[0].content?.slice(0, 120) || '[embed]';
+                            record.lastMessageAt = new Date(msgs[0].timestamp).getTime();
+                        }
+                    }
+                } catch { }
+                await sleep(500);
+            }
+            bot.markDirty();
+            if (bot.io) bot.io.emit('ticket:updated', {});
+            bot.log(`📝 Ticket previews loaded`);
+        })();
     } catch (e) {
         bot.log(`❌ REST channels error: ${e.message}`);
     }

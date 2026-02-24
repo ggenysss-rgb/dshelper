@@ -97,6 +97,39 @@ async function main() {
             const mentionMap = {};
             for (const [id, r] of bot.guildRolesCache) mentionMap[`role:${id}`] = r.name || id;
             for (const [id, m] of bot.guildMembersCache) mentionMap[`user:${id}`] = m.user?.global_name || m.user?.username || m.nick || id;
+
+            // Update ticket record with data from fetched messages
+            if (messages.length > 0) {
+                const lastMsg = messages[0]; // messages are newest-first before reverse
+                const lastMsgTime = new Date(lastMsg.timestamp).getTime();
+                if (!record.lastMessageAt || lastMsgTime > record.lastMessageAt) {
+                    record.lastMessage = lastMsg.content?.slice(0, 120) || '[embed]';
+                    record.lastMessageAt = lastMsgTime;
+                }
+                // Find opener (first non-bot message = oldest)
+                if (!record.openerId) {
+                    for (let i = messages.length - 1; i >= 0; i--) {
+                        if (!messages[i].author.bot) {
+                            record.openerId = messages[i].author.id;
+                            record.openerUsername = messages[i].author.global_name || messages[i].author.username;
+                            break;
+                        }
+                    }
+                }
+                // Find first staff reply
+                if (record.firstStaffReplyAt === null && record.openerId) {
+                    for (let i = messages.length - 1; i >= 0; i--) {
+                        const m = messages[i];
+                        if (!m.author.bot && m.author.id !== record.openerId) {
+                            record.firstStaffReplyAt = new Date(m.timestamp).getTime();
+                            break;
+                        }
+                    }
+                }
+                bot.markDirty();
+                if (bot.io) bot.io.emit('ticket:updated', { channelId });
+            }
+
             res.json({ messages: messages.reverse(), mentionMap });
         } catch (err) { res.status(500).json({ error: err.message }); }
     });

@@ -252,33 +252,103 @@ export default function TicketDetail() {
 
             {/* Info Sidebar — hidden on mobile */}
             <div className="hidden md:flex w-80 shrink-0 flex-col gap-4">
-                <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
-                    <h3 className="font-rajdhani font-bold text-lg mb-4 text-foreground uppercase tracking-wide">Информация</h3>
-                    <div className="space-y-4">
-                        <div>
-                            <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Автор тикета</div>
-                            <div className="flex justify-between items-center text-sm font-medium">
-                                {ticket?.openerUsername}
-                                <span className="text-xs text-muted-foreground bg-secondary px-2 rounded">{ticket?.openerId}</span>
-                            </div>
-                        </div>
-                        <div className="pt-4 border-t border-border/50">
-                            <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Таймер активности</div>
-                            <div className="text-sm">
-                                {ticket?.activityTimerType === 'user' ? <span className="text-yellow-500 font-medium">Ожидается ответ юзера</span>
-                                    : ticket?.activityTimerType === 'close' ? <span className="text-red-500 font-medium animate-pulse">Готовится к закрытию</span>
-                                        : <span className="text-muted-foreground italic">Таймеров нет</span>}
-                            </div>
-                        </div>
-                        <div className="pt-4 border-t border-border/50">
-                            <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Создан</div>
-                            <div className="text-sm font-medium">
-                                {ticket?.createdAt ? format(new Date(ticket.createdAt), 'dd.MM.yyyy HH:mm', { locale: ru }) : '-'}
-                            </div>
-                        </div>
+                <TicketInfoSidebar ticket={ticket} />
+            </div>
+        </div>
+    );
+}
+
+function TicketInfoSidebar({ ticket }: { ticket: any }) {
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 30000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const formatAge = (ms: number) => {
+        const s = Math.floor(ms / 1000);
+        if (s < 60) return `${s}с назад`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}м назад`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}ч ${m % 60}м назад`;
+        const d = Math.floor(h / 24);
+        return `${d}д ${h % 24}ч назад`;
+    };
+
+    const lastMsgAge = ticket?.lastMessageAt ? now - ticket.lastMessageAt : null;
+    const ticketAge = ticket?.createdAt ? now - ticket.createdAt : null;
+    const slaMs = ticket?.firstStaffReplyAt && ticket?.createdAt ? ticket.firstStaffReplyAt - ticket.createdAt : null;
+
+    const getSlaColor = () => {
+        if (ticket?.firstStaffReplyAt) return 'text-emerald-500';
+        if (!ticketAge) return 'text-muted-foreground';
+        if (ticketAge < 30 * 60 * 1000) return 'text-emerald-500'; // < 30m
+        if (ticketAge < 2 * 60 * 60 * 1000) return 'text-yellow-500'; // < 2h
+        return 'text-red-500';
+    };
+
+    return (
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+            <h3 className="font-rajdhani font-bold text-lg mb-4 text-foreground uppercase tracking-wide">Информация</h3>
+            <div className="space-y-4">
+                <div>
+                    <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Автор тикета</div>
+                    <div className="flex justify-between items-center text-sm font-medium">
+                        {ticket?.openerUsername || '—'}
+                        {ticket?.openerId && <span className="text-xs text-muted-foreground bg-secondary px-2 rounded">{ticket.openerId}</span>}
                     </div>
+                </div>
+
+                <div className="pt-4 border-t border-border/50">
+                    <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Последнее сообщение</div>
+                    {lastMsgAge !== null ? (
+                        <div className="space-y-1">
+                            <div className={`text-sm font-medium ${lastMsgAge > 30 * 60 * 1000 ? 'text-yellow-500' : lastMsgAge > 2 * 60 * 60 * 1000 ? 'text-red-500' : 'text-foreground'}`}>
+                                {formatAge(lastMsgAge)}
+                            </div>
+                            {ticket?.lastMessage && (
+                                <p className="text-xs text-muted-foreground truncate">{ticket.lastMessage}</p>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="text-sm text-muted-foreground italic">Нет данных</div>
+                    )}
+                </div>
+
+                <div className="pt-4 border-t border-border/50">
+                    <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">SLA • Первый ответ</div>
+                    <div className={`text-sm font-medium ${getSlaColor()}`}>
+                        {ticket?.firstStaffReplyAt ? (
+                            <>✅ {formatAge(slaMs!).replace(' назад', '')}</>
+                        ) : (
+                            <>⏳ Ожидание {ticketAge ? formatAge(ticketAge).replace(' назад', '') : ''}</>
+                        )}
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-border/50">
+                    <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Таймер активности</div>
+                    <div className="text-sm">
+                        {ticket?.activityTimerType === 'user' ? <span className="text-yellow-500 font-medium">⏳ Ожидается ответ юзера</span>
+                            : ticket?.activityTimerType === 'closing' ? <span className="text-red-500 font-medium animate-pulse">🔒 Готовится к закрытию</span>
+                                : ticket?.waitingForReply ? <span className="text-orange-400 font-medium">💬 Ожидает ответа</span>
+                                    : <span className="text-muted-foreground italic">Таймеров нет</span>}
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-border/50">
+                    <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Создан</div>
+                    <div className="text-sm font-medium">
+                        {ticket?.createdAt ? format(new Date(ticket.createdAt), 'dd.MM.yyyy HH:mm', { locale: ru }) : '-'}
+                    </div>
+                    {ticketAge && (
+                        <div className="text-xs text-muted-foreground mt-0.5">{formatAge(ticketAge)}</div>
+                    )}
                 </div>
             </div>
         </div>
     );
 }
+

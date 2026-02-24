@@ -174,13 +174,28 @@ function handleDispatch(bot, event, d) {
 
         case 'MESSAGE_CREATE': {
             if (d.guild_id !== guildId) break;
+            const author = d.author;
+            if (!author) break;
+            const isBot = author.bot || false;
+
+            // Auto-reply check — runs on ALL channels in the guild (tickets + specified channels)
+            if (!isBot && cfg.autoReplies?.length > 0) {
+                for (const rule of cfg.autoReplies) {
+                    if (matchAutoReply(rule, d.content || '', d.channel_id, guildId)) {
+                        setTimeout(async () => {
+                            try { await bot.sendDiscordMessage(d.channel_id, rule.response); } catch { }
+                        }, (rule.delay || 2) * 1000);
+                        break;
+                    }
+                }
+            }
+
+            // Ticket-specific logic — only for active tickets
             const record = bot.activeTickets.get(d.channel_id);
             if (!record) break;
             if (bot.sentByBot.has(d.id)) return;
-            const author = d.author;
-            if (!author) break;
+
             const isStaff = isStaffFromMember(d.member, staffRoleIds);
-            const isBot = author.bot || false;
 
             // Update record
             const preview = isStaff ? `[Саппорт] ${d.content || ''}` : (d.content || '');
@@ -214,18 +229,6 @@ function handleDispatch(bot, event, d) {
                     bot.enqueue({ text, channelId: d.channel_id });
                 }
                 if (bot.io) bot.io.emit('ticket:message', { channelId: d.channel_id, content: d.content });
-            }
-
-            // Auto-reply check
-            if (!isBot && cfg.autoReplies?.length > 0) {
-                for (const rule of cfg.autoReplies) {
-                    if (matchAutoReply(rule, d.content || '', d.channel_id, guildId)) {
-                        setTimeout(async () => {
-                            try { await bot.sendDiscordMessage(d.channel_id, rule.response); } catch { }
-                        }, (rule.delay || 2) * 1000);
-                        break;
-                    }
-                }
             }
             break;
         }
@@ -348,16 +351,23 @@ async function fetchAndScanChannels(bot) {
         bot.log(`❌ REST channels error: ${e.message}`);
     }
 
-    // Also fetch guild members for the УЧАСТНИКИ panel
+    // Fetch guild members — use search API (works for user tokens, /members requires bot privilege)
     try {
-        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/members?limit=1000`, { Authorization: token });
-        if (res.ok) {
-            const members = JSON.parse(res.body);
-            for (const m of members) { if (m.user) bot.guildMembersCache.set(m.user.id, m); }
-            bot.log(`👥 REST: ${members.length} members loaded`);
-        } else {
-            bot.log(`⚠️ Members fetch returned ${res.status}: ${(res.body || '').slice(0, 100)}`);
+        // Search with empty query returns members, do multiple letter searches for broader coverage
+        const searches = ['', 'a', 'e', 'i', 'o', 'u', 'с', 'а', 'е'];
+        const seen = new Set();
+        for (const q of searches) {
+            try {
+                const url = `https://discord.com/api/v9/guilds/${guildId}/members/search?query=${encodeURIComponent(q)}&limit=100`;
+                const res = await bot.httpGet(url, { Authorization: token });
+                if (res.ok) {
+                    const members = JSON.parse(res.body);
+                    for (const m of members) { if (m.user && !seen.has(m.user.id)) { seen.add(m.user.id); bot.guildMembersCache.set(m.user.id, m); } }
+                }
+            } catch { }
+            await sleep(300); // rate limit safety
         }
+        bot.log(`👥 Members search: ${seen.size} members loaded`);
     } catch (e) { bot.log(`❌ Members fetch error: ${e.message}`); }
 
     // Fetch guild roles

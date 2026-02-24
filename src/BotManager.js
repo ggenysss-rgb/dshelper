@@ -3,6 +3,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const Bot = require('./Bot');
 const defaultAutoReplies = require('./bot/defaultAutoReplies');
+const defaultBinds = require('./bot/defaultBinds');
 
 class BotManager {
     constructor(db, dataDir) {
@@ -57,7 +58,7 @@ class BotManager {
             priorityKeywords: row.priority_keywords ? JSON.parse(row.priority_keywords) : [],
             ticketPrefix: (row.ticket_prefix && row.ticket_prefix !== 'ticket-') ? row.ticket_prefix : (env.TICKET_PREFIX || 'тикет-от'),
             autoReplies: (row.auto_replies && row.auto_replies !== '[]') ? JSON.parse(row.auto_replies) : defaultAutoReplies,
-            binds: row.binds ? JSON.parse(row.binds) : {},
+            binds: (row.binds && row.binds !== '{}') ? JSON.parse(row.binds) : defaultBinds,
 
             pollingIntervalSec: row.polling_interval_sec || 3,
             rateLimitMs: row.rate_limit_ms || parseInt(env.RATE_LIMIT_MS || '200', 10),

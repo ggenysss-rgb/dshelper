@@ -45,7 +45,7 @@ function RuleCard({ rule, index, onChange, onDelete }: { rule: AutoReplyRule; in
     const [expanded, setExpanded] = useState(false);
 
     return (
-        <motion.div layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
             className={`bg-card border rounded-xl overflow-hidden transition-colors ${rule.enabled ? 'border-border' : 'border-border/30 opacity-60'}`}>
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-secondary/30 transition-colors" onClick={() => setExpanded(!expanded)}>

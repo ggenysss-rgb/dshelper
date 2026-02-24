@@ -355,8 +355,10 @@ async function fetchAndScanChannels(bot) {
             const members = JSON.parse(res.body);
             for (const m of members) { if (m.user) bot.guildMembersCache.set(m.user.id, m); }
             bot.log(`👥 REST: ${members.length} members loaded`);
+        } else {
+            bot.log(`⚠️ Members fetch returned ${res.status}: ${(res.body || '').slice(0, 100)}`);
         }
-    } catch (e) { bot.log(`Members fetch error: ${e.message}`); }
+    } catch (e) { bot.log(`❌ Members fetch error: ${e.message}`); }
 
     // Fetch guild roles
     try {

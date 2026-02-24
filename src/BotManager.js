@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
-const Bot = require('./Bot'); // the refactored bot class
+const Bot = require('./Bot');
+const defaultAutoReplies = require('./bot/defaultAutoReplies');
 
 class BotManager {
     constructor(db, dataDir) {
@@ -55,7 +56,7 @@ class BotManager {
             closingPhrase: row.closing_phrase || env.CLOSING_PHRASE || 'остались вопросы',
             priorityKeywords: row.priority_keywords ? JSON.parse(row.priority_keywords) : [],
             ticketPrefix: (row.ticket_prefix && row.ticket_prefix !== 'ticket-') ? row.ticket_prefix : (env.TICKET_PREFIX || 'тикет-от'),
-            autoReplies: row.auto_replies ? JSON.parse(row.auto_replies) : [],
+            autoReplies: (row.auto_replies && row.auto_replies !== '[]') ? JSON.parse(row.auto_replies) : defaultAutoReplies,
             binds: row.binds ? JSON.parse(row.binds) : {},
 
             pollingIntervalSec: row.polling_interval_sec || 3,

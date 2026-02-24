@@ -102,6 +102,16 @@ function handleDispatch(bot, event, d) {
     const categoryId = cfg.ticketsCategoryId;
     const staffRoleIds = cfg.staffRoleIds || [];
 
+    // DIAGNOSTIC: log all dispatch events (limited to avoid spam)
+    if (!bot._dispatchCounts) bot._dispatchCounts = {};
+    bot._dispatchCounts[event] = (bot._dispatchCounts[event] || 0) + 1;
+    if (bot._dispatchCounts[event] <= 3) {
+        bot.log(`📨 Dispatch: ${event}${d?.guild_id ? ` (guild:${d.guild_id})` : ''}${event === 'MESSAGE_CREATE' ? ` from:${d?.author?.username} ch:${d?.channel_id} "${(d?.content || '').slice(0, 40)}"` : ''}`);
+    }
+    if (bot._dispatchCounts[event] === 3 && event !== 'MESSAGE_CREATE') {
+        bot.log(`📨 (suppressing further ${event} logs)`);
+    }
+
     switch (event) {
         case 'READY':
             bot.sessionId = d.session_id;

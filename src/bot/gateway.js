@@ -166,12 +166,7 @@ function handleDispatch(bot, event, d) {
                 bot.enqueue({ ...msg });
                 if (bot.io) bot.io.emit('ticket:new', { channelId: d.id, channelName: d.name });
             }
-            // Auto-greet
-            if (cfg.autoGreetEnabled && cfg.autoGreetText) {
-                setTimeout(async () => {
-                    try { await bot.sendDiscordMessage(d.id, cfg.autoGreetText); } catch { }
-                }, (cfg.autoGreetDelay || 3) * 1000);
-            }
+            // Auto-greet: moved to MESSAGE_CREATE — triggers on role mention, not channel creation
             // Subscribe to new channel via op14 so we get MESSAGE_CREATE for it
             subscribeToSingleChannel(bot, guildId, d.id);
             break;
@@ -250,6 +245,26 @@ function handleDispatch(bot, event, d) {
             if (bot.sentByBot.has(d.id)) return;
 
             const isStaff = isStaffFromMember(d.member, staffRoleIds);
+
+            // Auto-greet: trigger when bot/system message mentions staff role in this ticket
+            if (cfg.autoGreetEnabled && cfg.autoGreetText && isBot) {
+                const greetRoles = cfg.autoGreetRoleIds || [];
+                const mentionedRoles = d.mention_roles || [];
+                // If autoGreetRoleIds is empty, don't greet at all (require config)
+                if (greetRoles.length > 0 && mentionedRoles.some(r => greetRoles.includes(r))) {
+                    if (!bot._greetedChannels) bot._greetedChannels = new Set();
+                    if (!bot._greetedChannels.has(d.channel_id)) {
+                        bot._greetedChannels.add(d.channel_id);
+                        const chId = d.channel_id;
+                        setTimeout(async () => {
+                            try {
+                                await bot.sendDiscordMessage(chId, cfg.autoGreetText);
+                                bot.log(`👋 Auto-greet sent in #${record.channelName} (role mention)`);
+                            } catch (e) { bot.log(`❌ Auto-greet error: ${e.message}`); }
+                        }, (cfg.autoGreetDelay || 3) * 1000);
+                    }
+                }
+            }
 
             // Update record
             const preview = isStaff ? `[Саппорт] ${d.content || ''}` : (d.content || '');

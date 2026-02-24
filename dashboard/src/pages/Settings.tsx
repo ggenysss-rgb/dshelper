@@ -120,6 +120,9 @@ export default function Settings() {
                     onChange={v => update('priorityKeywords', v.split(',').map((w: string) => w.trim()).filter(Boolean))} />
                 <TextField label="ID категории тикетов" desc="ID дискорд-категории где создаются тикеты" value={s.ticketsCategoryId || ''} onChange={v => update('ticketsCategoryId', v.trim())} />
                 <TextField label="Канал смены (ID)" desc="ID дискорд-канала для отметки смен" value={s.shiftChannelId || ''} onChange={v => update('shiftChannelId', v.trim())} />
+                <TextField label="Роли для авто-приветствия" desc="ID ролей (через запятую), при пинге которых отправляется приветствие"
+                    value={Array.isArray(s.autoGreetRoleIds) ? s.autoGreetRoleIds.join(', ') : String(s.autoGreetRoleIds || '')}
+                    onChange={v => update('autoGreetRoleIds', v.split(',').map((w: string) => w.trim()).filter(Boolean))} />
             </motion.div>
         </div>
     );

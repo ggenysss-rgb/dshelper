@@ -6,33 +6,56 @@ import { motion } from 'framer-motion';
 
 const IMAGE_URL_RE = /(https?:\/\/[^\s]+\.(?:gif|png|jpg|jpeg|webp)(?:\?[^\s]*)?)/gi;
 const URL_RE = /(https?:\/\/[^\s]+)/gi;
+const MENTION_RE = /<@[!&]?(\d+)>/g;
 
-function renderContent(text: string) {
-    // Split by image URLs first
-    const parts = text.split(IMAGE_URL_RE);
+function renderContent(text: string, mentionMap?: Record<string, string>) {
+    // First resolve Discord mentions
+    let resolved = text;
+    if (mentionMap) {
+        resolved = text.replace(MENTION_RE, (match, id) => {
+            const isRole = match.includes('&');
+            const key = isRole ? `role:${id}` : `user:${id}`;
+            const name = mentionMap[key];
+            if (name) return `@@MENTION:${isRole ? 'role' : 'user'}:${name}@@`;
+            return match;
+        });
+    }
+
+    // Split by image URLs
+    const parts = resolved.split(IMAGE_URL_RE);
     return parts.map((part, i) => {
         if (IMAGE_URL_RE.test(part)) {
             IMAGE_URL_RE.lastIndex = 0;
-            return (
-                <img key={i} src={part} alt="" className="rounded-lg max-h-64 mt-1 mb-1 object-contain" />
-            );
+            return <img key={i} src={part} alt="" className="rounded-lg max-h-64 mt-1 mb-1 object-contain" />;
         }
-        // For non-image parts, linkify remaining URLs
-        const subParts = part.split(URL_RE);
-        return subParts.map((sub, j) => {
-            if (URL_RE.test(sub)) {
-                URL_RE.lastIndex = 0;
+        // For non-image parts: handle mentions and URLs
+        const fragments = part.split(/(@@MENTION:(?:role|user):[^@]+@@)/g);
+        return fragments.map((frag, fi) => {
+            const mentionMatch = frag.match(/^@@MENTION:(role|user):(.+)@@$/);
+            if (mentionMatch) {
+                const [, type, name] = mentionMatch;
                 return (
-                    <a key={`${i}-${j}`} href={sub} target="_blank" rel="noreferrer"
-                        className="underline opacity-80 hover:opacity-100 break-all">{sub}</a>
+                    <span key={`${i}-${fi}`} className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold ${type === 'role' ? 'bg-[#5865F2]/20 text-[#99AAF5]' : 'bg-[#5865F2]/20 text-[#99AAF5]'
+                        }`}>@{name}</span>
                 );
             }
-            return sub;
+            // Linkify URLs in remaining text
+            const subParts = frag.split(URL_RE);
+            return subParts.map((sub, j) => {
+                if (URL_RE.test(sub)) {
+                    URL_RE.lastIndex = 0;
+                    return (
+                        <a key={`${i}-${fi}-${j}`} href={sub} target="_blank" rel="noreferrer"
+                            className="underline opacity-80 hover:opacity-100 break-all">{sub}</a>
+                    );
+                }
+                return sub;
+            });
         });
     });
 }
 
-export default function ChatMessage({ message, isStaff }: { message: DiscordMessage; isStaff: boolean }) {
+export default function ChatMessage({ message, isStaff, mentionMap }: { message: DiscordMessage; isStaff: boolean; mentionMap?: Record<string, string> }) {
     const isBot = message.author.bot;
     const contentIsImageOnly = message.content && IMAGE_URL_RE.test(message.content) && message.content.trim().match(IMAGE_URL_RE)?.join('').length === message.content.trim().length;
     IMAGE_URL_RE.lastIndex = 0;
@@ -76,7 +99,7 @@ export default function ChatMessage({ message, isStaff }: { message: DiscordMess
                     {message.content ? (
                         contentIsImageOnly ? (
                             <div className="rounded-2xl overflow-hidden">
-                                {renderContent(message.content)}
+                                {renderContent(message.content, mentionMap)}
                             </div>
                         ) : (
                             <div className={cn(
@@ -85,7 +108,7 @@ export default function ChatMessage({ message, isStaff }: { message: DiscordMess
                                     ? "bg-primary text-primary-foreground rounded-tr-sm"
                                     : "bg-secondary text-foreground rounded-tl-sm border border-border/50"
                             )}>
-                                {renderContent(message.content)}
+                                {renderContent(message.content, mentionMap)}
                             </div>
                         )
                     ) : null}

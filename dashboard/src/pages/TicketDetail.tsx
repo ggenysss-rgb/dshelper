@@ -12,7 +12,9 @@ import { ru } from 'date-fns/locale';
 
 export default function TicketDetail() {
     const { id } = useParams<{ id: string }>();
-    const { data: messages, isLoading } = useTicketMessages(id);
+    const { data: msgData, isLoading } = useTicketMessages(id);
+    const messages = msgData?.messages;
+    const mentionMap = msgData?.mentionMap || {};
     const { data: tickets } = useTickets();
     const { mutateAsync: sendMessage, isPending } = useSendTicketMessage();
     const socket = useSocket();
@@ -101,7 +103,7 @@ export default function TicketDetail() {
                         messages.map((msg) => {
                             const isStaff = ticket ? msg.author.id !== ticket.openerId && !msg.author.bot : false;
                             const isBotProxy = !!msg.author.bot && msg.content.includes('[Саппорт]');
-                            return <ChatMessage key={msg.id} message={msg} isStaff={isStaff || isBotProxy} />;
+                            return <ChatMessage key={msg.id} message={msg} isStaff={isStaff || isBotProxy} mentionMap={mentionMap} />;
                         })
                     )}
                 </div>

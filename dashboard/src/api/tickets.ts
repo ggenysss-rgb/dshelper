@@ -53,7 +53,12 @@ export const fetchTickets = async (): Promise<Ticket[]> => {
     return data;
 };
 
-export const fetchTicketMessages = async (id: string): Promise<DiscordMessage[]> => {
+export type TicketMessagesResponse = {
+    messages: DiscordMessage[];
+    mentionMap: Record<string, string>;
+};
+
+export const fetchTicketMessages = async (id: string): Promise<TicketMessagesResponse> => {
     const { data } = await client.get(`/tickets/${id}/messages`);
     return data;
 };

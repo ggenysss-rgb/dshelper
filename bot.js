@@ -3586,7 +3586,15 @@ function startDashboard() {
 
         try {
             const messages = await fetchChannelMessages(channelId, 100, getDiscordToken(users[0]?.tgChatId));
-            res.json(messages.reverse());
+            // Build mention lookup map
+            const mentionMap = {};
+            for (const [id, r] of guildRolesCache) {
+                mentionMap[`role:${id}`] = r.name || id;
+            }
+            for (const [id, m] of guildMembersCache) {
+                mentionMap[`user:${id}`] = m.user?.global_name || m.user?.username || m.nick || id;
+            }
+            res.json({ messages: messages.reverse(), mentionMap });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

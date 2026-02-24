@@ -455,47 +455,62 @@ async function fetchAndScanChannels(bot) {
 
     // Subscribe to guild channels via op 14 (Lazy Request) — CRITICAL for receiving MESSAGE_CREATE
     const isBotToken = !!cfg.discordBotToken;
-    if (!isBotToken && bot.ws && bot.ws.readyState === WebSocket.OPEN) {
-        // Collect all text channels in the target guild for subscription
-        const channelIds = [];
+    if (!isBotToken) {
+        // Wait a moment for Gateway to be ready, then subscribe
+        await sleep(2000);
+        if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN) { bot.log('⚠️ WS not open for lazy request'); return; }
+
+        // Collect only the channels we NEED:
+        // 1. Ticket category channels
+        // 2. Active ticket channels
+        // 3. Auto-reply target channels in this guild
+        const channelIds = new Set();
+
+        // Ticket category channels
         for (const [chId, ch] of bot.channelCache) {
-            if (ch.guild_id === guildId && (ch.type === 0 || ch.type === 5)) {
-                channelIds.push(chId);
+            if (ch.guild_id === guildId && ch.type === 0 && ch.parent_id === categoryId) {
+                channelIds.add(chId);
             }
         }
-        // Also add active ticket channels
-        for (const [chId] of bot.activeTickets) {
-            if (!channelIds.includes(chId)) channelIds.push(chId);
-        }
-        if (channelIds.length > 0) {
-            sendLazyRequest(bot, guildId, channelIds);
-        }
-
-        // Subscribe to auto-reply channels in other guilds
-        const arGuilds = new Map();
+        // Active tickets
+        for (const [chId] of bot.activeTickets) channelIds.add(chId);
+        // Auto-reply channels in this guild (if channelId specified, use it; otherwise pick a general chat)
         for (const rule of (cfg.autoReplies || [])) {
-            if (rule.guildId && rule.guildId !== guildId) {
-                if (!arGuilds.has(rule.guildId)) arGuilds.set(rule.guildId, new Set());
-                if (rule.channelId) arGuilds.get(rule.guildId).add(rule.channelId);
+            if (rule.guildId === guildId && rule.channelId) channelIds.add(rule.channelId);
+        }
+        // If auto-replies target ANY channel in this guild (channelId=''), subscribe to first few text channels
+        const hasAnyChannelRule = (cfg.autoReplies || []).some(r => r.guildId === guildId && !r.channelId);
+        if (hasAnyChannelRule) {
+            let count = 0;
+            for (const [chId, ch] of bot.channelCache) {
+                if (ch.guild_id === guildId && ch.type === 0 && count < 10) {
+                    channelIds.add(chId);
+                    count++;
+                }
             }
         }
-        for (const [arGuildId, arChIds] of arGuilds) {
-            if (arChIds.size > 0) sendLazyRequest(bot, arGuildId, [...arChIds]);
+
+        const chArray = [...channelIds];
+        if (chArray.length > 0) {
+            sendLazyRequest(bot, guildId, chArray);
         }
 
-        // Also request member sidebar for members panel
-        const sidebarChannelId = channelIds.find(chId => {
+        // Member sidebar — pick one non-ticket channel for member list
+        const sidebarChannelId = chArray.find(chId => {
             const ch = bot.channelCache.get(chId);
             return ch && ch.type === 0 && ch.parent_id !== categoryId;
-        });
+        }) || chArray[0];
         if (sidebarChannelId) {
-            const channels = {};
-            channels[sidebarChannelId] = [[0, 99], [100, 199], [200, 299]];
-            bot.ws.send(JSON.stringify({
-                op: 14,
-                d: { guild_id: guildId, typing: true, threads: true, activities: true, members: [], channels }
-            }));
-            bot.log(`👥 Member sidebar subscription sent (channel: ${sidebarChannelId})`);
+            await sleep(500);
+            if (bot.ws && bot.ws.readyState === WebSocket.OPEN) {
+                const channels = {};
+                channels[sidebarChannelId] = [[0, 99], [100, 199], [200, 299]];
+                bot.ws.send(JSON.stringify({
+                    op: 14,
+                    d: { guild_id: guildId, typing: true, threads: true, activities: true, members: [], channels }
+                }));
+                bot.log(`👥 Member sidebar subscription sent`);
+            }
         }
     }
 }

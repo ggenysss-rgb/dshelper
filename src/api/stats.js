@@ -167,6 +167,7 @@ function createStatsRoutes(db, botManager) {
             autoGreetEnabled: bot.config.autoGreetEnabled ?? true,
             autoGreetText: bot.config.autoGreetText || '',
             autoGreetRoleIds: bot.config.autoGreetRoleIds || [],
+            autoGreetAllChannels: bot.config.autoGreetAllChannels ?? false,
             includeFirstUserMessage: bot.config.includeFirstUserMessage ?? true,
             notifyOnClose: bot.config.notifyOnClose ?? true,
             mentionOnHighPriority: bot.config.mentionOnHighPriority ?? true,
@@ -188,7 +189,7 @@ function createStatsRoutes(db, botManager) {
         if (!bot) return res.status(400).json({ error: 'Bot is not running' });
 
         const allowed = [
-            'autoGreetEnabled', 'autoGreetText', 'autoGreetRoleIds',
+            'autoGreetEnabled', 'autoGreetText', 'autoGreetRoleIds', 'autoGreetAllChannels',
             'includeFirstUserMessage', 'notifyOnClose', 'mentionOnHighPriority',
             'activityCheckMin', 'closingCheckMin', 'closingPhrase',
             'ticketPrefix', 'pollingIntervalSec', 'rateLimitMs',

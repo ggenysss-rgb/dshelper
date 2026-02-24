@@ -226,13 +226,17 @@ class Bot {
             try {
                 this._sharedDb.prepare(`UPDATE users SET
                     auto_greet_enabled = ?, auto_greet_text = ?,
+                    auto_greet_role_ids = ?, auto_greet_all_channels = ?,
                     activity_check_min = ?, closing_check_min = ?,
                     closing_phrase = ?, ticket_prefix = ?,
                     rate_limit_ms = ?, max_message_length = ?,
                     forum_mode = ?, binds = ?, auto_replies = ?,
-                    priority_keywords = ?
+                    priority_keywords = ?, staff_role_ids = ?,
+                    tickets_category_id = ?, shift_channel_id = ?
                     WHERE id = ?`).run(
                     this.config.autoGreetEnabled ? 1 : 0, this.config.autoGreetText || '',
+                    JSON.stringify(this.config.autoGreetRoleIds || []),
+                    this.config.autoGreetAllChannels ? 1 : 0,
                     this.config.activityCheckMin || 10, this.config.closingCheckMin || 15,
                     this.config.closingPhrase || '', this.config.ticketPrefix || '',
                     this.config.rateLimitMs || 200, this.config.maxMessageLength || 300,
@@ -240,6 +244,9 @@ class Bot {
                     JSON.stringify(this.config.binds || {}),
                     JSON.stringify(this.config.autoReplies || []),
                     JSON.stringify(this.config.priorityKeywords || []),
+                    JSON.stringify(this.config.staffRoleIds || []),
+                    this.config.ticketsCategoryId || '',
+                    this.config.shiftChannelId || '',
                     this.userId
                 );
             } catch (e) { this.log(`saveConfigToDb error: ${e.message}`); }

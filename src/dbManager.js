@@ -23,6 +23,7 @@ function initDb(dataDir) {
             auto_greet_enabled INTEGER DEFAULT 1,
             auto_greet_text TEXT,
             auto_greet_role_ids TEXT DEFAULT '[]',
+            auto_greet_all_channels INTEGER DEFAULT 0,
             
             activity_check_min INTEGER DEFAULT 10,
             closing_check_min INTEGER DEFAULT 15,
@@ -73,6 +74,14 @@ function initDb(dataDir) {
     } catch (e) {
         console.error("[DB] Migration error on closed_tickets:", e.message);
     }
+
+    // Migrate: add auto_greet_all_channels column if missing
+    try {
+        const usersInfo = db.pragma('table_info(users)');
+        if (!usersInfo.some(col => col.name === 'auto_greet_all_channels')) {
+            db.exec('ALTER TABLE users ADD COLUMN auto_greet_all_channels INTEGER DEFAULT 0;');
+        }
+    } catch (e) { console.error("[DB] Migration auto_greet_all_channels:", e.message); }
 
     db.exec(`
         CREATE TABLE IF NOT EXISTS ticket_messages (

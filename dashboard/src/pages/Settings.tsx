@@ -93,6 +93,7 @@ export default function Settings() {
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-border rounded-xl p-6">
                 <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-4">Основные переключатели</h2>
                 <Toggle label="Авто-приветствие" desc="Автоматически приветствовать пользователей при открытии тикета" value={s.autoGreetEnabled} onChange={v => update('autoGreetEnabled', v)} />
+                <Toggle label="Приветствие во всех каналах" desc="Авто-приветствие работает во всех каналах, а не только в тикетах" value={s.autoGreetAllChannels} onChange={v => update('autoGreetAllChannels', v)} />
                 <Toggle label="Первое сообщение" desc="Включать первое сообщение пользователя в уведомление" value={s.includeFirstUserMessage} onChange={v => update('includeFirstUserMessage', v)} />
                 <Toggle label="Уведомление при закрытии" desc="Отправлять уведомление когда тикет закрывается" value={s.notifyOnClose} onChange={v => update('notifyOnClose', v)} />
                 <Toggle label="Упоминание при приоритете" desc="Упоминать при высокоприоритетных тикетах" value={s.mentionOnHighPriority} onChange={v => update('mentionOnHighPriority', v)} />

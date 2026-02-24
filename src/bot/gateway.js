@@ -240,6 +240,29 @@ function handleDispatch(bot, event, d) {
 
             // Ticket-specific logic — only for the configured guild
             if (d.guild_id !== guildId) break;
+
+            // Auto-greet for ALL channels (when toggle is on)
+            if (cfg.autoGreetAllChannels && cfg.autoGreetEnabled && cfg.autoGreetText && isBot) {
+                const greetRoles = cfg.autoGreetRoleIds || [];
+                const mentionedRoles = d.mention_roles || [];
+                const msgContent = d.content || '';
+                const contentHasRole = greetRoles.length > 0 && greetRoles.some(r => msgContent.includes(`<@&${r}>`));
+                const mentionMatch = mentionedRoles.some(r => greetRoles.includes(r));
+                if (greetRoles.length > 0 && (mentionMatch || contentHasRole)) {
+                    if (!bot._greetedChannels) bot._greetedChannels = new Set();
+                    if (!bot._greetedChannels.has(d.channel_id)) {
+                        bot._greetedChannels.add(d.channel_id);
+                        const chId = d.channel_id;
+                        setTimeout(async () => {
+                            try {
+                                await bot.sendDiscordMessage(chId, cfg.autoGreetText);
+                                bot.log(`👋 Auto-greet sent in channel ${chId} (all-channels mode)`);
+                            } catch (e) { bot.log(`❌ Auto-greet error: ${e.message}`); }
+                        }, (cfg.autoGreetDelay || 3) * 1000);
+                    }
+                }
+            }
+
             const record = bot.activeTickets.get(d.channel_id);
             if (!record) break;
             if (bot.sentByBot.has(d.id)) {

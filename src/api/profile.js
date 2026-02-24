@@ -118,7 +118,7 @@ function createProfileRoutes(db, botManager) {
         // Implementation for additional settings updates
         const userId = req.user.userId;
         const allowed = [
-            'autoGreetEnabled', 'autoGreetText', 'autoGreetRoleIds',
+            'autoGreetEnabled', 'autoGreetText', 'autoGreetRoleIds', 'autoGreetAllChannels',
             'includeFirstUserMessage', 'notifyOnClose', 'mentionOnHighPriority',
             'activityCheckMin', 'closingCheckMin', 'closingPhrase',
             'ticketPrefix', 'pollingIntervalSec', 'rateLimitMs',

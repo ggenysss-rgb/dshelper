@@ -15,6 +15,9 @@ function connectGateway(bot) {
     const isBotToken = !!bot.config.discordBotToken;
 
     bot.log(`🔌 Connecting to Discord Gateway...`);
+    // Diagnostic: log auto-reply config
+    const arRules = bot.config.autoReplies || [];
+    bot.log(`🤖 Auto-reply config: ${arRules.length} rules — ${arRules.map(r => `"${r.name}"(guild:${r.guildId || 'any'},ch:${r.channelId || 'any'})`).join(', ') || 'NONE'}`);
     try { if (bot.ws) bot.ws.close(1000); } catch { }
 
     const ws = new WebSocket(GATEWAY_URL);
@@ -191,9 +194,11 @@ function handleDispatch(bot, event, d) {
 
             // Auto-reply check — runs on ALL guilds, rule.guildId does filtering
             if (!isBot && cfg.autoReplies?.length > 0) {
+                let matched = false;
                 for (const rule of cfg.autoReplies) {
                     if (matchAutoReply(rule, d.content || '', d.channel_id, d.guild_id)) {
                         bot.log(`🤖 Auto-reply matched: "${rule.name}" in guild ${d.guild_id} channel ${d.channel_id}`);
+                        matched = true;
                         const replyMsgId = d.id;
                         setTimeout(async () => {
                             try {
@@ -205,6 +210,17 @@ function handleDispatch(bot, event, d) {
                         }, (rule.delay || 2) * 1000);
                         break;
                     }
+                }
+                // Debug: log when message is checked but no rule matched (only for target guild, limit noise)
+                if (!matched && d.guild_id === guildId && !bot._arDebugCount) bot._arDebugCount = 0;
+                if (!matched && d.guild_id === guildId && bot._arDebugCount < 5) {
+                    bot._arDebugCount++;
+                    bot.log(`🔍 AR debug: msg from ${author.username} in #${d.channel_id}: "${(d.content || '').slice(0, 50)}" — ${cfg.autoReplies.length} rules checked, 0 matched`);
+                }
+            } else if (!isBot && d.guild_id === guildId) {
+                if (!bot._arNoRulesLogged) {
+                    bot.log(`⚠️ Auto-replies: ${cfg.autoReplies?.length || 0} rules loaded (none active)`);
+                    bot._arNoRulesLogged = true;
                 }
             }
 

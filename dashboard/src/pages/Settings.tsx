@@ -115,7 +115,8 @@ export default function Settings() {
                 <TextField label="Текст приветствия" desc="Автоматическое приветствие при открытии тикета" value={s.autoGreetText} onChange={v => update('autoGreetText', v)} />
                 <TextField label="Фраза закрытия" desc="Фразы-триггеры для предложения закрыть тикет (через запятую)" value={s.closingPhrase} onChange={v => update('closingPhrase', v)} />
                 <TextField label="Префикс тикетов" desc="Название каналов начинается с этого префикса" value={s.ticketPrefix} onChange={v => update('ticketPrefix', v)} />
-                <TextField label="Ключевые слова приоритета" desc="Слова для определения высокого приоритета (через запятую)" value={Array.isArray(s.priorityKeywords) ? s.priorityKeywords.join(', ') : s.priorityKeywords}
+                <TextField label="Ключевые слова приоритета" desc="Слова для определения высокого приоритета (через запятую)"
+                    value={(() => { const pk = s.priorityKeywords; if (Array.isArray(pk)) return pk.join(', '); if (pk && typeof pk === 'object') return (pk.high || []).join(', '); return String(pk || ''); })()}
                     onChange={v => update('priorityKeywords', v.split(',').map((w: string) => w.trim()).filter(Boolean))} />
                 <TextField label="ID категории тикетов" desc="ID дискорд-категории где создаются тикеты" value={s.ticketsCategoryId || ''} onChange={v => update('ticketsCategoryId', v.trim())} />
                 <TextField label="Канал смены (ID)" desc="ID дискорд-канала для отметки смен" value={s.shiftChannelId || ''} onChange={v => update('shiftChannelId', v.trim())} />

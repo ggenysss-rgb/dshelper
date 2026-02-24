@@ -38,7 +38,7 @@ class BotManager {
             discordBotToken: env.DISCORD_BOT_TOKEN || '',
             guildId: row.discord_guild_id || env.GUILD_ID || '',
             ticketsCategoryId: row.tickets_category_id || env.TICKETS_CATEGORY_ID || '1448671656921927740',
-            staffRoleIds: row.staff_role_ids ? JSON.parse(row.staff_role_ids) : envStaffRoleIds,
+            staffRoleIds: row.staff_role_ids ? JSON.parse(row.staff_role_ids) : (envStaffRoleIds.length > 0 ? envStaffRoleIds : ['1334466933273395242']),
             shiftChannelId: row.shift_channel_id || env.SHIFT_CHANNEL_ID || '1451246122755559555',
             userName: row.username || '',
 

@@ -250,8 +250,12 @@ function handleDispatch(bot, event, d) {
             if (cfg.autoGreetEnabled && cfg.autoGreetText && isBot) {
                 const greetRoles = cfg.autoGreetRoleIds || [];
                 const mentionedRoles = d.mention_roles || [];
-                // If autoGreetRoleIds is empty, don't greet at all (require config)
-                if (greetRoles.length > 0 && mentionedRoles.some(r => greetRoles.includes(r))) {
+                const msgContent = d.content || '';
+                // Also check content for <@&roleId> format (some bots don't populate mention_roles)
+                const contentHasRole = greetRoles.length > 0 && greetRoles.some(r => msgContent.includes(`<@&${r}>`));
+                const mentionMatch = mentionedRoles.some(r => greetRoles.includes(r));
+                bot.log(`🔍 Auto-greet check: bot=${d.author?.username}, mention_roles=[${mentionedRoles.join(',')}], greetRoles=[${greetRoles.join(',')}], contentMatch=${contentHasRole}, mentionMatch=${mentionMatch}`);
+                if (greetRoles.length > 0 && (mentionMatch || contentHasRole)) {
                     if (!bot._greetedChannels) bot._greetedChannels = new Set();
                     if (!bot._greetedChannels.has(d.channel_id)) {
                         bot._greetedChannels.add(d.channel_id);

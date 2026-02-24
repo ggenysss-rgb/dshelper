@@ -178,12 +178,23 @@ function handleDispatch(bot, event, d) {
             if (!author) break;
             const isBot = author.bot || false;
 
+            // Cache member from message for members panel
+            if (d.member && author) {
+                bot.guildMembersCache.set(author.id, { ...d.member, user: author });
+            }
+
             // Auto-reply check — runs on ALL channels in the guild (tickets + specified channels)
             if (!isBot && cfg.autoReplies?.length > 0) {
                 for (const rule of cfg.autoReplies) {
                     if (matchAutoReply(rule, d.content || '', d.channel_id, guildId)) {
+                        bot.log(`🤖 Auto-reply matched: "${rule.name}" for channel ${d.channel_id}`);
                         setTimeout(async () => {
-                            try { await bot.sendDiscordMessage(d.channel_id, rule.response); } catch { }
+                            try {
+                                await bot.sendDiscordMessage(d.channel_id, rule.response);
+                                bot.log(`✅ Auto-reply sent: "${rule.name}"`);
+                            } catch (e) {
+                                bot.log(`❌ Auto-reply send failed: ${e.message}`);
+                            }
                         }, (rule.delay || 2) * 1000);
                         break;
                     }
@@ -353,21 +364,21 @@ async function fetchAndScanChannels(bot) {
 
     // Fetch guild members — use search API (works for user tokens, /members requires bot privilege)
     try {
-        // Search with common letters to find as many members as possible
-        const searches = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '1', '2', '3', '4', '5'];
+        // Search with empty query returns members, do multiple letter searches for broader coverage
+        const searches = ['', 'a', 'e', 'i', 'o', 'u', 'с', 'а', 'е'];
         const seen = new Set();
         for (const q of searches) {
             try {
-                const url = `https://discord.com/api/v9/guilds/${guildId}/members/search?query=${q}&limit=100`;
+                const url = `https://discord.com/api/v9/guilds/${guildId}/members/search?query=${encodeURIComponent(q)}&limit=100`;
                 const res = await bot.httpGet(url, { Authorization: token });
                 if (res.ok) {
                     const members = JSON.parse(res.body);
                     for (const m of members) { if (m.user && !seen.has(m.user.id)) { seen.add(m.user.id); bot.guildMembersCache.set(m.user.id, m); } }
                 }
             } catch { }
-            await sleep(250);
+            await sleep(300); // rate limit safety
         }
-        bot.log(`👥 Members search: ${seen.size} unique members loaded`);
+        bot.log(`👥 Members search: ${seen.size} members loaded`);
     } catch (e) { bot.log(`❌ Members fetch error: ${e.message}`); }
 
     // Fetch guild roles

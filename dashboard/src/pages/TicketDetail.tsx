@@ -151,9 +151,33 @@ export default function TicketDetail() {
                     {(!messages || messages.length === 0) ? (
                         <div className="h-full flex flex-col justify-center items-center text-muted-foreground italic">Нет сообщений</div>
                     ) : (() => {
-                        // Infer opener: use ticket.openerId, or fall back to first non-bot message author
-                        const openerId = ticket?.openerId || messages.find(m => !m.author.bot)?.author.id;
+                        // Determine opener: from ticket data, or extract from channel name (тикет-от-{username})
+                        let openerId = ticket?.openerId;
+                        if (!openerId && ticket?.channelName) {
+                            // Extract username from channel name like "📒│тикет-от-ptx2226"
+                            const match = ticket.channelName.match(/тикет-от-(.+)/i);
+                            if (match) {
+                                const openerName = match[1].toLowerCase();
+                                // Find author whose username matches
+                                const openerMsg = messages.find(m =>
+                                    !m.author.bot && m.author.username.toLowerCase() === openerName
+                                );
+                                if (openerMsg) openerId = openerMsg.author.id;
+                            }
+                        }
+                        // Last resort: if we still can't find opener, use the most frequent non-bot author
+                        if (!openerId) {
+                            const counts = new Map<string, number>();
+                            for (const m of messages) {
+                                if (!m.author.bot) counts.set(m.author.id, (counts.get(m.author.id) || 0) + 1);
+                            }
+                            let maxCount = 0;
+                            for (const [id, count] of counts) {
+                                if (count > maxCount) { maxCount = count; openerId = id; }
+                            }
+                        }
                         return messages.map((msg) => {
+                            // Staff = NOT the opener AND not a bot
                             const isStaff = openerId ? msg.author.id !== openerId && !msg.author.bot : false;
                             const isBotProxy = !!msg.author.bot && msg.content.includes('[Саппорт]');
                             return (

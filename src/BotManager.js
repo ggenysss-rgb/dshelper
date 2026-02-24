@@ -37,14 +37,14 @@ class BotManager {
             discordToken: row.discord_token || env.DISCORD_TOKEN || '',
             discordBotToken: env.DISCORD_BOT_TOKEN || '',
             guildId: row.discord_guild_id || env.GUILD_ID || '',
-            ticketsCategoryId: row.tickets_category_id || env.TICKETS_CATEGORY_ID || '',
+            ticketsCategoryId: row.tickets_category_id || env.TICKETS_CATEGORY_ID || '1448671656921927740',
             staffRoleIds: row.staff_role_ids ? JSON.parse(row.staff_role_ids) : envStaffRoleIds,
-            shiftChannelId: row.shift_channel_id || env.SHIFT_CHANNEL_ID || '',
+            shiftChannelId: row.shift_channel_id || env.SHIFT_CHANNEL_ID || '1451246122755559555',
             userName: row.username || '',
 
             autoGreetEnabled: row.auto_greet_enabled === 1,
-            autoGreetText: row.auto_greet_text || '',
-            autoGreetRoleIds: row.auto_greet_role_ids ? JSON.parse(row.auto_greet_role_ids) : [],
+            autoGreetText: row.auto_greet_text || 'Здравствуйте, чем могу помочь?',
+            autoGreetRoleIds: row.auto_greet_role_ids ? JSON.parse(row.auto_greet_role_ids) : ['1475932249017946133'],
 
             activityCheckMin: row.activity_check_min || 10,
             closingCheckMin: row.closing_check_min || 15,

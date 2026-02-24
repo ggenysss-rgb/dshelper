@@ -217,6 +217,8 @@ function handleDispatch(bot, event, d) {
                             try {
                                 await bot.sendDiscordMessage(d.channel_id, rule.response, replyMsgId);
                                 bot.log(`✅ Auto-reply sent: "${rule.name}"`);
+                                // Telegram notification
+                                bot.tgSendMessage(null, `🤖 <b>Авто-ответ:</b> "${rule.name}"\n👤 <b>${d.author?.username || 'unknown'}</b>\n💬 "${(d.content || '').slice(0, 80)}"\n📢 #${d.channel_id}`);
                             } catch (e) {
                                 bot.log(`❌ Auto-reply send failed: ${e.message}`);
                             }
@@ -529,6 +531,8 @@ function startAutoReplyPolling(bot) {
                         try {
                             await bot.sendDiscordMessage(channelId, rule.response, msg.id);
                             bot.log(`✅ Auto-reply sent: "${rule.name}"`);
+                            // Telegram notification
+                            bot.tgSendMessage(null, `🤖 <b>Авто-ответ:</b> "${rule.name}"\n👤 <b>${msg.author?.username || 'unknown'}</b>\n💬 "${(msg.content || '').slice(0, 80)}"\n📢 #${channelId}`);
                         } catch (e) {
                             bot.log(`❌ Auto-reply send failed: ${e.message}`);
                         }

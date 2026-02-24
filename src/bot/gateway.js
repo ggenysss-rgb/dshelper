@@ -242,7 +242,11 @@ function handleDispatch(bot, event, d) {
             if (d.guild_id !== guildId) break;
             const record = bot.activeTickets.get(d.channel_id);
             if (!record) break;
-            if (bot.sentByBot.has(d.id)) return;
+            if (bot.sentByBot.has(d.id)) {
+                // Still emit to dashboard so self-sent messages update in real-time
+                if (bot.io) bot.io.emit('ticket:message', { channelId: d.channel_id, content: d.content });
+                return;
+            }
 
             const isStaff = isStaffFromMember(d.member, staffRoleIds);
 

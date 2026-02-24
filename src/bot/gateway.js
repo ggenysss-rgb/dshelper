@@ -180,21 +180,20 @@ function handleDispatch(bot, event, d) {
         }
 
         case 'MESSAGE_CREATE': {
-            if (d.guild_id !== guildId) break;
             const author = d.author;
             if (!author) break;
             const isBot = author.bot || false;
 
-            // Cache member from message for members panel
-            if (d.member && author) {
+            // Cache member from message for members panel (only for the configured guild)
+            if (d.member && author && d.guild_id === guildId) {
                 bot.guildMembersCache.set(author.id, { ...d.member, user: author });
             }
 
-            // Auto-reply check — runs on ALL channels in the guild (tickets + specified channels)
+            // Auto-reply check — runs on ALL guilds, rule.guildId does filtering
             if (!isBot && cfg.autoReplies?.length > 0) {
                 for (const rule of cfg.autoReplies) {
-                    if (matchAutoReply(rule, d.content || '', d.channel_id, guildId)) {
-                        bot.log(`🤖 Auto-reply matched: "${rule.name}" for channel ${d.channel_id}`);
+                    if (matchAutoReply(rule, d.content || '', d.channel_id, d.guild_id)) {
+                        bot.log(`🤖 Auto-reply matched: "${rule.name}" in guild ${d.guild_id} channel ${d.channel_id}`);
                         setTimeout(async () => {
                             try {
                                 await bot.sendDiscordMessage(d.channel_id, rule.response);
@@ -208,7 +207,8 @@ function handleDispatch(bot, event, d) {
                 }
             }
 
-            // Ticket-specific logic — only for active tickets
+            // Ticket-specific logic — only for the configured guild
+            if (d.guild_id !== guildId) break;
             const record = bot.activeTickets.get(d.channel_id);
             if (!record) break;
             if (bot.sentByBot.has(d.id)) return;

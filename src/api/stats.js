@@ -198,9 +198,16 @@ function createStatsRoutes(db, botManager) {
         ];
         const body = req.body;
         let changed = 0;
+        // Fields that should be arrays (comma-separated strings → arrays)
+        const arrayFields = ['staffRoleIds', 'autoGreetRoleIds', 'priorityKeywords'];
         for (const key of allowed) {
             if (body[key] !== undefined) {
-                bot.config[key] = body[key];
+                let val = body[key];
+                // Parse comma-separated strings into arrays
+                if (arrayFields.includes(key) && typeof val === 'string') {
+                    val = val.split(',').map(w => w.trim()).filter(Boolean);
+                }
+                bot.config[key] = val;
                 changed++;
             }
         }

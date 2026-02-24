@@ -158,26 +158,69 @@ export default function TicketDetail() {
                         const staffRoleIds = msgData?.staffRoleIds || [];
                         const selfUserId = msgData?.selfUserId || null;
 
-                        // Helper: is this message from staff?
-                        const isStaffMsg = (msg: any) => {
-                            // 1. If sender is the selfbot user — always staff
+                        // ── Layer 1: role-based detection ──
+                        const hasRoleInfo = (msg: any) => {
                             if (selfUserId && msg.author.id === selfUserId) return true;
-                            // 2. If member has any staff role
                             if (msg.member?.roles?.length > 0 && staffRoleIds.length > 0) {
                                 return msg.member.roles.some((r: string) => staffRoleIds.includes(r));
                             }
-                            return false;
+                            return null; // unknown — need fallback
                         };
 
-                        // Extract opener username from channel name (тикет-от-rolls211 → rolls211)
-                        let derivedOpenerName = ticket?.openerUsername || '';
-                        if (!derivedOpenerName && ticket?.channelName) {
-                            const match = ticket.channelName.match(/(?:тикет|ticket|тикeт)-(?:от|from)-(.+)/i);
-                            if (match) derivedOpenerName = match[1];
+                        // Check if role detection works for at least some messages
+                        let roleDetectionWorks = false;
+                        for (const msg of messages) {
+                            if (hasRoleInfo(msg) !== null) { roleDetectionWorks = true; break; }
+                        }
+
+                        // ── Layer 2: fallback opener-based detection ──
+                        let openerId: string | null = ticket?.openerId || null;
+
+                        if (!openerId) {
+                            // Extract opener name from channel name
+                            let openerName = '';
+                            if (ticket?.channelName) {
+                                const m = ticket.channelName.match(/(?:тикет|ticket|тикeт)-(?:от|from)-(.+)/i);
+                                if (m) openerName = m[1].toLowerCase();
+                            }
+                            if (ticket?.openerUsername) openerName = ticket.openerUsername.toLowerCase();
+
+                            if (openerName) {
+                                const openerMsg = messages.find(msg =>
+                                    !msg.author.bot && (
+                                        msg.author.username.toLowerCase() === openerName ||
+                                        openerName.includes(msg.author.username.toLowerCase()) ||
+                                        msg.author.username.toLowerCase().includes(openerName)
+                                    )
+                                );
+                                if (openerMsg) openerId = openerMsg.author.id;
+                            }
+                        }
+
+                        // ── Layer 3: last resort — most common non-bot author = opener ──
+                        if (!openerId && !roleDetectionWorks) {
+                            const counts = new Map<string, number>();
+                            for (const m of messages) {
+                                if (!m.author.bot) counts.set(m.author.id, (counts.get(m.author.id) || 0) + 1);
+                            }
+                            let maxCount = 0;
+                            for (const [uid, count] of counts) {
+                                if (count > maxCount) { maxCount = count; openerId = uid; }
+                            }
                         }
 
                         return messages.map((msg) => {
-                            const staff = isStaffMsg(msg);
+                            // Role-based first
+                            const roleResult = hasRoleInfo(msg);
+                            let staff: boolean;
+                            if (roleResult !== null) {
+                                staff = roleResult;
+                            } else if (openerId) {
+                                // Fallback: not the opener and not a bot → staff
+                                staff = msg.author.id !== openerId && !msg.author.bot;
+                            } else {
+                                staff = false;
+                            }
                             const isBotProxy = !!msg.author.bot && (msg.content || '').includes('[Саппорт]');
                             return (
                                 <ChatMessage

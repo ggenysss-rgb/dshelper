@@ -491,54 +491,52 @@ function startAutoReplyPolling(bot) {
 
     if (pollChannels.size === 0) return;
     const channelList = [...pollChannels];
-    bot.log(`🔄 Auto-reply polling started: ${channelList.length} channels, every 5s`);
+    bot.log(`🔄 Auto-reply polling started: ${channelList.length} channels [${channelList.join(', ')}], every 5s`);
 
-    let pollIndex = 0;
     bot._arPollTimer = setInterval(async () => {
         if (bot.destroyed) { clearInterval(bot._arPollTimer); return; }
-        // Round-robin through channels (1 per tick to spread load)
-        const channelId = channelList[pollIndex % channelList.length];
-        pollIndex++;
+        // Poll ALL channels each tick (≤5 channels = ≤5 requests, acceptable)
+        for (const channelId of channelList) {
+            try {
+                const res = await bot.httpGet(
+                    `https://discord.com/api/v9/channels/${channelId}/messages?limit=1`,
+                    { Authorization: token }
+                );
+                if (!res.ok) continue;
+                const msgs = JSON.parse(res.body);
+                if (!msgs.length) continue;
+                const msg = msgs[0];
 
-        try {
-            const res = await bot.httpGet(
-                `https://discord.com/api/v9/channels/${channelId}/messages?limit=1`,
-                { Authorization: token }
-            );
-            if (!res.ok) return;
-            const msgs = JSON.parse(res.body);
-            if (!msgs.length) return;
-            const msg = msgs[0];
-
-            // Skip if already seen or bot message
-            if (msg.id === bot._arLastMsgId[channelId]) return;
-            bot._arLastMsgId[channelId] = msg.id;
-            if (msg.author?.bot) return;
-            if (bot._arProcessed.has(msg.id)) return;
-            bot._arProcessed.add(msg.id);
-            // Keep set manageable
-            if (bot._arProcessed.size > 100) {
-                const arr = [...bot._arProcessed];
-                bot._arProcessed = new Set(arr.slice(-50));
-            }
-
-            // Check auto-replies
-            const ch = bot.channelCache.get(channelId);
-            const msgGuildId = ch?.guild_id || guildId;
-            for (const rule of cfg.autoReplies) {
-                if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
-                    bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
-                    await sleep((rule.delay || 2) * 1000);
-                    try {
-                        await bot.sendDiscordMessage(channelId, rule.response, msg.id);
-                        bot.log(`✅ Auto-reply sent: "${rule.name}"`);
-                    } catch (e) {
-                        bot.log(`❌ Auto-reply send failed: ${e.message}`);
-                    }
-                    break;
+                // Skip if already seen or bot message
+                if (msg.id === bot._arLastMsgId[channelId]) continue;
+                bot._arLastMsgId[channelId] = msg.id;
+                if (msg.author?.bot) continue;
+                if (bot._arProcessed.has(msg.id)) continue;
+                bot._arProcessed.add(msg.id);
+                // Keep set manageable
+                if (bot._arProcessed.size > 100) {
+                    const arr = [...bot._arProcessed];
+                    bot._arProcessed = new Set(arr.slice(-50));
                 }
-            }
-        } catch { }
+
+                // Check auto-replies
+                const ch = bot.channelCache.get(channelId);
+                const msgGuildId = ch?.guild_id || guildId;
+                for (const rule of cfg.autoReplies) {
+                    if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
+                        bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
+                        await sleep((rule.delay || 2) * 1000);
+                        try {
+                            await bot.sendDiscordMessage(channelId, rule.response, msg.id);
+                            bot.log(`✅ Auto-reply sent: "${rule.name}"`);
+                        } catch (e) {
+                            bot.log(`❌ Auto-reply send failed: ${e.message}`);
+                        }
+                        break;
+                    }
+                }
+            } catch { }
+        }
     }, 5000);
 }
 

@@ -97,6 +97,9 @@ function handleDispatch(bot, event, d) {
             bot.sessionId = d.session_id;
             bot.resumeUrl = d.resume_gateway_url;
             bot.log(`✅ Gateway READY (session: ${d.session_id})`);
+            // For selfbot: GUILD_CREATE might not include channels.
+            // Use REST API to fetch channels after a small delay
+            setTimeout(() => fetchAndScanChannels(bot), 3000);
             break;
 
         case 'RESUMED':
@@ -104,33 +107,20 @@ function handleDispatch(bot, event, d) {
             break;
 
         case 'GUILD_CREATE': {
-            if (d.id !== guildId || bot.guildCreateHandled) break;
-            bot.guildCreateHandled = true;
-            bot.log(`📡 Guild loaded: ${d.name} (${d.id})`);
+            if (d.id !== guildId) break;
+            bot.log(`📡 Guild event: ${d.name} (${d.id}), channels: ${d.channels?.length || 0}, members: ${d.members?.length || 0}`);
             // Cache roles
             if (d.roles) for (const r of d.roles) bot.guildRolesCache.set(r.id, r);
             // Cache members
             if (d.members) for (const m of d.members) { if (m.user) bot.guildMembersCache.set(m.user.id, m); }
             // Cache presences
             if (d.presences) for (const p of d.presences) { if (p.user) bot.guildPresenceCache.set(p.user.id, p.status); }
-            // Scan channels for existing tickets
-            if (d.channels) {
-                for (const ch of d.channels) {
-                    if (categoryId && ch.parent_id !== categoryId) continue;
-                    if (!prefixes.some(p => (ch.name || '').toLowerCase().startsWith(p.toLowerCase()))) continue;
-                    if (!bot.activeTickets.has(ch.id)) {
-                        bot.activeTickets.set(ch.id, {
-                            channelId: ch.id, channelName: ch.name, guildId, guildName: d.name,
-                            createdAt: snowflakeToTimestamp(ch.id), firstStaffReplyAt: null,
-                            lastMessage: null, lastMessageAt: null, lastStaffMessageAt: null,
-                            waitingForReply: false, activityTimerType: null, tgThreadId: null,
-                        });
-                    }
-                }
-                bot.markDirty();
-                bot.log(`📊 Active tickets: ${bot.activeTickets.size}`);
+            // Scan channels if we got them (bot token sends them here)
+            if (d.channels?.length > 0 && !bot.guildCreateHandled) {
+                bot.guildCreateHandled = true;
+                scanChannelsList(bot, d.channels, guildId, d.name, prefixes, categoryId);
+                bot.restoreActivityTimers();
             }
-            bot.restoreActivityTimers();
             break;
         }
 
@@ -275,6 +265,78 @@ function handleDispatch(bot, event, d) {
             if (d.guild_id === guildId) bot.guildRolesCache.delete(d.role_id);
             break;
     }
+}
+
+// ── REST-based channel scan (needed for selfbot/user tokens) ──
+
+function scanChannelsList(bot, channels, guildId, guildName, prefixes, categoryId) {
+    let found = 0;
+    for (const ch of channels) {
+        // Cache all channels
+        bot.channelCache.set(ch.id, { ...ch, guild_id: guildId });
+        // Only match ticket channels
+        if (categoryId && ch.parent_id !== categoryId) continue;
+        const name = (ch.name || '').toLowerCase();
+        if (!prefixes.some(p => name.startsWith(p.toLowerCase()))) continue;
+        if (bot.activeTickets.has(ch.id)) continue;
+        bot.activeTickets.set(ch.id, {
+            channelId: ch.id, channelName: ch.name, guildId, guildName: guildName || '',
+            createdAt: snowflakeToTimestamp(ch.id), firstStaffReplyAt: null,
+            lastMessage: null, lastMessageAt: null, lastStaffMessageAt: null,
+            waitingForReply: false, activityTimerType: null, tgThreadId: null,
+        });
+        found++;
+        bot.log(`🎫 Найден тикет: #${ch.name}`);
+    }
+    bot.markDirty();
+    bot.log(`📊 Сканирование: найдено ${found} новых, всего активных: ${bot.activeTickets.size}`);
+}
+
+async function fetchAndScanChannels(bot) {
+    if (bot.destroyed || bot.guildCreateHandled) return;
+    const cfg = bot.config;
+    const guildId = cfg.guildId;
+    const prefixes = getTicketPrefixes(cfg.ticketPrefix);
+    const categoryId = cfg.ticketsCategoryId;
+    const token = cfg.discordBotToken || cfg.discordToken;
+
+    if (!guildId) { bot.log('⚠️ No guildId configured, cannot fetch channels'); return; }
+
+    bot.log(`🌐 Fetching channels via REST API for guild ${guildId}...`);
+    try {
+        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/channels`, { Authorization: token });
+        if (!res.ok) {
+            bot.log(`❌ REST /channels error: ${res.status} — ${res.body?.slice(0, 200)}`);
+            return;
+        }
+        const channels = JSON.parse(res.body);
+        bot.log(`🌐 REST: ${channels.length} channels loaded`);
+        bot.guildCreateHandled = true;
+        scanChannelsList(bot, channels, guildId, '', prefixes, categoryId);
+        bot.restoreActivityTimers();
+    } catch (e) {
+        bot.log(`❌ REST channels error: ${e.message}`);
+    }
+
+    // Also fetch guild members for the УЧАСТНИКИ panel
+    try {
+        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/members?limit=1000`, { Authorization: token });
+        if (res.ok) {
+            const members = JSON.parse(res.body);
+            for (const m of members) { if (m.user) bot.guildMembersCache.set(m.user.id, m); }
+            bot.log(`👥 REST: ${members.length} members loaded`);
+        }
+    } catch (e) { bot.log(`Members fetch error: ${e.message}`); }
+
+    // Fetch guild roles
+    try {
+        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/roles`, { Authorization: token });
+        if (res.ok) {
+            const roles = JSON.parse(res.body);
+            for (const r of roles) bot.guildRolesCache.set(r.id, r);
+            bot.log(`🎭 REST: ${roles.length} roles loaded`);
+        }
+    } catch (e) { bot.log(`Roles fetch error: ${e.message}`); }
 }
 
 module.exports = { connectGateway, cleanupGateway };

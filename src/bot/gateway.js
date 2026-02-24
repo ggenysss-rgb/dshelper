@@ -116,7 +116,8 @@ function handleDispatch(bot, event, d) {
         case 'READY':
             bot.sessionId = d.session_id;
             bot.resumeUrl = d.resume_gateway_url;
-            bot.log(`✅ Gateway READY (session: ${d.session_id})`);
+            if (d.user?.id) bot.selfUserId = d.user.id;
+            bot.log(`✅ Gateway READY (session: ${d.session_id}, user: ${d.user?.username || '?'} / ${d.user?.id || '?'})`);
             // For selfbot: GUILD_CREATE might not include channels.
             // Use REST API to fetch channels after a small delay
             setTimeout(() => fetchAndScanChannels(bot), 3000);

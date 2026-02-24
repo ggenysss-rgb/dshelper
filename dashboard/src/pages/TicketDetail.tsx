@@ -155,54 +155,39 @@ export default function TicketDetail() {
                     {(!messages || messages.length === 0) ? (
                         <div className="h-full flex flex-col justify-center items-center text-muted-foreground italic">Нет сообщений</div>
                     ) : (() => {
-                        let openerId = ticket?.openerId;
-                        if (!openerId && ticket?.channelName) {
-                            // Extract username from channel name like "📒│тикет-от-ptx2226"
-                            const match = ticket.channelName.match(/тикет-от-(.+)/i);
-                            if (match) {
-                                const openerName = match[1].toLowerCase();
-                                // Find author whose username matches (try exact, then partial, then global_name)
-                                const openerMsg = messages.find(m =>
-                                    !m.author.bot && (
-                                        m.author.username.toLowerCase() === openerName ||
-                                        openerName.includes(m.author.username.toLowerCase()) ||
-                                        m.author.username.toLowerCase().includes(openerName)
-                                    )
-                                );
-                                if (openerMsg) openerId = openerMsg.author.id;
+                        const staffRoleIds = msgData?.staffRoleIds || [];
+                        const selfUserId = msgData?.selfUserId || null;
+
+                        // Helper: is this message from staff?
+                        const isStaffMsg = (msg: any) => {
+                            // 1. If sender is the selfbot user — always staff
+                            if (selfUserId && msg.author.id === selfUserId) return true;
+                            // 2. If member has any staff role
+                            if (msg.member?.roles?.length > 0 && staffRoleIds.length > 0) {
+                                return msg.member.roles.some((r: string) => staffRoleIds.includes(r));
                             }
+                            return false;
+                        };
+
+                        // Extract opener username from channel name (тикет-от-rolls211 → rolls211)
+                        let derivedOpenerName = ticket?.openerUsername || '';
+                        if (!derivedOpenerName && ticket?.channelName) {
+                            const match = ticket.channelName.match(/(?:тикет|ticket|тикeт)-(?:от|from)-(.+)/i);
+                            if (match) derivedOpenerName = match[1];
                         }
-                        // Fallback: use openerUsername from ticket data
-                        if (!openerId && ticket?.openerUsername) {
-                            const openerMsg = messages.find(m =>
-                                !m.author.bot && m.author.username.toLowerCase() === ticket.openerUsername!.toLowerCase()
-                            );
-                            if (openerMsg) openerId = openerMsg.author.id;
-                        }
-                        // Last resort: if we still can't find opener, use the most frequent non-bot author
-                        if (!openerId) {
-                            const counts = new Map<string, number>();
-                            for (const m of messages) {
-                                if (!m.author.bot) counts.set(m.author.id, (counts.get(m.author.id) || 0) + 1);
-                            }
-                            let maxCount = 0;
-                            for (const [id, count] of counts) {
-                                if (count > maxCount) { maxCount = count; openerId = id; }
-                            }
-                        }
+
                         return messages.map((msg) => {
-                            // Staff = NOT the opener AND not a bot
-                            const isStaff = openerId ? msg.author.id !== openerId && !msg.author.bot : false;
-                            const isBotProxy = !!msg.author.bot && msg.content.includes('[Саппорт]');
+                            const staff = isStaffMsg(msg);
+                            const isBotProxy = !!msg.author.bot && (msg.content || '').includes('[Саппорт]');
                             return (
                                 <ChatMessage
                                     key={msg.id}
                                     message={msg}
-                                    isStaff={isStaff || isBotProxy}
+                                    isStaff={staff || isBotProxy}
                                     mentionMap={mentionMap}
                                     onReply={handleReply}
                                     onEdit={handleEdit}
-                                    canEdit={isStaff || isBotProxy}
+                                    canEdit={staff || isBotProxy}
                                 />
                             );
                         });
@@ -336,7 +321,14 @@ function TicketInfoSidebar({ ticket }: { ticket: any }) {
                 <div>
                     <div className="text-xs text-muted-foreground mb-1 uppercase font-semibold">Автор тикета</div>
                     <div className="flex justify-between items-center text-sm font-medium">
-                        {ticket?.openerUsername || '—'}
+                        {(() => {
+                            let name = ticket?.openerUsername || '';
+                            if (!name && ticket?.channelName) {
+                                const m = ticket.channelName.match(/(?:тикет|ticket|тикeт)-(?:от|from)-(.+)/i);
+                                if (m) name = m[1];
+                            }
+                            return name || '—';
+                        })()}
                         {ticket?.openerId && <span className="text-xs text-muted-foreground bg-secondary px-2 rounded">{ticket.openerId}</span>}
                     </div>
                 </div>

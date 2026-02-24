@@ -51,7 +51,12 @@ function createTicketRoutes(db, botManager) {
             for (const [id, m] of bot.guildMembersCache) {
                 mentionMap[`user:${id}`] = m.user?.global_name || m.user?.username || m.nick || id;
             }
-            res.json({ messages: messages.reverse(), mentionMap });
+            res.json({
+                messages: messages.reverse(),
+                mentionMap,
+                staffRoleIds: bot.config.staffRoleIds || [],
+                selfUserId: bot.selfUserId || null,
+            });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

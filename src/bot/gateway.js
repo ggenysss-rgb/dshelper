@@ -194,9 +194,10 @@ function handleDispatch(bot, event, d) {
                 for (const rule of cfg.autoReplies) {
                     if (matchAutoReply(rule, d.content || '', d.channel_id, d.guild_id)) {
                         bot.log(`🤖 Auto-reply matched: "${rule.name}" in guild ${d.guild_id} channel ${d.channel_id}`);
+                        const replyMsgId = d.id;
                         setTimeout(async () => {
                             try {
-                                await bot.sendDiscordMessage(d.channel_id, rule.response);
+                                await bot.sendDiscordMessage(d.channel_id, rule.response, replyMsgId);
                                 bot.log(`✅ Auto-reply sent: "${rule.name}"`);
                             } catch (e) {
                                 bot.log(`❌ Auto-reply send failed: ${e.message}`);

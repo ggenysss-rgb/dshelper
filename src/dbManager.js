@@ -44,7 +44,7 @@ function initDb(dataDir) {
         );
     `);
 
-    // We need to apply migrations to existing tables if they don't have user_id
+    // Create closed_tickets table (new DBs get user_id, old ones get migrated below)
     db.exec(`
         CREATE TABLE IF NOT EXISTS closed_tickets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,16 +60,16 @@ function initDb(dataDir) {
         );
         CREATE INDEX IF NOT EXISTS idx_ct_closed_at ON closed_tickets(closed_at);
         CREATE INDEX IF NOT EXISTS idx_ct_channel_id ON closed_tickets(channel_id);
-        CREATE INDEX IF NOT EXISTS idx_ct_user_id ON closed_tickets(user_id);
     `);
 
+    // Migrate: add user_id column if missing (old DB from bot.js)
     try {
         const closedTicketsInfo = db.pragma('table_info(closed_tickets)');
         const hasUserIdCol = closedTicketsInfo.some(col => col.name === 'user_id');
         if (!hasUserIdCol) {
             db.exec('ALTER TABLE closed_tickets ADD COLUMN user_id INTEGER;');
-            db.exec('CREATE INDEX IF NOT EXISTS idx_ct_user_id ON closed_tickets(user_id);');
         }
+        db.exec('CREATE INDEX IF NOT EXISTS idx_ct_user_id ON closed_tickets(user_id);');
     } catch (e) {
         console.error("[DB] Migration error on closed_tickets:", e.message);
     }
@@ -93,16 +93,16 @@ function initDb(dataDir) {
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE INDEX IF NOT EXISTS idx_tm_channel_id ON ticket_messages(channel_id);
-        CREATE INDEX IF NOT EXISTS idx_tm_user_id ON ticket_messages(user_id);
     `);
 
+    // Migrate: add user_id column if missing (old DB from bot.js)
     try {
         const ticketMessagesInfo = db.pragma('table_info(ticket_messages)');
         const hasUserIdColTM = ticketMessagesInfo.some(col => col.name === 'user_id');
         if (!hasUserIdColTM) {
             db.exec('ALTER TABLE ticket_messages ADD COLUMN user_id INTEGER;');
-            db.exec('CREATE INDEX IF NOT EXISTS idx_tm_user_id ON ticket_messages(user_id);');
         }
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tm_user_id ON ticket_messages(user_id);');
     } catch (e) {
         console.error("[DB] Migration error on ticket_messages:", e.message);
     }

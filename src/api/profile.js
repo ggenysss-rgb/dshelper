@@ -13,17 +13,23 @@ function createProfileRoutes(db, botManager) {
             const userId = req.user.userId;
             const config = botManager.getUserConfig(userId);
 
-            if (!config) {
-                return res.status(404).json({ error: 'Config not found' });
+            // For new users with no config, return safe defaults
+            const safeConfig = {
+                discordToken: '',
+                tgToken: '',
+                tgChatId: '',
+                guildId: '',
+                botActive: false,
+            };
+
+            if (config) {
+                // Mask tokens for security (only show first 10 chars)
+                safeConfig.discordToken = config.discordToken ? config.discordToken.substring(0, 10) + '...' : '';
+                safeConfig.tgToken = config.tgToken ? config.tgToken.substring(0, 10) + '...' : '';
+                safeConfig.tgChatId = config.tgChatId || '';
+                safeConfig.guildId = config.guildId || '';
+                safeConfig.botActive = botManager.bots.has(userId);
             }
-
-            // Mask tokens for security
-            const safeConfig = { ...config };
-            if (safeConfig.discordToken) safeConfig.discordToken = safeConfig.discordToken.substring(0, 10) + '...';
-            if (safeConfig.tgToken) safeConfig.tgToken = safeConfig.tgToken.substring(0, 10) + '...';
-
-            // Bot status
-            safeConfig.botActive = botManager.bots.has(userId);
 
             res.json(safeConfig);
         } catch (error) {

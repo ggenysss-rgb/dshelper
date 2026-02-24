@@ -270,14 +270,44 @@ function handleDispatch(bot, event, d) {
 // ── REST-based channel scan (needed for selfbot/user tokens) ──
 
 function scanChannelsList(bot, channels, guildId, guildName, prefixes, categoryId) {
+    // Debug: show what filter criteria we're using
+    bot.log(`🔍 Scan filter: prefixes=[${prefixes.join(', ')}], categoryId=${categoryId || 'ANY'}`);
+
+    // Debug: show text channels with their parent_ids to help diagnose
+    const textChannels = channels.filter(ch => ch.type === 0 || ch.type === 5); // type 0=text, 5=announcement
+    const categories = channels.filter(ch => ch.type === 4); // type 4=category
+    bot.log(`🔍 Found ${textChannels.length} text channels, ${categories.length} categories`);
+
+    // Show categories to help user find the right ID
+    for (const cat of categories) {
+        const childCount = textChannels.filter(tc => tc.parent_id === cat.id).length;
+        if (childCount > 0) bot.log(`📁 Category: "${cat.name}" (${cat.id}) — ${childCount} channels`);
+    }
+
     let found = 0;
+    let skippedCategory = 0;
+    let skippedPrefix = 0;
+
     for (const ch of channels) {
         // Cache all channels
         bot.channelCache.set(ch.id, { ...ch, guild_id: guildId });
-        // Only match ticket channels
-        if (categoryId && ch.parent_id !== categoryId) continue;
+        // Skip non-text channels
+        if (ch.type !== 0 && ch.type !== 5) continue;
+
+        // Category filter
+        if (categoryId && ch.parent_id !== categoryId) { skippedCategory++; continue; }
+
+        // Prefix filter
         const name = (ch.name || '').toLowerCase();
-        if (!prefixes.some(p => name.startsWith(p.toLowerCase()))) continue;
+        if (!prefixes.some(p => name.startsWith(p.toLowerCase()))) {
+            skippedPrefix++;
+            // Debug: show channels in the right category but wrong prefix
+            if (!categoryId || ch.parent_id === categoryId) {
+                bot.log(`  ⏭ Skipped (prefix): #${ch.name} (parent: ${ch.parent_id})`);
+            }
+            continue;
+        }
+
         if (bot.activeTickets.has(ch.id)) continue;
         bot.activeTickets.set(ch.id, {
             channelId: ch.id, channelName: ch.name, guildId, guildName: guildName || '',
@@ -286,10 +316,10 @@ function scanChannelsList(bot, channels, guildId, guildName, prefixes, categoryI
             waitingForReply: false, activityTimerType: null, tgThreadId: null,
         });
         found++;
-        bot.log(`🎫 Найден тикет: #${ch.name}`);
+        bot.log(`🎫 Найден тикет: #${ch.name} (parent: ${ch.parent_id})`);
     }
     bot.markDirty();
-    bot.log(`📊 Сканирование: найдено ${found} новых, всего активных: ${bot.activeTickets.size}`);
+    bot.log(`📊 Scan result: ${found} tickets found, ${skippedCategory} skipped by category, ${skippedPrefix} skipped by prefix, total active: ${bot.activeTickets.size}`);
 }
 
 async function fetchAndScanChannels(bot) {

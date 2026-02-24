@@ -34,8 +34,12 @@ class BotManager {
         // Helper: parse JSON array from DB, fallback to default if empty
         const parseArr = (raw, fallback) => {
             if (!raw) return fallback;
-            try { const arr = JSON.parse(raw); return arr.length > 0 ? arr : fallback; }
-            catch { return fallback; }
+            try {
+                let arr = JSON.parse(raw);
+                // DB might have a JSON string instead of array (corrupt save) — split by comma
+                if (typeof arr === 'string') arr = arr.split(',').map(s => s.trim()).filter(Boolean);
+                return Array.isArray(arr) && arr.length > 0 ? arr : fallback;
+            } catch { return fallback; }
         };
 
         const config = {

@@ -29,6 +29,17 @@ export type DiscordMessage = {
         avatar: string;
         bot?: boolean;
     };
+    embeds?: {
+        title?: string;
+        description?: string;
+        color?: number;
+        fields?: { name: string; value: string; inline?: boolean }[];
+        footer?: { text: string };
+        author?: { name: string };
+        url?: string;
+        thumbnail?: { url: string };
+        image?: { url: string };
+    }[];
     attachments: any[];
     timestamp: string;
     member?: {

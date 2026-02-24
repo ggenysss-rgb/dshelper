@@ -43,36 +43,71 @@ export default function ChatMessage({ message, isStaff }: { message: DiscordMess
                         </span>
                     </div>
 
-                    <div className={cn(
-                        "p-3.5 rounded-2xl relative shadow-sm text-sm whitespace-pre-wrap leading-relaxed",
-                        isStaff
-                            ? "bg-primary text-primary-foreground rounded-tr-sm"
-                            : "bg-secondary text-foreground rounded-tl-sm border border-border/50"
-                    )}>
-                        {message.content}
+                    {message.content ? (
+                        <div className={cn(
+                            "p-3.5 rounded-2xl relative shadow-sm text-sm whitespace-pre-wrap leading-relaxed",
+                            isStaff
+                                ? "bg-primary text-primary-foreground rounded-tr-sm"
+                                : "bg-secondary text-foreground rounded-tl-sm border border-border/50"
+                        )}>
+                            {message.content}
+                        </div>
+                    ) : null}
 
-                        {message.attachments && message.attachments.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                                {message.attachments.map(att => (
-                                    <a
-                                        key={att.id}
-                                        href={att.url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="block rounded-lg overflow-hidden border border-white/20 relative group"
-                                    >
-                                        {att.content_type?.startsWith('image/') ? (
-                                            <img src={att.url} alt="attachment" className="max-h-48 object-cover group-hover:opacity-90 transition-opacity" />
-                                        ) : (
-                                            <div className="p-3 bg-black/20 italic text-sm underline group-hover:bg-black/30 transition-colors">
-                                                Вложение: {att.filename}
-                                            </div>
-                                        )}
-                                    </a>
-                                ))}
+                    {message.embeds && message.embeds.length > 0 && message.embeds.map((embed, ei) => {
+                        const borderColor = embed.color ? `#${embed.color.toString(16).padStart(6, '0')}` : 'hsl(var(--border))';
+                        return (
+                            <div key={ei} className="mt-1 rounded-lg bg-secondary/80 border border-border/50 overflow-hidden max-w-md"
+                                style={{ borderLeftWidth: '3px', borderLeftColor: borderColor }}>
+                                <div className="p-3 space-y-1.5">
+                                    {embed.author && <p className="text-xs font-semibold text-muted-foreground">{embed.author.name}</p>}
+                                    {embed.title && <p className="text-sm font-bold text-foreground">{embed.title}</p>}
+                                    {embed.description && <p className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed">{embed.description}</p>}
+                                    {embed.fields && embed.fields.length > 0 && (
+                                        <div className="grid grid-cols-1 gap-1.5 mt-2">
+                                            {embed.fields.map((f, fi) => (
+                                                <div key={fi}>
+                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase">{f.name}</p>
+                                                    <p className="text-xs text-foreground/80 whitespace-pre-wrap">{f.value}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {embed.image && <img src={embed.image.url} alt="" className="rounded mt-2 max-h-48 object-cover" />}
+                                    {embed.thumbnail && <img src={embed.thumbnail.url} alt="" className="rounded mt-1 max-h-16 object-cover" />}
+                                    {embed.footer && <p className="text-[10px] text-muted-foreground mt-2">{embed.footer.text}</p>}
+                                </div>
                             </div>
-                        )}
-                    </div>
+                        );
+                    })}
+
+                    {!message.content && (!message.embeds || message.embeds.length === 0) && (
+                        <div className="p-3.5 rounded-2xl bg-secondary border border-border/50 rounded-tl-sm">
+                            <span className="italic text-muted-foreground text-xs">[без текста]</span>
+                        </div>
+                    )}
+
+                    {message.attachments && message.attachments.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {message.attachments.map(att => (
+                                <a
+                                    key={att.id}
+                                    href={att.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block rounded-lg overflow-hidden border border-white/20 relative group"
+                                >
+                                    {att.content_type?.startsWith('image/') ? (
+                                        <img src={att.url} alt="attachment" className="max-h-48 object-cover group-hover:opacity-90 transition-opacity" />
+                                    ) : (
+                                        <div className="p-3 bg-black/20 italic text-sm underline group-hover:bg-black/30 transition-colors">
+                                            Вложение: {att.filename}
+                                        </div>
+                                    )}
+                                </a>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         </motion.div>

@@ -629,6 +629,11 @@ function startAutoReplyPolling(bot) {
 
                     bot._arProcessed.add(msg.id);
                     if (msg.author.bot) continue;
+                    // Skip staff messages — avoid answering staff with auto-replies
+                    const arStaffRoles = (Array.isArray(cfg.staffRoleIds) && cfg.staffRoleIds.length > 0) ? cfg.staffRoleIds : ['1475932249017946133', '1475961602619478116'];
+                    if (msg.member && msg.member.roles) {
+                        if (msg.member.roles.some(r => arStaffRoles.includes(r))) continue;
+                    }
 
                     // Log for debugging
                     if (pollCycle <= 3 || msg.author.username === 'd1reevof') {

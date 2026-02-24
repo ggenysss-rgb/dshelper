@@ -88,8 +88,11 @@ async function main() {
     const dashboardDist = path.join(__dirname, '..', 'dashboard', 'dist');
     if (fs.existsSync(dashboardDist)) {
         app.use(express.static(dashboardDist));
-        // SPA fallback
+        // SPA fallback — only for non-API routes
         app.get('*', (req, res) => {
+            if (req.path.startsWith('/api/')) {
+                return res.status(404).json({ error: 'Not found' });
+            }
             res.sendFile(path.join(dashboardDist, 'index.html'));
         });
     }

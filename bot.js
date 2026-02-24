@@ -418,6 +418,7 @@ const SHIFT_TZ = 'Europe/Kyiv';
 
 const activeTickets = new Map();
 const notifiedFirstMessage = new Set();
+const autoRepliedBinds = new Set();  // "channelId:bindKey" — prevent duplicate auto-replies
 const noReplyTimers = new Map();
 const channelCache = new Map();
 const guildCache = new Map();
@@ -3012,6 +3013,29 @@ function onMessageCreate(data) {
     }
 
     if (noReplyTimers.has(channelId)) clearNoReplyTimer(channelId);
+
+    // ── Auto-reply: match user message against binds ──────────
+    if (config.autoReplyInTickets !== false && data.content && !botPaused) {
+        const userText = data.content.toLowerCase();
+        for (const [key, bind] of Object.entries(config.binds || {})) {
+            if (userText.includes(key.toLowerCase())) {
+                const arKey = `${channelId}:${key}`;
+                if (!autoRepliedBinds.has(arKey)) {
+                    autoRepliedBinds.add(arKey);
+                    setTimeout(async () => {
+                        try {
+                            await sendDiscordMessage(channelId, bind.message, GATEWAY_TOKEN);
+                            console.log(`${LOG} 🤖 Авто-ответ «${key}» отправлен в #${record.channelName}`);
+                            addLog('autoreply', `Авто-ответ «${key}» → #${record.channelName}`);
+                        } catch (e) {
+                            console.error(`${LOG} ❌ Ошибка авто-ответа:`, e.message);
+                        }
+                    }, 2000);
+                }
+                break; // only one auto-reply per message
+            }
+        }
+    }
 
     if (!sentByBot.has(data.id) && !(selfUserId && author.id === selfUserId)) {
         for (const user of users) {

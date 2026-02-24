@@ -21,7 +21,8 @@ const BotManager = require('./BotManager');
 const { createAuthRoutes, authenticateToken, JWT_SECRET } = require('./api/auth');
 const { createProfileRoutes } = require('./api/profile');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+// Prefer Railway persistent volume (/data), then env var, then local ./data
+const DATA_DIR = process.env.DATA_DIR || (require('fs').existsSync('/data') ? '/data' : path.join(__dirname, '..', 'data'));
 try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { }
 
 const LOG = '[Server]';

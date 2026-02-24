@@ -67,8 +67,6 @@ export const fetchTickets = async (): Promise<Ticket[]> => {
 export type TicketMessagesResponse = {
     messages: DiscordMessage[];
     mentionMap: Record<string, string>;
-    staffRoleIds: string[];
-    selfUserId: string | null;
 };
 
 export const fetchTicketMessages = async (id: string): Promise<TicketMessagesResponse> => {

@@ -154,87 +154,21 @@ export default function TicketDetail() {
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar scroll-smooth">
                     {(!messages || messages.length === 0) ? (
                         <div className="h-full flex flex-col justify-center items-center text-muted-foreground italic">Нет сообщений</div>
-                    ) : (() => {
-                        const staffRoleIds = msgData?.staffRoleIds || [];
-                        const selfUserId = msgData?.selfUserId || null;
-
-                        // ── Layer 1: role-based detection ──
-                        const hasRoleInfo = (msg: any) => {
-                            if (selfUserId && msg.author.id === selfUserId) return true;
-                            if (msg.member?.roles?.length > 0 && staffRoleIds.length > 0) {
-                                return msg.member.roles.some((r: string) => staffRoleIds.includes(r));
-                            }
-                            return null; // unknown — need fallback
-                        };
-
-                        // Check if role detection works for at least some messages
-                        let roleDetectionWorks = false;
-                        for (const msg of messages) {
-                            if (hasRoleInfo(msg) !== null) { roleDetectionWorks = true; break; }
-                        }
-
-                        // ── Layer 2: fallback opener-based detection ──
-                        let openerId: string | null = ticket?.openerId || null;
-
-                        if (!openerId) {
-                            // Extract opener name from channel name
-                            let openerName = '';
-                            if (ticket?.channelName) {
-                                const m = ticket.channelName.match(/(?:тикет|ticket|тикeт)-(?:от|from)-(.+)/i);
-                                if (m) openerName = m[1].toLowerCase();
-                            }
-                            if (ticket?.openerUsername) openerName = ticket.openerUsername.toLowerCase();
-
-                            if (openerName) {
-                                const openerMsg = messages.find(msg =>
-                                    !msg.author.bot && (
-                                        msg.author.username.toLowerCase() === openerName ||
-                                        openerName.includes(msg.author.username.toLowerCase()) ||
-                                        msg.author.username.toLowerCase().includes(openerName)
-                                    )
-                                );
-                                if (openerMsg) openerId = openerMsg.author.id;
-                            }
-                        }
-
-                        // ── Layer 3: last resort — most common non-bot author = opener ──
-                        if (!openerId && !roleDetectionWorks) {
-                            const counts = new Map<string, number>();
-                            for (const m of messages) {
-                                if (!m.author.bot) counts.set(m.author.id, (counts.get(m.author.id) || 0) + 1);
-                            }
-                            let maxCount = 0;
-                            for (const [uid, count] of counts) {
-                                if (count > maxCount) { maxCount = count; openerId = uid; }
-                            }
-                        }
-
-                        return messages.map((msg) => {
-                            // Role-based first
-                            const roleResult = hasRoleInfo(msg);
-                            let staff: boolean;
-                            if (roleResult !== null) {
-                                staff = roleResult;
-                            } else if (openerId) {
-                                // Fallback: not the opener and not a bot → staff
-                                staff = msg.author.id !== openerId && !msg.author.bot;
-                            } else {
-                                staff = false;
-                            }
-                            const isBotProxy = !!msg.author.bot && (msg.content || '').includes('[Саппорт]');
-                            return (
-                                <ChatMessage
-                                    key={msg.id}
-                                    message={msg}
-                                    isStaff={staff || isBotProxy}
-                                    mentionMap={mentionMap}
-                                    onReply={handleReply}
-                                    onEdit={handleEdit}
-                                    canEdit={staff || isBotProxy}
-                                />
-                            );
-                        });
-                    })()}
+                    ) : messages.map((msg) => {
+                        const staff = !!(msg as any)._isStaff;
+                        const isBotProxy = !!msg.author.bot && (msg.content || '').includes('[Саппорт]');
+                        return (
+                            <ChatMessage
+                                key={msg.id}
+                                message={msg}
+                                isStaff={staff || isBotProxy}
+                                mentionMap={mentionMap}
+                                onReply={handleReply}
+                                onEdit={handleEdit}
+                                canEdit={staff || isBotProxy}
+                            />
+                        );
+                    })}
                 </div>
 
                 <div className="p-3 md:p-4 bg-background border-t border-border shrink-0 relative">

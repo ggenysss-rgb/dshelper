@@ -41,7 +41,21 @@ function createTicketRoutes(db, botManager) {
         if (!record) return res.status(404).json({ error: 'Ticket not found' });
 
         try {
-            const messages = await bot.fetchChannelMessages(channelId, 100);
+            const rawMessages = await bot.fetchChannelMessages(channelId, 100);
+            const staffRoleIds = bot.config.staffRoleIds || [];
+            const selfId = bot.selfUserId || null;
+
+            // Tag each message with _isStaff on the server (definitive source of truth)
+            const messages = rawMessages.reverse().map(msg => {
+                let isStaff = false;
+                // 1. Is selfbot user
+                if (selfId && msg.author?.id === selfId) isStaff = true;
+                // 2. Has staff role
+                else if (msg.member?.roles?.length > 0 && staffRoleIds.length > 0) {
+                    isStaff = msg.member.roles.some(r => staffRoleIds.includes(r));
+                }
+                return { ...msg, _isStaff: isStaff };
+            });
 
             // Build mention lookup map
             const mentionMap = {};
@@ -51,12 +65,7 @@ function createTicketRoutes(db, botManager) {
             for (const [id, m] of bot.guildMembersCache) {
                 mentionMap[`user:${id}`] = m.user?.global_name || m.user?.username || m.nick || id;
             }
-            res.json({
-                messages: messages.reverse(),
-                mentionMap,
-                staffRoleIds: bot.config.staffRoleIds || [],
-                selfUserId: bot.selfUserId || null,
-            });
+            res.json({ messages, mentionMap });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

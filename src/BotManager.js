@@ -31,6 +31,13 @@ class BotManager {
             try { envStaffRoleIds = JSON.parse(env.STAFF_ROLE_IDS); } catch { envStaffRoleIds = env.STAFF_ROLE_IDS.split(',').map(s => s.trim()).filter(Boolean); }
         }
 
+        // Helper: parse JSON array from DB, fallback to default if empty
+        const parseArr = (raw, fallback) => {
+            if (!raw) return fallback;
+            try { const arr = JSON.parse(raw); return arr.length > 0 ? arr : fallback; }
+            catch { return fallback; }
+        };
+
         const config = {
             tgToken: row.tg_token || env.TG_TOKEN || '',
             tgChatId: row.tg_chat_id || env.TG_CHAT_ID || '',
@@ -38,13 +45,13 @@ class BotManager {
             discordBotToken: env.DISCORD_BOT_TOKEN || '',
             guildId: row.discord_guild_id || env.GUILD_ID || '',
             ticketsCategoryId: row.tickets_category_id || env.TICKETS_CATEGORY_ID || '1448671656921927740',
-            staffRoleIds: row.staff_role_ids ? JSON.parse(row.staff_role_ids) : (envStaffRoleIds.length > 0 ? envStaffRoleIds : ['1475932249017946133', '1475961602619478116']),
+            staffRoleIds: parseArr(row.staff_role_ids, envStaffRoleIds.length > 0 ? envStaffRoleIds : ['1475932249017946133', '1475961602619478116']),
             shiftChannelId: row.shift_channel_id || env.SHIFT_CHANNEL_ID || '1451246122755559555',
             userName: row.username || '',
 
             autoGreetEnabled: row.auto_greet_enabled === 1,
             autoGreetText: row.auto_greet_text || 'Здравствуйте, чем могу помочь?',
-            autoGreetRoleIds: row.auto_greet_role_ids ? JSON.parse(row.auto_greet_role_ids) : ['1475932249017946133'],
+            autoGreetRoleIds: parseArr(row.auto_greet_role_ids, ['1475932249017946133']),
             autoGreetAllChannels: row.auto_greet_all_channels === 1,
 
             activityCheckMin: row.activity_check_min || 10,

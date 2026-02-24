@@ -249,7 +249,7 @@ class Bot {
                     this.config.shiftChannelId || '',
                     this.userId
                 );
-            } catch (e) { this.log(`saveConfigToDb error: ${e.message}`); }
+            } catch (e) { console.error(`[Bot:${this.userId}] ❌ saveConfigToDb FAILED:`, e.message); this.log(`❌ saveConfigToDb FAILED: ${e.message}`); }
         }
     }
 

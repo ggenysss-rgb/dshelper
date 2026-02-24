@@ -495,51 +495,69 @@ function startAutoReplyPolling(bot) {
     const channelList = [...pollChannels];
     bot.log(`🔄 Auto-reply polling started: ${channelList.length} channels [${channelList.join(', ')}], every 5s`);
 
+    let pollCycle = 0;
     bot._arPollTimer = setInterval(async () => {
         if (bot.destroyed) { clearInterval(bot._arPollTimer); return; }
-        // Poll ALL channels each tick (≤5 channels = ≤5 requests, acceptable)
+        pollCycle++;
+        // Poll ALL channels each tick
         for (const channelId of channelList) {
             try {
                 const res = await bot.httpGet(
-                    `https://discord.com/api/v9/channels/${channelId}/messages?limit=1`,
+                    `https://discord.com/api/v9/channels/${channelId}/messages?limit=5`,
                     { Authorization: token }
                 );
                 if (!res.ok) continue;
                 const msgs = JSON.parse(res.body);
                 if (!msgs.length) continue;
-                const msg = msgs[0];
 
-                // Skip if already seen or bot message
-                if (msg.id === bot._arLastMsgId[channelId]) continue;
-                bot._arLastMsgId[channelId] = msg.id;
-                if (msg.author?.bot) continue;
-                if (bot._arProcessed.has(msg.id)) continue;
-                bot._arProcessed.add(msg.id);
-                // Keep set manageable
-                if (bot._arProcessed.size > 100) {
-                    const arr = [...bot._arProcessed];
-                    bot._arProcessed = new Set(arr.slice(-50));
-                }
+                // Process messages from oldest to newest
+                for (let i = msgs.length - 1; i >= 0; i--) {
+                    const msg = msgs[i];
+                    if (!msg.id || !msg.author) continue;
+                    // Skip if already processed (by Gateway MESSAGE_CREATE or previous poll)
+                    if (bot._arProcessed.has(msg.id)) continue;
+                    // Skip if this message existed before polling started (use snowflake: ID < last known = old)
+                    if (bot._arLastMsgId[channelId] && msg.id <= bot._arLastMsgId[channelId]) continue;
 
-                // Check auto-replies
-                const ch = bot.channelCache.get(channelId);
-                const msgGuildId = ch?.guild_id || guildId;
-                for (const rule of cfg.autoReplies) {
-                    if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
-                        bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
-                        await sleep((rule.delay || 2) * 1000);
-                        try {
-                            await bot.sendDiscordMessage(channelId, rule.response, msg.id);
-                            bot.log(`✅ Auto-reply sent: "${rule.name}"`);
-                            // Telegram notification
-                            bot.tgSendMessage(null, `🤖 <b>Авто-ответ:</b> "${rule.name}"\n👤 <b>${msg.author?.username || 'unknown'}</b>\n💬 "${(msg.content || '').slice(0, 80)}"\n📢 #${channelId}`);
-                        } catch (e) {
-                            bot.log(`❌ Auto-reply send failed: ${e.message}`);
+                    bot._arProcessed.add(msg.id);
+                    if (msg.author.bot) continue;
+
+                    // Log for debugging
+                    if (pollCycle <= 3 || msg.author.username === 'd1reevof') {
+                        bot.log(`🔍 Poll: new msg from ${msg.author.username} in #${channelId}: "${(msg.content || '').slice(0, 40)}"`);
+                    }
+
+                    // Check auto-replies
+                    const ch = bot.channelCache.get(channelId);
+                    const msgGuildId = ch?.guild_id || guildId;
+                    for (const rule of cfg.autoReplies) {
+                        if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
+                            bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
+                            await sleep((rule.delay || 2) * 1000);
+                            try {
+                                await bot.sendDiscordMessage(channelId, rule.response, msg.id);
+                                bot.log(`✅ Auto-reply sent: "${rule.name}"`);
+                                // Telegram notification
+                                bot.tgSendMessage(null, `🤖 <b>Авто-ответ:</b> "${rule.name}"\n👤 <b>${msg.author?.username || 'unknown'}</b>\n💬 "${(msg.content || '').slice(0, 80)}"\n📢 #${channelId}`);
+                            } catch (e) {
+                                bot.log(`❌ Auto-reply send failed: ${e.message}`);
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
-            } catch { }
+
+                // Update last seen to newest message
+                bot._arLastMsgId[channelId] = msgs[0].id;
+
+                // Keep _arProcessed manageable
+                if (bot._arProcessed.size > 200) {
+                    const arr = [...bot._arProcessed];
+                    bot._arProcessed = new Set(arr.slice(-100));
+                }
+            } catch (e) {
+                if (pollCycle <= 2) bot.log(`⚠️ Poll error ch:${channelId}: ${e.message}`);
+            }
         }
     }, 5000);
 }

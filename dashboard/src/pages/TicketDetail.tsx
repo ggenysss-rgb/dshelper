@@ -51,10 +51,20 @@ export default function TicketDetail() {
     useEffect(() => {
         if (!socket || !id) return;
         const handleNewMessage = (data: any) => {
-            if (data.channelId === id) queryClient.invalidateQueries({ queryKey: ['tickets', id, 'messages'] });
+            if (data.channelId === id) {
+                queryClient.invalidateQueries({ queryKey: ['tickets', id, 'messages'] });
+                queryClient.invalidateQueries({ queryKey: ['tickets'] });
+            }
+        };
+        const handleTicketUpdated = (data: any) => {
+            if (data.channelId === id) queryClient.invalidateQueries({ queryKey: ['tickets'] });
         };
         socket.on('ticket:message', handleNewMessage);
-        return () => { socket.off('ticket:message', handleNewMessage); };
+        socket.on('ticket:updated', handleTicketUpdated);
+        return () => {
+            socket.off('ticket:message', handleNewMessage);
+            socket.off('ticket:updated', handleTicketUpdated);
+        };
     }, [socket, id, queryClient]);
 
     const selectBind = async (bind: { name: string; message: string }) => {

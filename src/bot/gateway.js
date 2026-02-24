@@ -171,6 +171,8 @@ function handleDispatch(bot, event, d) {
                     try { await bot.sendDiscordMessage(d.id, cfg.autoGreetText); } catch { }
                 }, (cfg.autoGreetDelay || 3) * 1000);
             }
+            // Subscribe to new channel via op14 so we get MESSAGE_CREATE for it
+            subscribeToSingleChannel(bot, guildId, d.id);
             break;
         }
 
@@ -423,6 +425,8 @@ async function fetchAndScanChannels(bot) {
         bot.guildCreateHandled = true;
         scanChannelsList(bot, channels, guildId, '', prefixes, categoryId);
         bot.restoreActivityTimers();
+        // Subscribe to ALL ticket channels via op14
+        subscribeToTicketChannels(bot);
 
         // Background: fetch last message for each ticket to populate preview
         (async () => {
@@ -486,6 +490,37 @@ async function fetchAndScanChannels(bot) {
     startAutoReplyPolling(bot);
 }
 
+// ── Op14 Lazy Request: subscribe to ticket channels ──────────
+
+function sendLazyRequest(bot, guildId, channelIds) {
+    if (!bot.ws || bot.ws.readyState !== 1) return; // OPEN = 1
+    if (!channelIds || channelIds.length === 0) return;
+    const channels = {};
+    for (const chId of channelIds) channels[chId] = [[0, 99]];
+    try {
+        bot.ws.send(JSON.stringify({
+            op: 14,
+            d: { guild_id: guildId, typing: true, threads: true, activities: true, members: [], channels }
+        }));
+        bot.log(`📡 Lazy Request: subscribed to ${channelIds.length} channels`);
+    } catch (e) { bot.log(`❌ Lazy Request error: ${e.message}`); }
+}
+
+function subscribeToTicketChannels(bot) {
+    const guildId = bot.config.guildId;
+    if (!guildId) return;
+    const ids = [...bot.activeTickets.keys()];
+    if (ids.length === 0) return;
+    // Send in batches of 100 (Discord limit per op14)
+    for (let i = 0; i < ids.length; i += 100) {
+        sendLazyRequest(bot, guildId, ids.slice(i, i + 100));
+    }
+    bot.log(`📡 Subscribed to ${ids.length} ticket channels via op14`);
+}
+
+function subscribeToSingleChannel(bot, guildId, channelId) {
+    sendLazyRequest(bot, guildId, [channelId]);
+}
 // REST polling: check auto-reply target channels for new messages every 5s
 function startAutoReplyPolling(bot) {
     if (bot._arPollTimer) clearInterval(bot._arPollTimer);

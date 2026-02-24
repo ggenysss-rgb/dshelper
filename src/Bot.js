@@ -651,6 +651,7 @@ class Bot {
             shiftState.lastShiftClosed = false;
             shiftState.lastShiftContent = content;
             this.addLog('shift', `Смена начата (${dateStr})`);
+            this.scheduleShiftReminder(); // arm close reminder
             return `✅ <b>Смена начата!</b>\n\n📅 ${escapeHtml(dateStr)}\n🕐 12-0`;
         } catch (e) { return `❌ ${e.message}`; }
     }
@@ -673,7 +674,6 @@ class Bot {
     }
 
     scheduleShiftReminder() {
-        // Simple reminder at 11:00 and 12:00 Kyiv time
         if (this.shiftReminderTimer) clearTimeout(this.shiftReminderTimer);
         const hour = getKyivHour();
         const today = getKyivDate();
@@ -681,7 +681,8 @@ class Bot {
         const shiftState = this.getUserState(chatId).shift;
 
         if (shiftState.lastShiftDate === today) {
-            // Already checked in, schedule for tomorrow 11:00
+            // Already checked in → schedule close reminder + next day start
+            this.scheduleShiftCloseReminder();
             const ms = msUntilKyivHour(11, 0);
             this.shiftReminderTimer = setTimeout(() => this.scheduleShiftReminder(), ms);
             return;
@@ -689,32 +690,75 @@ class Bot {
 
         if (hour < 11) {
             const ms = msUntilKyivHour(11, 0);
+            this.log(`📋 Shift start reminder in ${Math.round(ms / 60000)} min (11:00 Kyiv)`);
             this.shiftReminderTimer = setTimeout(async () => {
-                const keyboard = { inline_keyboard: [[{ text: '✅ Отметиться', callback_data: 'shift_checkin' }, { text: '⏭ Пропустить', callback_data: 'shift_skip' }]] };
-                await this.tgSendMessage(chatId, '🕚 <b>Пора отмечаться на смену!</b>\n\nВремя 11:00.', keyboard);
+                const ss = this.getUserState(chatId).shift;
+                if (ss.lastShiftDate !== getKyivDate() && ss.reminderSentDate !== getKyivDate()) {
+                    ss.reminderSentDate = getKyivDate();
+                    const keyboard = { inline_keyboard: [[{ text: '✅ Отметиться', callback_data: 'shift_checkin' }, { text: '⏭ Пропустить', callback_data: 'shift_skip' }]] };
+                    await this.tgSendMessage(chatId, '🕚 <b>Пора отмечаться на смену!</b>\n\nВремя 11:00.', keyboard);
+                }
                 this.scheduleShiftReminder();
             }, ms);
         } else if (hour < 12) {
             const ms = msUntilKyivHour(12, 0);
+            this.log(`📋 Shift late reminder in ${Math.round(ms / 60000)} min (12:00 Kyiv)`);
             this.shiftReminderTimer = setTimeout(async () => {
-                if (this.getUserState(chatId).shift.lastShiftDate !== getKyivDate()) {
+                const ss = this.getUserState(chatId).shift;
+                if (ss.lastShiftDate !== getKyivDate() && ss.lateReminderSentDate !== getKyivDate()) {
+                    ss.lateReminderSentDate = getKyivDate();
                     const keyboard = { inline_keyboard: [[{ text: '✅ Отметиться', callback_data: 'shift_checkin' }]] };
                     await this.tgSendMessage(chatId, '🚨 <b>Вы опаздываете на смену!</b>\n\nУже 12:00.', keyboard);
                 }
                 this.scheduleShiftReminder();
             }, ms);
         } else if (hour >= 23) {
-            // Remind to close shift
-            if (shiftState.lastShiftDate === today && !shiftState.lastShiftClosed) {
+            // At 23:00+ send close reminder if shift is open
+            if (shiftState.lastShiftDate === today && !shiftState.lastShiftClosed && shiftState.closeReminderSentDate !== today) {
+                shiftState.closeReminderSentDate = today;
                 const keyboard = { inline_keyboard: [[{ text: '🔒 Закрыть', callback_data: 'shift_close' }]] };
                 this.tgSendMessage(chatId, '🕐 <b>Не забудьте закрыть смену!</b>\n\n/smenoff', keyboard);
             }
             const ms = msUntilKyivHour(11, 0);
             this.shiftReminderTimer = setTimeout(() => this.scheduleShiftReminder(), ms);
         } else {
+            // Between 12:00-23:00 — user hasn't checked in, schedule next day start
             const ms = msUntilKyivHour(23, 0);
             this.shiftReminderTimer = setTimeout(() => this.scheduleShiftReminder(), ms);
         }
+    }
+
+    scheduleShiftCloseReminder() {
+        if (this.shiftCloseReminderTimer) clearTimeout(this.shiftCloseReminderTimer);
+        const hour = getKyivHour();
+        const today = getKyivDate();
+        const chatId = String(this.config.tgChatId);
+        const shiftState = this.getUserState(chatId).shift;
+
+        // Only schedule if shift is open and not yet reminded
+        if (!shiftState.lastShiftDate || shiftState.lastShiftDate !== today) return;
+        if (shiftState.lastShiftClosed) return;
+        if (shiftState.closeReminderSentDate === today) return;
+
+        if (hour >= 23) {
+            // Send immediately
+            shiftState.closeReminderSentDate = today;
+            const keyboard = { inline_keyboard: [[{ text: '🔒 Закрыть смену', callback_data: 'shift_close' }]] };
+            this.tgSendMessage(chatId, '🕐 <b>Не забудьте закрыть смену!</b>\n\nУже 23:00. Закройте смену командой /smenoff.', keyboard);
+            return;
+        }
+
+        const ms = msUntilKyivHour(23, 0);
+        this.log(`📋 Shift close reminder in ${Math.round(ms / 60000)} min (23:00 Kyiv)`);
+        this.shiftCloseReminderTimer = setTimeout(() => {
+            const ss = this.getUserState(chatId).shift;
+            const todayNow = getKyivDate();
+            if (ss.lastShiftDate === todayNow && !ss.lastShiftClosed && ss.closeReminderSentDate !== todayNow) {
+                ss.closeReminderSentDate = todayNow;
+                const keyboard = { inline_keyboard: [[{ text: '🔒 Закрыть смену', callback_data: 'shift_close' }]] };
+                this.tgSendMessage(chatId, '🕐 <b>Не забудьте закрыть смену!</b>\n\nУже 23:00. Закройте смену командой /smenoff.', keyboard);
+            }
+        }, ms);
     }
 
     // ═══════════════════════════════════════════════════════

@@ -127,7 +127,7 @@ function handleDispatch(bot, event, d) {
         case 'CHANNEL_CREATE': {
             if (d.guild_id !== guildId) break;
             if (categoryId && d.parent_id !== categoryId) break;
-            if (!prefixes.some(p => (d.name || '').toLowerCase().startsWith(p.toLowerCase()))) break;
+            if (!prefixes.some(p => (d.name || '').toLowerCase().includes(p.toLowerCase()))) break;
             const record = {
                 channelId: d.id, channelName: d.name, guildId, guildName: '',
                 createdAt: Date.now(), firstStaffReplyAt: null,
@@ -299,7 +299,7 @@ function scanChannelsList(bot, channels, guildId, guildName, prefixes, categoryI
 
         // Prefix filter
         const name = (ch.name || '').toLowerCase();
-        if (!prefixes.some(p => name.startsWith(p.toLowerCase()))) {
+        if (!prefixes.some(p => name.includes(p.toLowerCase()))) {
             skippedPrefix++;
             // Debug: show channels in the right category but wrong prefix
             if (!categoryId || ch.parent_id === categoryId) {

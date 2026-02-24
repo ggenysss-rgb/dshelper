@@ -155,19 +155,29 @@ export default function TicketDetail() {
                     {(!messages || messages.length === 0) ? (
                         <div className="h-full flex flex-col justify-center items-center text-muted-foreground italic">Нет сообщений</div>
                     ) : (() => {
-                        // Determine opener: from ticket data, or extract from channel name (тикет-от-{username})
                         let openerId = ticket?.openerId;
                         if (!openerId && ticket?.channelName) {
                             // Extract username from channel name like "📒│тикет-от-ptx2226"
                             const match = ticket.channelName.match(/тикет-от-(.+)/i);
                             if (match) {
                                 const openerName = match[1].toLowerCase();
-                                // Find author whose username matches
+                                // Find author whose username matches (try exact, then partial, then global_name)
                                 const openerMsg = messages.find(m =>
-                                    !m.author.bot && m.author.username.toLowerCase() === openerName
+                                    !m.author.bot && (
+                                        m.author.username.toLowerCase() === openerName ||
+                                        openerName.includes(m.author.username.toLowerCase()) ||
+                                        m.author.username.toLowerCase().includes(openerName)
+                                    )
                                 );
                                 if (openerMsg) openerId = openerMsg.author.id;
                             }
+                        }
+                        // Fallback: use openerUsername from ticket data
+                        if (!openerId && ticket?.openerUsername) {
+                            const openerMsg = messages.find(m =>
+                                !m.author.bot && m.author.username.toLowerCase() === ticket.openerUsername!.toLowerCase()
+                            );
+                            if (openerMsg) openerId = openerMsg.author.id;
                         }
                         // Last resort: if we still can't find opener, use the most frequent non-bot author
                         if (!openerId) {

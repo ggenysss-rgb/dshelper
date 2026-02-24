@@ -103,7 +103,8 @@ async function main() {
                 const lastMsg = messages[0]; // messages are newest-first before reverse
                 const lastMsgTime = new Date(lastMsg.timestamp).getTime();
                 if (!record.lastMessageAt || lastMsgTime > record.lastMessageAt) {
-                    record.lastMessage = lastMsg.content?.slice(0, 120) || '[embed]';
+                    const embedText = lastMsg.embeds?.length ? (lastMsg.embeds[0].title || lastMsg.embeds[0].description || '📎 Вложение') : '📎 Вложение';
+                    record.lastMessage = lastMsg.content?.slice(0, 120) || embedText;
                     record.lastMessageAt = lastMsgTime;
                 }
                 // Find opener (first non-bot message = oldest)

@@ -75,6 +75,11 @@ function createProfileRoutes(db, botManager) {
 
                 // Reload config in bot manager
                 await botManager.reloadConfig(userId);
+
+                // Auto-start bot if not running and tokens are now configured
+                if (!botManager.bots.has(userId)) {
+                    await botManager.startBot(userId);
+                }
             }
 
             res.json({ ok: true, message: 'Settings updated successfully' });

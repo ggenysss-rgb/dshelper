@@ -71,7 +71,12 @@ export default function TicketCard({ ticket }: { ticket: Ticket }) {
                     <div className="flex items-start gap-2">
                         <MessageSquare className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
                         <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                            {(ticket.lastMessage || 'Нет сообщений...').replace(/<@[!&]?\d+>/g, '@user').replace(/<#\d+>/g, '#channel')}
+                            {(() => {
+                                let text = ticket.lastMessage || 'Нет сообщений...';
+                                // Handle [embed] placeholder - show something more meaningful
+                                text = text.replace(/\[embed\]/gi, '📎 Вложение');
+                                return text.replace(/<@[!&]?\d+>/g, '@user').replace(/<#\d+>/g, '#channel');
+                            })()}
                         </p>
                     </div>
                 </div>

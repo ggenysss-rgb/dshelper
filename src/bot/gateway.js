@@ -317,6 +317,28 @@ function handleDispatch(bot, event, d) {
         case 'GUILD_ROLE_DELETE':
             if (d.guild_id === guildId) bot.guildRolesCache.delete(d.role_id);
             break;
+
+        case 'GUILD_MEMBER_LIST_UPDATE': {
+            // Populate members from op14 (Lazy Request) responses
+            if (d.guild_id !== guildId) break;
+            if (d.ops) {
+                let added = 0;
+                for (const op of d.ops) {
+                    const items = op.items || (op.item ? [op.item] : []);
+                    for (const item of items) {
+                        if (item.member && item.member.user) {
+                            bot.guildMembersCache.set(item.member.user.id, item.member);
+                            if (item.member.presence) {
+                                bot.guildPresenceCache.set(item.member.user.id, item.member.presence.status || 'offline');
+                            }
+                            added++;
+                        }
+                    }
+                }
+                if (added > 0) bot.log(`👥 Member list update: ${added} members cached (total: ${bot.guildMembersCache.size})`);
+            }
+            break;
+        }
     }
 }
 
@@ -414,7 +436,9 @@ async function fetchAndScanChannels(bot) {
                     if (msgRes.ok) {
                         const msgs = JSON.parse(msgRes.body);
                         if (msgs.length > 0) {
-                            record.lastMessage = msgs[0].content?.slice(0, 120) || '[embed]';
+                            const m = msgs[0];
+                            const embedText = m.embeds?.length ? (m.embeds[0].title || m.embeds[0].description || '📎 Вложение') : '📎 Вложение';
+                            record.lastMessage = (m.content?.slice(0, 120) || embedText);
                             record.lastMessageAt = new Date(msgs[0].timestamp).getTime();
                         }
                     }

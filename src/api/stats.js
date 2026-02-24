@@ -194,6 +194,7 @@ function createStatsRoutes(db, botManager) {
             'activityCheckMin', 'closingCheckMin', 'closingPhrase',
             'ticketPrefix', 'pollingIntervalSec', 'rateLimitMs',
             'maxMessageLength', 'forumMode', 'priorityKeywords',
+            'staffRoleIds', 'ticketsCategoryId', 'shiftChannelId',
         ];
         const body = req.body;
         let changed = 0;

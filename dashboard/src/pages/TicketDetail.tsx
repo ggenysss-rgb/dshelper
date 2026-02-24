@@ -150,9 +150,11 @@ export default function TicketDetail() {
                 <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar scroll-smooth">
                     {(!messages || messages.length === 0) ? (
                         <div className="h-full flex flex-col justify-center items-center text-muted-foreground italic">Нет сообщений</div>
-                    ) : (
-                        messages.map((msg) => {
-                            const isStaff = ticket ? msg.author.id !== ticket.openerId && !msg.author.bot : false;
+                    ) : (() => {
+                        // Infer opener: use ticket.openerId, or fall back to first non-bot message author
+                        const openerId = ticket?.openerId || messages.find(m => !m.author.bot)?.author.id;
+                        return messages.map((msg) => {
+                            const isStaff = openerId ? msg.author.id !== openerId && !msg.author.bot : false;
                             const isBotProxy = !!msg.author.bot && msg.content.includes('[Саппорт]');
                             return (
                                 <ChatMessage
@@ -165,8 +167,8 @@ export default function TicketDetail() {
                                     canEdit={isStaff || isBotProxy}
                                 />
                             );
-                        })
-                    )}
+                        });
+                    })()}
                 </div>
 
                 <div className="p-3 md:p-4 bg-background border-t border-border shrink-0 relative">

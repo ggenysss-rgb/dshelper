@@ -30,8 +30,9 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function getPriority(name, content, keywords) {
     const haystack = (name + ' ' + content).toLowerCase();
-    const kw = keywords || ['срочно', 'urgent', 'баг', 'bug', 'оплата', 'payment', 'помогите', 'help'];
-    if (kw.some(k => haystack.includes(k.toLowerCase()))) {
+    const defaultKw = ['срочно', 'urgent', 'баг', 'bug', 'оплата', 'payment', 'помогите', 'help'];
+    const kw = Array.isArray(keywords) && keywords.length > 0 ? keywords : defaultKw;
+    if (kw.some(k => haystack.includes(String(k).toLowerCase()))) {
         return { emoji: '🔴', badge: 'ВЫСОКИЙ ⚡', high: true };
     }
     return { emoji: '🟢', badge: 'обычный', high: false };

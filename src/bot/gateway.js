@@ -301,8 +301,9 @@ function handleDispatch(bot, event, d) {
                     const text = buildForwardedMessage(record.channelName, author, d.member, d.content, d.attachments, cfg.maxMessageLength);
                     bot.enqueue({ text, channelId: d.channel_id });
                 }
-                if (bot.io) bot.io.emit('ticket:message', { channelId: d.channel_id, content: d.content });
             }
+            // Emit to dashboard for ALL messages (staff, bot, player) — real-time updates
+            if (bot.io) bot.io.emit('ticket:message', { channelId: d.channel_id, content: d.content });
             break;
         }
 

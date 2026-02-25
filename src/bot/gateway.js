@@ -361,7 +361,7 @@ function handleDispatch(bot, event, d) {
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id) && author.id !== bot.selfUserId) {
+            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                 if (mentionsMe) {
@@ -901,7 +901,7 @@ function startAutoReplyPolling(bot) {
 
                     // ── AI handler (poll-based) — forward @d1reevof mentions to n8n ──
                     const neuroExcludedPoll = ['1451246122755559555'];
-                    if (msg.author.id !== bot.selfUserId && !msg.author.bot && cfg.n8nWebhookUrl && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
+                    if (!msg.author.bot && cfg.n8nWebhookUrl && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
                         const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                         if (mentionsMe && !_neuroProcessed.has(msg.id)) {

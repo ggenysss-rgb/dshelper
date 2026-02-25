@@ -287,32 +287,39 @@ function handleDispatch(bot, event, d) {
             }
 
             // ── Log d1reevo's manual messages for AI learning ──
+            // Skip AI-generated responses (tracked via _aiPendingChannels)
             if (!isBot && author.id === bot.selfUserId && d.guild_id === guildId && bot._convLogger) {
-                const msgText = d.content || '';
-                if (msgText.length > 5 && !msgText.startsWith('/')) {
-                    // Find the previous non-self message in channel as the "question"
-                    const lastQ = bot._lastChannelQuestion?.[d.channel_id] || '';
-                    bot._convLogger.logManualResponse({
-                        channelId: d.channel_id,
-                        question: lastQ,
-                        answer: msgText,
-                        authorUsername: author.username,
-                    });
+                // Check if this message is an AI response (not manual)
+                if (bot._aiPendingChannels && bot._aiPendingChannels.has(d.channel_id)) {
+                    bot._aiPendingChannels.delete(d.channel_id);
+                    bot.log(`🤖 Skipped AI response from logging as manual: "${(d.content || '').slice(0, 50)}"`);
+                } else {
+                    const msgText = d.content || '';
+                    if (msgText.length > 5 && !msgText.startsWith('/') && !msgText.includes(`<@${bot.selfUserId}>`)) {
+                        // Find the previous non-self message in channel as the "question"
+                        const lastQ = bot._lastChannelQuestion?.[d.channel_id] || '';
+                        bot._convLogger.logManualResponse({
+                            channelId: d.channel_id,
+                            question: lastQ,
+                            answer: msgText,
+                            authorUsername: author.username,
+                        });
 
-                    // ── Instant append to persistent extra_examples.txt ──
-                    try {
-                        const extraPath = path.join(_dataDir, 'extra_examples.txt');
-                        const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
-                        // Check dedup against base prompt + extras
-                        const fullPrompt = loadSystemPrompt();
-                        if (!fullPrompt.includes(escaped) && escaped.length > 5) {
-                            fs.appendFileSync(extraPath, `\n- "${escaped}"`, 'utf8');
-                            // Reset prompt cache so next AI request uses updated prompt
-                            _promptLoadedAt = 0;
-                            bot.log(`📝 New example added (persistent): "${escaped.slice(0, 50)}..."`);
+                        // ── Instant append to persistent extra_examples.txt ──
+                        try {
+                            const extraPath = path.join(_dataDir, 'extra_examples.txt');
+                            const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
+                            // Check dedup against base prompt + extras
+                            const fullPrompt = loadSystemPrompt();
+                            if (!fullPrompt.includes(escaped) && escaped.length > 5) {
+                                fs.appendFileSync(extraPath, `\n- "${escaped}"`, 'utf8');
+                                // Reset prompt cache so next AI request uses updated prompt
+                                _promptLoadedAt = 0;
+                                bot.log(`📝 New example added (persistent): "${escaped.slice(0, 50)}..."`);
+                            }
+                        } catch (e) {
+                            bot.log(`⚠️ Failed to append example: ${e.message}`);
                         }
-                    } catch (e) {
-                        bot.log(`⚠️ Failed to append example: ${e.message}`);
                     }
                 }
             }
@@ -370,6 +377,11 @@ function handleDispatch(bot, event, d) {
                                 authorUsername: author.username,
                             });
                         }
+                        // Mark channel as having a pending AI response
+                        if (!bot._aiPendingChannels) bot._aiPendingChannels = new Set();
+                        bot._aiPendingChannels.add(d.channel_id);
+                        // Auto-clear after 30s in case response never arrives
+                        setTimeout(() => bot._aiPendingChannels?.delete(d.channel_id), 30000);
                         // Fire and forget — n8n handles the response via Discord API
                         (async () => {
                             try {

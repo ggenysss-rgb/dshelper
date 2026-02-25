@@ -269,7 +269,7 @@ function handleDispatch(bot, event, d) {
             // ── AI handler — forward questions to n8n webhook ──
             // Works on ALL guilds (or only specific ones if neuroGuildIds is set)
             // Excluded channels: 717734206586880060
-            const neuroExcludedChannels = ['717734206586880060'];
+            const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
             if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {

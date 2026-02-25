@@ -415,24 +415,29 @@ function handleDispatch(bot, event, d) {
             }
 
             // ── AI handler — forward questions to n8n webhook ──
+            // Triggers on: (1) @mention  (2) reply to bot's own message
             // Works on ALL guilds (or only specific ones if neuroGuildIds is set)
-            // Excluded channels: 717734206586880060
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
             if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                if (mentionsMe) {
-                    // Extract question: remove mention
+                // Check if user is replying to the bot's previous message
+                const isReplyToMe = d.referenced_message && d.referenced_message.author && d.referenced_message.author.id === bot.selfUserId;
+
+                if (mentionsMe || isReplyToMe) {
+                    // Extract question: remove mention if present
                     let question = content
                         .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
                         .replace(/[,،\s]+/g, ' ')
                         .trim();
+                    // For replies without text, skip
                     if (question.length > 0 && !_neuroProcessed.has(d.id)) {
                         _neuroProcessed.add(d.id);
                         setTimeout(() => _neuroProcessed.delete(d.id), 60000); // cleanup after 60s
-                        bot.log(`🧠 Neuro AI: question from ${author.username}: "${question.slice(0, 100)}"`);
+                        const triggerType = mentionsMe ? 'mention' : 'reply';
+                        bot.log(`🧠 Neuro AI [${triggerType}]: question from ${author.username}: "${question.slice(0, 100)}"`);
                         // Log AI question
                         if (bot._convLogger) {
                             bot._convLogger.logAIResponse({
@@ -446,6 +451,8 @@ function handleDispatch(bot, event, d) {
                         bot._aiPendingChannels.add(d.channel_id);
                         // Auto-clear after 30s in case response never arrives
                         setTimeout(() => bot._aiPendingChannels?.delete(d.channel_id), 30000);
+                        // Build conversation context — include the previous bot reply for context
+                        const prevBotReply = isReplyToMe ? (d.referenced_message.content || '').slice(0, 500) : '';
                         // Fire and forget — n8n handles the response via Discord API
                         (async () => {
                             try {
@@ -457,6 +464,12 @@ function handleDispatch(bot, event, d) {
                                         .join('\n')
                                     : '';
 
+                                // If replying to bot, prepend the bot's message as context
+                                let fullHistory = convHistory;
+                                if (prevBotReply && !convHistory.includes(prevBotReply.slice(0, 50))) {
+                                    fullHistory = `[d1reevo]: ${prevBotReply}\n${convHistory}`;
+                                }
+
                                 const payload = JSON.stringify({
                                     chatInput: question,
                                     channelId: d.channel_id,
@@ -465,7 +478,7 @@ function handleDispatch(bot, event, d) {
                                     authorUsername: author.username,
                                     guildId: d.guild_id,
                                     systemPrompt,
-                                    conversationHistory: convHistory,
+                                    conversationHistory: fullHistory,
                                 });
                                 const url = new URL(cfg.n8nWebhookUrl);
                                 const options = {
@@ -955,12 +968,15 @@ function startAutoReplyPolling(bot) {
                         bot._lastChannelQuestion[channelId] = (msg.content || '').slice(0, 500);
                     }
 
-                    // ── AI handler (poll-based) — forward @d1reevof mentions to n8n ──
+                    // ── AI handler (poll-based) — forward @mentions and replies to n8n ──
                     const neuroExcludedPoll = ['1451246122755559555'];
                     if (!msg.author.bot && cfg.n8nWebhookUrl && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
                         const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                        if (mentionsMe && !_neuroProcessed.has(msg.id)) {
+                        // Check if user is replying to the bot's message
+                        const isReplyToMe = msg.referenced_message && msg.referenced_message.author && msg.referenced_message.author.id === bot.selfUserId;
+
+                        if ((mentionsMe || isReplyToMe) && !_neuroProcessed.has(msg.id)) {
                             _neuroProcessed.add(msg.id);
                             setTimeout(() => _neuroProcessed.delete(msg.id), 60000);
                             let question = content
@@ -968,7 +984,8 @@ function startAutoReplyPolling(bot) {
                                 .replace(/[,،\s]+/g, ' ')
                                 .trim();
                             if (question.length > 0) {
-                                bot.log(`🧠 Poll: Neuro AI question from ${msg.author.username}: "${question.slice(0, 100)}"`);
+                                const triggerType = mentionsMe ? 'mention' : 'reply';
+                                bot.log(`🧠 Poll: Neuro AI [${triggerType}] from ${msg.author.username}: "${question.slice(0, 100)}"`);
                                 if (bot._convLogger) {
                                     bot._convLogger.logAIResponse({
                                         channelId,
@@ -980,6 +997,8 @@ function startAutoReplyPolling(bot) {
                                 if (!bot._aiPendingChannels) bot._aiPendingChannels = new Set();
                                 bot._aiPendingChannels.add(channelId);
                                 setTimeout(() => bot._aiPendingChannels?.delete(channelId), 30000);
+                                // Build context with previous bot reply
+                                const prevBotReply = isReplyToMe ? (msg.referenced_message.content || '').slice(0, 500) : '';
                                 // Send to n8n
                                 try {
                                     const systemPrompt = loadSystemPrompt();
@@ -988,6 +1007,11 @@ function startAutoReplyPolling(bot) {
                                             .map(e => `[${e.authorUsername || 'user'}]: ${e.question || e.answer || ''}`)
                                             .join('\n')
                                         : '';
+                                    // If replying to bot, prepend the bot's message
+                                    let fullHistory = convHistory;
+                                    if (prevBotReply && !convHistory.includes(prevBotReply.slice(0, 50))) {
+                                        fullHistory = `[d1reevo]: ${prevBotReply}\n${convHistory}`;
+                                    }
                                     const payload = JSON.stringify({
                                         chatInput: question,
                                         channelId,
@@ -996,7 +1020,7 @@ function startAutoReplyPolling(bot) {
                                         authorUsername: msg.author.username,
                                         guildId: guildId,
                                         systemPrompt,
-                                        conversationHistory: convHistory,
+                                        conversationHistory: fullHistory,
                                     });
                                     const url = new URL(cfg.n8nWebhookUrl);
                                     const options = {

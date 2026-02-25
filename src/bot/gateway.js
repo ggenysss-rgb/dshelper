@@ -32,12 +32,48 @@ function loadSystemPrompt() {
         const promptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
         let prompt = fs.readFileSync(promptPath, 'utf8');
 
-        // Merge extra learned examples from persistent volume
-        const extraPath = path.join(_dataDir, 'extra_examples.txt');
-        if (fs.existsSync(extraPath)) {
-            const extra = fs.readFileSync(extraPath, 'utf8').trim();
-            if (extra.length > 0) {
-                prompt += '\n' + extra;
+        // Load structured learned knowledge
+        const knowledgePath = path.join(_dataDir, 'learned_knowledge.json');
+        if (fs.existsSync(knowledgePath)) {
+            try {
+                const knowledge = JSON.parse(fs.readFileSync(knowledgePath, 'utf8'));
+                const qaPairs = knowledge.filter(k => k.type === 'qa' && k.question && k.answer);
+                const facts = knowledge.filter(k => k.type === 'fact' && k.content);
+
+                if (qaPairs.length > 0) {
+                    prompt += '\n\nВЫУЧЕННЫЕ ОТВЕТЫ (используй эти ответы когда спрашивают похожее):\n';
+                    // Take last 100 Q&A pairs to avoid token overflow
+                    for (const qa of qaPairs.slice(-100)) {
+                        prompt += `В: "${qa.question}" → О: "${qa.answer}"\n`;
+                    }
+                }
+                if (facts.length > 0) {
+                    prompt += '\nВЫУЧЕННЫЕ ФАКТЫ (запомни и используй в подходящем контексте):\n';
+                    for (const f of facts.slice(-100)) {
+                        prompt += `- ${f.content}\n`;
+                    }
+                }
+            } catch (e) {
+                console.log(`[Neuro] Failed to parse learned_knowledge.json: ${e.message}`);
+            }
+        }
+
+        // Auto-migrate old extra_examples.txt if it exists and knowledge file doesn't
+        const oldExtraPath = path.join(_dataDir, 'extra_examples.txt');
+        if (fs.existsSync(oldExtraPath) && !fs.existsSync(knowledgePath)) {
+            try {
+                const oldContent = fs.readFileSync(oldExtraPath, 'utf8');
+                const lines = oldContent.split('\n').filter(l => l.trim().startsWith('- "'));
+                const migrated = lines.map(l => {
+                    const match = l.match(/^- "(.+)"$/);
+                    return match ? { type: 'fact', content: match[1].replace(/\\"/g, '"'), ts: new Date().toISOString() } : null;
+                }).filter(Boolean);
+                if (migrated.length > 0) {
+                    fs.writeFileSync(knowledgePath, JSON.stringify(migrated, null, 2), 'utf8');
+                    console.log(`[Neuro] Migrated ${migrated.length} examples from extra_examples.txt to learned_knowledge.json`);
+                }
+            } catch (e) {
+                console.log(`[Neuro] Migration error: ${e.message}`);
             }
         }
 
@@ -49,6 +85,31 @@ function loadSystemPrompt() {
     }
     return _cachedSystemPrompt;
 }
+
+// Save a learning entry to learned_knowledge.json
+function saveLearning(bot, entry) {
+    try {
+        const knowledgePath = path.join(_dataDir, 'learned_knowledge.json');
+        let knowledge = [];
+        if (fs.existsSync(knowledgePath)) {
+            try { knowledge = JSON.parse(fs.readFileSync(knowledgePath, 'utf8')); } catch (e) { knowledge = []; }
+        }
+        // Dedup: check if exact same content/answer already exists
+        const isDuplicate = entry.type === 'qa'
+            ? knowledge.some(k => k.type === 'qa' && k.answer === entry.answer && k.question === entry.question)
+            : knowledge.some(k => k.type === 'fact' && k.content === entry.content);
+        if (isDuplicate) return false;
+        entry.ts = new Date().toISOString();
+        knowledge.push(entry);
+        fs.writeFileSync(knowledgePath, JSON.stringify(knowledge, null, 2), 'utf8');
+        _promptLoadedAt = 0; // Force prompt reload
+        return true;
+    } catch (e) {
+        bot.log(`⚠️ Failed to save learning: ${e.message}`);
+        return false;
+    }
+}
+
 
 function connectGateway(bot) {
     if (bot.destroyed) return;
@@ -312,18 +373,15 @@ function handleDispatch(bot, event, d) {
                             authorUsername: author.username,
                         });
 
-                        // ── Instant append to persistent extra_examples.txt ──
-                        try {
-                            const extraPath = path.join(_dataDir, 'extra_examples.txt');
-                            const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
-                            const fullPrompt = loadSystemPrompt();
-                            if (!fullPrompt.includes(escaped) && escaped.length > 5) {
-                                fs.appendFileSync(extraPath, `\n- "${escaped}"`, 'utf8');
-                                _promptLoadedAt = 0;
-                                bot.log(`📝 New example saved: "${escaped.slice(0, 50)}..."`);
-                            }
-                        } catch (e) {
-                            bot.log(`⚠️ Failed to append example: ${e.message}`);
+                        // ── Save structured learning ──
+                        if (question) {
+                            // Q&A pair: user replied to someone's message
+                            const saved = saveLearning(bot, { type: 'qa', question, answer: msgText.slice(0, 500) });
+                            if (saved) bot.log(`📝 Learned Q&A: "${question.slice(0, 40)}" → "${msgText.slice(0, 40)}"`);
+                        } else if (msgText.length > 5) {
+                            // Fact: standalone message
+                            const saved = saveLearning(bot, { type: 'fact', content: msgText.slice(0, 500) });
+                            if (saved) bot.log(`📝 Learned fact: "${msgText.slice(0, 50)}"`);
                         }
                     }
                 }
@@ -878,18 +936,13 @@ function startAutoReplyPolling(bot) {
                                 authorUsername: msg.author.username,
                             });
 
-                            // Save to persistent extra_examples.txt
-                            try {
-                                const extraPath = path.join(_dataDir, 'extra_examples.txt');
-                                const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
-                                const fullPrompt = loadSystemPrompt();
-                                if (!fullPrompt.includes(escaped) && escaped.length > 5) {
-                                    fs.appendFileSync(extraPath, `\n- "${escaped}"`, 'utf8');
-                                    _promptLoadedAt = 0;
-                                    bot.log(`📝 Poll: example saved: "${escaped.slice(0, 50)}..."`);
-                                }
-                            } catch (e) {
-                                bot.log(`⚠️ Poll: failed to save example: ${e.message}`);
+                            // ── Save structured learning ──
+                            if (question) {
+                                const saved = saveLearning(bot, { type: 'qa', question, answer: msgText.slice(0, 500) });
+                                if (saved) bot.log(`📝 Poll: Learned Q&A: "${question.slice(0, 40)}" → "${msgText.slice(0, 40)}"`);
+                            } else if (msgText.length > 5) {
+                                const saved = saveLearning(bot, { type: 'fact', content: msgText.slice(0, 500) });
+                                if (saved) bot.log(`📝 Poll: Learned fact: "${msgText.slice(0, 50)}"`);
                             }
                         }
                     }

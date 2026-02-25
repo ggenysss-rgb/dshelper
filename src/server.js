@@ -204,13 +204,14 @@ async function main() {
     // ── Extra examples (AI learning file) ────────────────
     app.get('/api/extra-examples', authenticateToken, (req, res) => {
         try {
-            const extraPath = path.join(DATA_DIR, 'extra_examples.txt');
-            if (!fs.existsSync(extraPath)) return res.json({ content: '', lines: 0, examples: [] });
-            const content = fs.readFileSync(extraPath, 'utf8');
-            const lines = content.split('\n').filter(l => l.trim().length > 0);
-            res.json({ content, lines: lines.length, examples: lines });
+            const knowledgePath = path.join(DATA_DIR, 'learned_knowledge.json');
+            if (!fs.existsSync(knowledgePath)) return res.json({ entries: [], qa: 0, facts: 0, total: 0 });
+            const knowledge = JSON.parse(fs.readFileSync(knowledgePath, 'utf8'));
+            const qa = knowledge.filter(k => k.type === 'qa');
+            const facts = knowledge.filter(k => k.type === 'fact');
+            res.json({ entries: knowledge, qa: qa.length, facts: facts.length, total: knowledge.length });
         } catch (e) {
-            res.json({ content: '', lines: 0, examples: [], error: e.message });
+            res.json({ entries: [], qa: 0, facts: 0, total: 0, error: e.message });
         }
     });
 

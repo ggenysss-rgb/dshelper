@@ -871,6 +871,7 @@ function startAutoReplyPolling(bot) {
     pollChannels.add('1475424153057366036');
     // Always include learning channel for d1reevof message capture
     pollChannels.add('717734206586880060');
+    pollChannels.add('1093146249412231199');
 
     if (pollChannels.size === 0) return;
     const channelList = [...pollChannels];

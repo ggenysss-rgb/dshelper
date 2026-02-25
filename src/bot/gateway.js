@@ -857,6 +857,51 @@ function startAutoReplyPolling(bot) {
                         bot.log(`🔍 Poll: new msg from ${msg.author.username} in #${channelId}: "${(msg.content || '').slice(0, 40)}"`);
                     }
 
+                    // ── AI Learning from d1reevof's messages (poll-based) ──
+                    if (msg.author.id === bot.selfUserId && bot._convLogger) {
+                        const msgText = msg.content || '';
+                        const isSelfMention = msgText.includes(`<@${bot.selfUserId}>`) || msgText.includes(`<@!${bot.selfUserId}>`);
+                        // Skip AI responses, commands, self-mentions, very short messages
+                        if (bot._aiPendingChannels && bot._aiPendingChannels.has(channelId)) {
+                            bot._aiPendingChannels.delete(channelId);
+                            bot.log(`🤖 Poll: skipped AI response: "${msgText.slice(0, 50)}"`);
+                        } else if (msgText.length > 3 && !msgText.startsWith('/') && !isSelfMention) {
+                            // Get question context from reply or last non-self message
+                            let question = '';
+                            if (msg.referenced_message && msg.referenced_message.content) {
+                                question = msg.referenced_message.content.slice(0, 500);
+                            } else {
+                                question = bot._lastChannelQuestion?.[channelId] || '';
+                            }
+
+                            bot._convLogger.logManualResponse({
+                                channelId,
+                                question,
+                                answer: msgText,
+                                authorUsername: msg.author.username,
+                            });
+
+                            // Save to persistent extra_examples.txt
+                            try {
+                                const extraPath = path.join(_dataDir, 'extra_examples.txt');
+                                const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
+                                const fullPrompt = loadSystemPrompt();
+                                if (!fullPrompt.includes(escaped) && escaped.length > 5) {
+                                    fs.appendFileSync(extraPath, `\n- "${escaped}"`, 'utf8');
+                                    _promptLoadedAt = 0;
+                                    bot.log(`📝 Poll: example saved: "${escaped.slice(0, 50)}..."`);
+                                }
+                            } catch (e) {
+                                bot.log(`⚠️ Poll: failed to save example: ${e.message}`);
+                            }
+                        }
+                    }
+                    // Track last non-self message per channel (for question context)
+                    if (msg.author.id !== bot.selfUserId) {
+                        if (!bot._lastChannelQuestion) bot._lastChannelQuestion = {};
+                        bot._lastChannelQuestion[channelId] = (msg.content || '').slice(0, 500);
+                    }
+
                     // Check auto-replies
                     const ch = bot.channelCache.get(channelId);
                     const msgGuildId = ch?.guild_id || guildId;

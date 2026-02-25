@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAutoReplies, updateAutoReplies } from '../api/stats';
 import { Bot, Plus, Trash2, Save, Loader2, Check, ChevronDown, Power, PowerOff, Search, Copy } from 'lucide-react';
@@ -15,7 +15,26 @@ interface AutoReplyRule {
     delay?: number;
 }
 
-function TagEditor({ tags, onChange, placeholder, color = 'emerald' }: { tags: string[]; onChange: (t: string[]) => void; placeholder: string; color?: string }) {
+// Internal rule with stable ID for React reconciliation
+interface InternalRule extends AutoReplyRule {
+    _id: string;
+}
+
+let _nextId = 1;
+function genId() { return `ar_${Date.now()}_${_nextId++}`; }
+
+function addIds(rules: AutoReplyRule[]): InternalRule[] {
+    return rules.map(r => ({ ...r, _id: genId() }));
+}
+
+function stripIds(rules: InternalRule[]): AutoReplyRule[] {
+    return rules.map(({ _id, ...rest }) => rest);
+}
+
+// ─── Tag Editor ─────────────────────────────────────────
+function TagEditor({ tags, onChange, placeholder, color = 'emerald' }: {
+    tags: string[]; onChange: (t: string[]) => void; placeholder: string; color?: string;
+}) {
     const [input, setInput] = useState('');
     const addTag = () => {
         const t = input.trim();
@@ -31,7 +50,7 @@ function TagEditor({ tags, onChange, placeholder, color = 'emerald' }: { tags: s
             {tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                     {tags.map((tag, i) => (
-                        <span key={i} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs border ${colorClasses[color] || colorClasses.emerald}`}>
+                        <span key={`${tag}-${i}`} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs border ${colorClasses[color] || colorClasses.emerald}`}>
                             {tag}
                             <button onClick={() => onChange(tags.filter((_, j) => j !== i))} className="hover:text-white ml-0.5 opacity-60 hover:opacity-100 transition-opacity">×</button>
                         </span>
@@ -48,23 +67,32 @@ function TagEditor({ tags, onChange, placeholder, color = 'emerald' }: { tags: s
     );
 }
 
-function RuleCard({ rule, index, onChange, onDelete, onDuplicate }: {
-    rule: AutoReplyRule; index: number;
-    onChange: (r: AutoReplyRule) => void;
+// ─── Rule Card ──────────────────────────────────────────
+function RuleCard({ rule, index, expanded, onToggleExpand, onChange, onDelete, onDuplicate }: {
+    rule: InternalRule; index: number;
+    expanded: boolean;
+    onToggleExpand: () => void;
+    onChange: (r: InternalRule) => void;
     onDelete: () => void;
     onDuplicate: () => void;
 }) {
-    const [expanded, setExpanded] = useState(false);
     const wordCount = (rule.includeAny?.length || 0) + (rule.includeAll?.flat().length || 0);
+
+    const handleFieldChange = useCallback((field: string, value: unknown) => {
+        onChange({ ...rule, [field]: value });
+    }, [onChange, rule]);
 
     return (
         <div className={`bg-[var(--color-bg-secondary)] border rounded-xl overflow-hidden transition-all duration-200 ${rule.enabled ? 'border-[var(--color-border)]' : 'border-[var(--color-border)]/30 opacity-50'}`}>
-            {/* Header — clickable */}
+            {/* Header — clickable to expand/collapse */}
             <div className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none hover:bg-[var(--color-bg-primary)]/50 transition-colors"
-                onClick={() => setExpanded(!expanded)}>
-                {/* Toggle */}
-                <button onClick={e => { e.stopPropagation(); onChange({ ...rule, enabled: !rule.enabled }); }}
-                    className="shrink-0 p-1 rounded-lg hover:bg-[var(--color-bg-primary)] transition-colors" title={rule.enabled ? 'Выключить' : 'Включить'}>
+                onClick={onToggleExpand}>
+                {/* Toggle enabled */}
+                <button
+                    onClick={e => { e.stopPropagation(); handleFieldChange('enabled', !rule.enabled); }}
+                    className="shrink-0 p-1 rounded-lg hover:bg-[var(--color-bg-primary)] transition-colors"
+                    title={rule.enabled ? 'Выключить' : 'Включить'}
+                >
                     {rule.enabled ? <Power className="w-4 h-4 text-emerald-500" /> : <PowerOff className="w-4 h-4 text-red-400" />}
                 </button>
                 {/* Info */}
@@ -89,29 +117,46 @@ function RuleCard({ rule, index, onChange, onDelete, onDuplicate }: {
                 </div>
             </div>
 
-            {/* Expanded Content — no Framer Motion, use CSS */}
+            {/* Expanded Content */}
             {expanded && (
-                <div onClick={e => e.stopPropagation()} className="px-4 pb-4 space-y-4 border-t border-[var(--color-border)]/50 pt-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div
+                    className="px-4 pb-4 space-y-4 border-t border-[var(--color-border)]/50 pt-4"
+                    onClick={e => e.stopPropagation()}
+                    onMouseDown={e => e.stopPropagation()}
+                >
                     {/* Row 1: name, guild, channel, delay */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
                             <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Название</label>
-                            <input type="text" value={rule.name} onChange={e => onChange({ ...rule, name: e.target.value })}
+                            <input type="text" value={rule.name}
+                                onChange={e => handleFieldChange('name', e.target.value)}
+                                onMouseDown={e => e.stopPropagation()}
+                                onKeyDown={e => e.stopPropagation()}
                                 className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
                         </div>
                         <div>
                             <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Guild ID</label>
-                            <input type="text" value={rule.guildId} onChange={e => onChange({ ...rule, guildId: e.target.value })}
+                            <input type="text" value={rule.guildId}
+                                onChange={e => handleFieldChange('guildId', e.target.value)}
+                                onMouseDown={e => e.stopPropagation()}
+                                onKeyDown={e => e.stopPropagation()}
                                 className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
                         </div>
                         <div>
                             <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Channel ID</label>
-                            <input type="text" value={rule.channelId} onChange={e => onChange({ ...rule, channelId: e.target.value })} placeholder="Все каналы"
+                            <input type="text" value={rule.channelId}
+                                onChange={e => handleFieldChange('channelId', e.target.value)}
+                                onMouseDown={e => e.stopPropagation()}
+                                onKeyDown={e => e.stopPropagation()}
+                                placeholder="Все каналы"
                                 className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
                         </div>
                         <div>
                             <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Задержка (сек)</label>
-                            <input type="number" value={rule.delay || 2} onChange={e => onChange({ ...rule, delay: parseInt(e.target.value) || 2 })}
+                            <input type="number" value={rule.delay || 2}
+                                onChange={e => handleFieldChange('delay', parseInt(e.target.value) || 2)}
+                                onMouseDown={e => e.stopPropagation()}
+                                onKeyDown={e => e.stopPropagation()}
                                 className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" min={0} max={60} />
                         </div>
                     </div>
@@ -122,20 +167,24 @@ function RuleCard({ rule, index, onChange, onDelete, onDuplicate }: {
                             <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1.5 block tracking-wider">
                                 ✅ Включающие слова <span className="normal-case font-normal">(includeAny)</span>
                             </label>
-                            <TagEditor tags={rule.includeAny || []} onChange={t => onChange({ ...rule, includeAny: t })} placeholder="Добавить слово..." color="emerald" />
+                            <TagEditor tags={rule.includeAny || []} onChange={t => handleFieldChange('includeAny', t)} placeholder="Добавить слово..." color="emerald" />
                         </div>
                         <div>
                             <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1.5 block tracking-wider">
                                 ❌ Исключающие слова <span className="normal-case font-normal">(excludeAny)</span>
                             </label>
-                            <TagEditor tags={rule.excludeAny || []} onChange={t => onChange({ ...rule, excludeAny: t })} placeholder="Добавить исключение..." color="red" />
+                            <TagEditor tags={rule.excludeAny || []} onChange={t => handleFieldChange('excludeAny', t)} placeholder="Добавить исключение..." color="red" />
                         </div>
                     </div>
 
                     {/* Response */}
                     <div>
                         <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">💬 Ответ</label>
-                        <textarea value={rule.response} onChange={e => onChange({ ...rule, response: e.target.value })} rows={3}
+                        <textarea value={rule.response}
+                            onChange={e => handleFieldChange('response', e.target.value)}
+                            onMouseDown={e => e.stopPropagation()}
+                            onKeyDown={e => e.stopPropagation()}
+                            rows={3}
                             className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y" />
                     </div>
 
@@ -154,64 +203,83 @@ function RuleCard({ rule, index, onChange, onDelete, onDuplicate }: {
     );
 }
 
+// ─── Main Page ──────────────────────────────────────────
 export default function AutoReplies() {
     const queryClient = useQueryClient();
-    const { data: rules, isLoading } = useQuery({ queryKey: ['autoreplies'], queryFn: fetchAutoReplies });
-    const [local, setLocal] = useState<AutoReplyRule[] | null>(null);
+    const { data: serverRules, isLoading } = useQuery({ queryKey: ['autoreplies'], queryFn: fetchAutoReplies });
+
+    // Internal list with stable _id per rule
+    const [list, setList] = useState<InternalRule[] | null>(null);
     const [saved, setSaved] = useState(false);
     const [search, setSearch] = useState('');
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+
+    // Track if server data was already initialised
+    const initializedRef = useRef(false);
+
+    // Sync server data → internal list (only on first load or after save)
+    const effectiveList: InternalRule[] = useMemo(() => {
+        if (list !== null) return list;
+        if (!serverRules) return [];
+        return addIds(serverRules);
+    }, [list, serverRules]);
+
+    // Detect unsaved changes
+    const hasChanges = list !== null;
+
+    // Search filter — uses stable references from effectiveList
+    const filtered = useMemo(() => {
+        if (!search.trim()) return effectiveList;
+        const q = search.toLowerCase();
+        return effectiveList.filter(r =>
+            r.name.toLowerCase().includes(q) ||
+            r.response.toLowerCase().includes(q) ||
+            r.includeAny?.some(w => w.toLowerCase().includes(q))
+        );
+    }, [effectiveList, search]);
 
     const mutation = useMutation({
-        mutationFn: updateAutoReplies,
+        mutationFn: (rules: AutoReplyRule[]) => updateAutoReplies(rules),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['autoreplies'] });
-            setLocal(null);
+            setList(null); // reset to "synced" state
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
         }
     });
 
-    const list: AutoReplyRule[] = local || rules || [];
-    const hasChanges = local !== null;
+    const updateRule = useCallback((id: string, updated: InternalRule) => {
+        setList(prev => {
+            const base = prev || addIds(serverRules || []);
+            return base.map(r => r._id === id ? { ...updated, _id: id } : r);
+        });
+    }, [serverRules]);
 
-    const filtered = useMemo(() => {
-        if (!search.trim()) return list;
-        const q = search.toLowerCase();
-        return list.filter(r =>
-            r.name.toLowerCase().includes(q) ||
-            r.response.toLowerCase().includes(q) ||
-            r.includeAny?.some(w => w.toLowerCase().includes(q))
-        );
-    }, [list, search]);
+    const deleteRule = useCallback((id: string) => {
+        setList(prev => {
+            const base = prev || addIds(serverRules || []);
+            return base.filter(r => r._id !== id);
+        });
+        if (expandedId === id) setExpandedId(null);
+    }, [serverRules, expandedId]);
 
-    const updateRule = useCallback((index: number, rule: AutoReplyRule) => {
-        setLocal(prev => {
-            const base = prev || rules || [];
+    const duplicateRule = useCallback((id: string) => {
+        setList(prev => {
+            const base = prev || addIds(serverRules || []);
+            const idx = base.findIndex(r => r._id === id);
+            if (idx === -1) return base;
+            const newId = genId();
+            const copy: InternalRule = { ...base[idx], _id: newId, name: base[idx].name + ' (копия)' };
             const newList = [...base];
-            newList[index] = rule;
+            newList.splice(idx + 1, 0, copy);
             return newList;
         });
-    }, [rules]);
-
-    const deleteRule = useCallback((index: number) => {
-        setLocal(prev => {
-            const base = prev || rules || [];
-            return base.filter((_, i) => i !== index);
-        });
-    }, [rules]);
-
-    const duplicateRule = useCallback((index: number) => {
-        setLocal(prev => {
-            const base = prev || rules || [];
-            const copy = { ...base[index], name: base[index].name + ' (копия)' };
-            const newList = [...base];
-            newList.splice(index + 1, 0, copy);
-            return newList;
-        });
-    }, [rules]);
+    }, [serverRules]);
 
     const addRule = useCallback(() => {
-        setLocal(prev => [...(prev || rules || []), {
+        const newId = genId();
+        setList(prev => [...(prev || addIds(serverRules || [])), {
+            _id: newId,
             name: 'Новое правило',
             guildId: '690362306395111444',
             channelId: '',
@@ -221,11 +289,22 @@ export default function AutoReplies() {
             enabled: true,
             delay: 2,
         }]);
-    }, [rules]);
+        // Auto-expand the new rule
+        setExpandedId(newId);
+    }, [serverRules]);
+
+    const handleSave = useCallback(() => {
+        if (!list) return;
+        mutation.mutate(stripIds(list));
+    }, [list, mutation]);
+
+    const toggleExpand = useCallback((id: string) => {
+        setExpandedId(prev => prev === id ? null : id);
+    }, []);
 
     if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full" /></div>;
 
-    const activeCount = list.filter(r => r.enabled).length;
+    const activeCount = effectiveList.filter(r => r.enabled).length;
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -238,7 +317,7 @@ export default function AutoReplies() {
                     <div>
                         <h1 className="text-2xl font-bold">Авто-ответы</h1>
                         <p className="text-xs text-[var(--color-text-secondary)]">
-                            {list.length} правил • <span className="text-emerald-400">{activeCount} активных</span>
+                            {effectiveList.length} правил • <span className="text-emerald-400">{activeCount} активных</span>
                             {hasChanges && <span className="text-amber-400 ml-2">• Есть несохранённые изменения</span>}
                         </p>
                     </div>
@@ -247,7 +326,7 @@ export default function AutoReplies() {
                     <button onClick={addRule} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--color-bg-secondary)] text-sm font-medium hover:bg-[var(--color-bg-primary)] transition-colors border border-[var(--color-border)]">
                         <Plus className="w-4 h-4" /> Добавить
                     </button>
-                    <button onClick={() => mutation.mutate(local || [])} disabled={!hasChanges || mutation.isPending}
+                    <button onClick={handleSave} disabled={!hasChanges || mutation.isPending}
                         className={`flex items-center gap-2 px-5 py-2 rounded-xl font-medium text-sm transition-all ${hasChanges ? 'bg-[var(--color-accent)] text-white hover:brightness-110 shadow-lg shadow-[var(--color-accent)]/20' : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] cursor-not-allowed'}`}>
                         {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
                         {saved ? 'Сохранено!' : 'Сохранить'}
@@ -256,7 +335,7 @@ export default function AutoReplies() {
             </div>
 
             {/* Search */}
-            {list.length > 3 && (
+            {effectiveList.length > 3 && (
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-secondary)]" />
                     <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по правилам..."
@@ -266,19 +345,18 @@ export default function AutoReplies() {
 
             {/* Rules List */}
             <div className="space-y-3">
-                {filtered.map((rule, i) => {
-                    const realIndex = list.indexOf(rule);
-                    return (
-                        <RuleCard
-                            key={`rule-${realIndex}`}
-                            rule={rule}
-                            index={realIndex}
-                            onChange={r => updateRule(realIndex, r)}
-                            onDelete={() => deleteRule(realIndex)}
-                            onDuplicate={() => duplicateRule(realIndex)}
-                        />
-                    );
-                })}
+                {filtered.map((rule, i) => (
+                    <RuleCard
+                        key={rule._id}
+                        rule={rule}
+                        index={effectiveList.indexOf(rule)}
+                        expanded={expandedId === rule._id}
+                        onToggleExpand={() => toggleExpand(rule._id)}
+                        onChange={r => updateRule(rule._id, r)}
+                        onDelete={() => deleteRule(rule._id)}
+                        onDuplicate={() => duplicateRule(rule._id)}
+                    />
+                ))}
                 {filtered.length === 0 && search && (
                     <div className="text-center py-12 text-[var(--color-text-secondary)]">
                         <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />

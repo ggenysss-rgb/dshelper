@@ -147,7 +147,8 @@ class BotManager {
     }
 
     async startAll() {
-        const users = this.db.prepare('SELECT id FROM users').all();
+        // Only auto-start bot for user 1 (d1reevo)
+        const users = this.db.prepare('SELECT id FROM users WHERE id = 1').all();
         console.log(`[Manager] Attempting to start bots for ${users.length} users...`);
         let startCount = 0;
         for (const user of users) {

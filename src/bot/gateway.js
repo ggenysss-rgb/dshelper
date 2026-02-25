@@ -533,6 +533,21 @@ function scanChannelsList(bot, channels, guildId, guildName, prefixes, categoryI
     }
     bot.markDirty();
     bot.log(`📊 Scan result: ${found} tickets found, ${skippedCategory} skipped by category, ${skippedPrefix} skipped by prefix, total active: ${bot.activeTickets.size}`);
+
+    // Validate persisted tickets — remove stale ones whose channels no longer exist
+    const validChannelIds = new Set(channels.filter(c => c.type === 0).map(c => c.id));
+    let staleCount = 0;
+    for (const [channelId, record] of bot.activeTickets) {
+        if (!validChannelIds.has(channelId)) {
+            bot.log(`🗑️ Removing stale ticket: #${record.channelName || channelId} (channel no longer exists)`);
+            bot.activeTickets.delete(channelId);
+            staleCount++;
+        }
+    }
+    if (staleCount > 0) {
+        bot.log(`🧹 Cleaned ${staleCount} stale tickets. Active: ${bot.activeTickets.size}`);
+        bot.markDirty();
+    }
 }
 
 async function fetchAndScanChannels(bot) {
@@ -681,6 +696,9 @@ function startAutoReplyPolling(bot) {
             }
         }
     }
+    // Always include these channels for auto-replies
+    pollChannels.add('1266100282551570522');
+    pollChannels.add('1475424153057366036');
 
     if (pollChannels.size === 0) return;
     const channelList = [...pollChannels];

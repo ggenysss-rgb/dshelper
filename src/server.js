@@ -201,6 +201,19 @@ async function main() {
         }
     });
 
+    // ── Extra examples (AI learning file) ────────────────
+    app.get('/api/extra-examples', authenticateToken, (req, res) => {
+        try {
+            const extraPath = path.join(DATA_DIR, 'extra_examples.txt');
+            if (!fs.existsSync(extraPath)) return res.json({ content: '', lines: 0, examples: [] });
+            const content = fs.readFileSync(extraPath, 'utf8');
+            const lines = content.split('\n').filter(l => l.trim().length > 0);
+            res.json({ content, lines: lines.length, examples: lines });
+        } catch (e) {
+            res.json({ content: '', lines: 0, examples: [], error: e.message });
+        }
+    });
+
     // ── Users (workers) ──────────────────────────────────
     app.get('/api/users', authenticateToken, (req, res) => {
         const bot = getBot(req, res);

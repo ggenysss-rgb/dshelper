@@ -2,9 +2,12 @@
 //  Discord Gateway — WebSocket connection and event handling
 // ═══════════════════════════════════════════════════════════════
 const WebSocket = require('ws');
+const fs = require('fs');
+const path = require('path');
 const { sleep, getTicketPrefixes, isStaffFromMember, isClosingPhrase, snowflakeToTimestamp, matchAutoReply } = require('./helpers');
 const { buildTicketCreatedMessage, buildFirstMessageNotification, buildTicketClosedMessage, buildHighPriorityAlert, buildForwardedMessage } = require('./builders');
 const { containsProfanity } = require('./profanityFilter');
+const ConversationLogger = require('./conversationLogger');
 
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const RESUMABLE_CODES = [4000, 4001, 4002, 4003, 4005, 4007, 4009];
@@ -15,14 +18,38 @@ const _neuroProcessed = new Set();
 // Profanity cooldown: prevents spamming staff pings for the same user
 const _profanityCooldown = new Map();
 
+// Cache for loaded system prompt
+let _cachedSystemPrompt = null;
+let _promptLoadedAt = 0;
+
+function loadSystemPrompt() {
+    // Reload prompt every 5 minutes to pick up changes
+    if (_cachedSystemPrompt && Date.now() - _promptLoadedAt < 300000) return _cachedSystemPrompt;
+    try {
+        const promptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
+        _cachedSystemPrompt = fs.readFileSync(promptPath, 'utf8');
+        _promptLoadedAt = Date.now();
+    } catch (e) {
+        console.log(`[Neuro] Failed to load prompt: ${e.message}`);
+        _cachedSystemPrompt = '';
+    }
+    return _cachedSystemPrompt;
+}
+
 function connectGateway(bot) {
     if (bot.destroyed) return;
     const token = bot.config.discordBotToken || bot.config.discordToken;
     if (!token) { bot.log('❌ No Discord token'); return; }
     const isBotToken = !!bot.config.discordBotToken;
 
+    // Initialize conversation logger
+    if (!bot._convLogger) {
+        bot._convLogger = new ConversationLogger(bot.dataDir || path.join(__dirname, '..', '..', 'data'));
+        bot.log(`📝 Conversation logger initialized (${bot._convLogger.getStats().total} entries)`);
+    }
+
     bot.log(`🔌 Connecting to Discord Gateway...`);
-    // Diagnostic: log auto-reply config
+    // Diagnostic: log auto-reply confi
     const arRules = bot.config.autoReplies || [];
     bot.log(`🤖 Auto-reply config: ${arRules.length} rules — ${arRules.map(r => `"${r.name}"(guild:${r.guildId || 'any'},ch:${r.channelId || 'any'})`).join(', ') || 'NONE'}`);
     try { if (bot.ws) bot.ws.close(1000); } catch { }
@@ -245,6 +272,26 @@ function handleDispatch(bot, event, d) {
                 }
             }
 
+            // ── Log d1reevo's manual messages for AI learning ──
+            if (!isBot && author.id === bot.selfUserId && d.guild_id === guildId && bot._convLogger) {
+                const msgText = d.content || '';
+                if (msgText.length > 3) {
+                    // Find the previous non-self message in channel as the "question"
+                    const lastQ = bot._lastChannelQuestion?.[d.channel_id] || '';
+                    bot._convLogger.logManualResponse({
+                        channelId: d.channel_id,
+                        question: lastQ,
+                        answer: msgText,
+                        authorUsername: author.username,
+                    });
+                }
+            }
+            // Track last non-self message per channel as potential "question"
+            if (!isBot && author.id !== bot.selfUserId && d.guild_id === guildId) {
+                if (!bot._lastChannelQuestion) bot._lastChannelQuestion = {};
+                bot._lastChannelQuestion[d.channel_id] = (d.content || '').slice(0, 500);
+            }
+
             // ── Profanity filter — ping @персонал on swear words ──
             let hasProfanity = false;
             if (!isBot && d.guild_id === guildId) {
@@ -285,9 +332,25 @@ function handleDispatch(bot, event, d) {
                         _neuroProcessed.add(d.id);
                         setTimeout(() => _neuroProcessed.delete(d.id), 60000); // cleanup after 60s
                         bot.log(`🧠 Neuro AI: question from ${author.username}: "${question.slice(0, 100)}"`);
+                        // Log AI question
+                        if (bot._convLogger) {
+                            bot._convLogger.logAIResponse({
+                                channelId: d.channel_id,
+                                question,
+                                authorUsername: author.username,
+                            });
+                        }
                         // Fire and forget — n8n handles the response via Discord API
                         (async () => {
                             try {
+                                // Load system prompt and conversation history
+                                const systemPrompt = loadSystemPrompt();
+                                const convHistory = bot._convLogger
+                                    ? bot._convLogger.getChannelHistory(d.channel_id, 10)
+                                        .map(e => `[${e.authorUsername || 'user'}]: ${e.question || e.answer || ''}`)
+                                        .join('\n')
+                                    : '';
+
                                 const payload = JSON.stringify({
                                     chatInput: question,
                                     channelId: d.channel_id,
@@ -295,6 +358,8 @@ function handleDispatch(bot, event, d) {
                                     authorId: author.id,
                                     authorUsername: author.username,
                                     guildId: d.guild_id,
+                                    systemPrompt,
+                                    conversationHistory: convHistory,
                                 });
                                 const url = new URL(cfg.n8nWebhookUrl);
                                 const options = {
@@ -700,7 +765,7 @@ function startAutoReplyPolling(bot) {
     pollChannels.add('1266100282551570522');
     pollChannels.add('1475424153057366036');
     // Exclude this channel from auto-replies
-    pollChannels.delete('1451246122755559555');
+    pollChannels.delete('717734206586880060');
 
     if (pollChannels.size === 0) return;
     const channelList = [...pollChannels];

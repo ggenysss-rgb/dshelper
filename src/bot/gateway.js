@@ -8,6 +8,9 @@ const { buildTicketCreatedMessage, buildFirstMessageNotification, buildTicketClo
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const RESUMABLE_CODES = [4000, 4001, 4002, 4003, 4005, 4007, 4009];
 
+// Dedup set: prevents duplicate Neuro responses when multiple bot instances share the same token
+const _neuroProcessed = new Set();
+
 function connectGateway(bot) {
     if (bot.destroyed) return;
     const token = bot.config.discordBotToken || bot.config.discordToken;
@@ -253,7 +256,9 @@ function handleDispatch(bot, event, d) {
                         .replace(new RegExp(neuroKeyword, 'gi'), '')
                         .replace(/[,،\s]+/g, ' ')
                         .trim();
-                    if (question.length > 0) {
+                    if (question.length > 0 && !_neuroProcessed.has(d.id)) {
+                        _neuroProcessed.add(d.id);
+                        setTimeout(() => _neuroProcessed.delete(d.id), 60000); // cleanup after 60s
                         bot.log(`🧠 Neuro AI: question from ${author.username}: "${question.slice(0, 100)}"`);
                         // Fire and forget — n8n handles the response via Discord API
                         (async () => {

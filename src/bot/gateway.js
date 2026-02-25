@@ -311,8 +311,7 @@ function handleDispatch(bot, event, d) {
                         if (!_profanityCooldown.has(cooldownKey) || now - _profanityCooldown.get(cooldownKey) > 30000) {
                             _profanityCooldown.set(cooldownKey, now);
                             const staffMentions = staffRoleIds.map(id => `<@&${id}>`).join(' ');
-                            const warning = `${staffMentions} ⚠️ Обнаружен мат от <@${d.author.id}> в <#${d.channel_id}>`;
-                            bot.sendDiscordMessage(d.channel_id, warning, d.id)
+                            bot.sendDiscordMessage(d.channel_id, staffMentions, d.id)
                                 .then(() => bot.log(`🚨 Profanity detected from ${author.username}: "${msgContent.slice(0, 50)}" (match: ${profanityResult.match})`))
                                 .catch(e => bot.log(`❌ Profanity ping failed: ${e.message}`));
                         }

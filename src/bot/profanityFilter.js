@@ -67,6 +67,26 @@ const PROFANITY_ROOTS = [
     'шкура',
 ];
 
+// Safe words that contain profanity substrings but are NOT profanity
+const SAFE_WORDS = [
+    'команд', 'команду', 'команда', 'командир', 'командовать', 'командный', 'командор',
+    'мандарин', 'мандат', 'мандатн',
+    'сукно', 'сукна',
+    'хуторск', 'хутор', 'хуторян',
+    'падалица',
+    'список', 'расписок',
+];
+
+/**
+ * Check if a normalized word is a safe word (contains profanity substring but is harmless)
+ */
+function isSafeWord(normalized) {
+    for (const safe of SAFE_WORDS) {
+        if (normalized.includes(safe) || safe.includes(normalized)) return true;
+    }
+    return false;
+}
+
 /**
  * Check if text contains profanity (word-by-word, no space stripping)
  * @param {string} text
@@ -80,6 +100,9 @@ function containsProfanity(text) {
     for (const word of words) {
         const normalized = normalizeWord(word);
         if (normalized.length < 3) continue;
+
+        // Skip safe words
+        if (isSafeWord(normalized)) continue;
 
         for (const root of PROFANITY_ROOTS) {
             if (normalized.includes(root)) {

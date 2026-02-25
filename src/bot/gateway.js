@@ -275,7 +275,7 @@ function handleDispatch(bot, event, d) {
             // ── Log d1reevo's manual messages for AI learning ──
             if (!isBot && author.id === bot.selfUserId && d.guild_id === guildId && bot._convLogger) {
                 const msgText = d.content || '';
-                if (msgText.length > 3) {
+                if (msgText.length > 5 && !msgText.startsWith('/')) {
                     // Find the previous non-self message in channel as the "question"
                     const lastQ = bot._lastChannelQuestion?.[d.channel_id] || '';
                     bot._convLogger.logManualResponse({
@@ -284,6 +284,22 @@ function handleDispatch(bot, event, d) {
                         answer: msgText,
                         authorUsername: author.username,
                     });
+
+                    // ── Instant append to neuro_style_prompt.txt ──
+                    try {
+                        const promptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
+                        const currentPrompt = fs.readFileSync(promptPath, 'utf8');
+                        const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
+                        // Only add if not already in prompt (deduplicate)
+                        if (!currentPrompt.includes(escaped) && escaped.length > 5) {
+                            fs.appendFileSync(promptPath, `\n- "${escaped}"`, 'utf8');
+                            // Reset prompt cache so next AI request uses updated prompt
+                            _promptLoadedAt = 0;
+                            bot.log(`📝 New example added to prompt: "${escaped.slice(0, 50)}..."`);
+                        }
+                    } catch (e) {
+                        bot.log(`⚠️ Failed to append to prompt: ${e.message}`);
+                    }
                 }
             }
             // Track last non-self message per channel as potential "question"

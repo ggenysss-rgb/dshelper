@@ -245,11 +245,32 @@ function handleDispatch(bot, event, d) {
                 }
             }
 
-            // ── AI "Нейро" handler — forward questions to n8n webhook ──
+            // ── Profanity filter — ping @персонал on swear words ──
+            let hasProfanity = false;
+            if (!isBot && d.guild_id === guildId) {
+                const isStaff = isStaffFromMember(d.member, staffRoleIds);
+                if (!isStaff) {
+                    const msgContent = d.content || '';
+                    const profanityResult = containsProfanity(msgContent);
+                    if (profanityResult.found) {
+                        hasProfanity = true;
+                        const cooldownKey = `${d.author?.id}_profanity`;
+                        const now = Date.now();
+                        if (!_profanityCooldown.has(cooldownKey) || now - _profanityCooldown.get(cooldownKey) > 30000) {
+                            _profanityCooldown.set(cooldownKey, now);
+                            bot.sendDiscordMessage(d.channel_id, '<@&1086969387103293560>', d.id)
+                                .then(() => bot.log(`🚨 Profanity detected from ${author.username}: "${msgContent.slice(0, 50)}" (match: ${profanityResult.match})`))
+                                .catch(e => bot.log(`❌ Profanity ping failed: ${e.message}`));
+                        }
+                    }
+                }
+            }
+
+            // ── AI handler — forward questions to n8n webhook ──
             // Works on ALL guilds (or only specific ones if neuroGuildIds is set)
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            if (!isBot && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed) {
+            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                 if (mentionsMe) {
@@ -298,25 +319,7 @@ function handleDispatch(bot, event, d) {
                 }
             }
 
-            // ── Profanity filter — ping @персонал on swear words ──
-            if (!isBot && d.guild_id === guildId && staffRoleIds.length > 0) {
-                const isStaff = isStaffFromMember(d.member, staffRoleIds);
-                if (!isStaff) {
-                    const msgContent = d.content || '';
-                    const profanityResult = containsProfanity(msgContent);
-                    if (profanityResult.found) {
-                        // Cooldown: 30s per user to avoid spam
-                        const cooldownKey = `${d.author?.id}_profanity`;
-                        const now = Date.now();
-                        if (!_profanityCooldown.has(cooldownKey) || now - _profanityCooldown.get(cooldownKey) > 30000) {
-                            _profanityCooldown.set(cooldownKey, now);
-                            bot.sendDiscordMessage(d.channel_id, '<@&1086969387103293560>', d.id)
-                                .then(() => bot.log(`🚨 Profanity detected from ${author.username}: "${msgContent.slice(0, 50)}" (match: ${profanityResult.match})`))
-                                .catch(e => bot.log(`❌ Profanity ping failed: ${e.message}`));
-                        }
-                    }
-                }
-            }
+
 
             // Ticket-specific logic — only for the configured guild
             if (d.guild_id !== guildId) break;

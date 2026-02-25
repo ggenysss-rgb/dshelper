@@ -248,12 +248,10 @@ function handleDispatch(bot, event, d) {
             if (!isBot && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                const neuroKeyword = (cfg.neuroKeyword || 'нейро').toLowerCase();
-                if (mentionsMe && content.toLowerCase().includes(neuroKeyword)) {
-                    // Extract question: remove mention and keyword
+                if (mentionsMe) {
+                    // Extract question: remove mention
                     let question = content
                         .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
-                        .replace(new RegExp(neuroKeyword, 'gi'), '')
                         .replace(/[,،\s]+/g, ' ')
                         .trim();
                     if (question.length > 0 && !_neuroProcessed.has(d.id)) {

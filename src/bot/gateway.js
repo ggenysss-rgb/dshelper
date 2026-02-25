@@ -420,7 +420,7 @@ function handleDispatch(bot, event, d) {
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
+            if (!isBot && author.id !== bot.selfUserId && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                 // Check if user is replying to the bot's previous message
@@ -970,7 +970,7 @@ function startAutoReplyPolling(bot) {
 
                     // ── AI handler (poll-based) — forward @mentions and replies to n8n ──
                     const neuroExcludedPoll = ['1451246122755559555'];
-                    if (!msg.author.bot && cfg.n8nWebhookUrl && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
+                    if (!msg.author.bot && msg.author.id !== bot.selfUserId && cfg.n8nWebhookUrl && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
                         const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                         // Check if user is replying to the bot's message

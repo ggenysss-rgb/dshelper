@@ -4,12 +4,16 @@
 const WebSocket = require('ws');
 const { sleep, getTicketPrefixes, isStaffFromMember, isClosingPhrase, snowflakeToTimestamp, matchAutoReply } = require('./helpers');
 const { buildTicketCreatedMessage, buildFirstMessageNotification, buildTicketClosedMessage, buildHighPriorityAlert, buildForwardedMessage } = require('./builders');
+const { containsProfanity } = require('./profanityFilter');
 
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const RESUMABLE_CODES = [4000, 4001, 4002, 4003, 4005, 4007, 4009];
 
 // Dedup set: prevents duplicate Neuro responses when multiple bot instances share the same token
 const _neuroProcessed = new Set();
+
+// Profanity cooldown: prevents spamming staff pings for the same user
+const _profanityCooldown = new Map();
 
 function connectGateway(bot) {
     if (bot.destroyed) return;
@@ -290,6 +294,28 @@ function handleDispatch(bot, event, d) {
                                 bot.log(`❌ Neuro AI error: ${e.message}`);
                             }
                         })();
+                    }
+                }
+            }
+
+            // ── Profanity filter — ping @персонал on swear words ──
+            if (!isBot && d.guild_id === guildId && staffRoleIds.length > 0) {
+                const isStaff = isStaffFromMember(d.member, staffRoleIds);
+                if (!isStaff) {
+                    const msgContent = d.content || '';
+                    const profanityResult = containsProfanity(msgContent);
+                    if (profanityResult.found) {
+                        // Cooldown: 30s per user to avoid spam
+                        const cooldownKey = `${d.author?.id}_profanity`;
+                        const now = Date.now();
+                        if (!_profanityCooldown.has(cooldownKey) || now - _profanityCooldown.get(cooldownKey) > 30000) {
+                            _profanityCooldown.set(cooldownKey, now);
+                            const staffMentions = staffRoleIds.map(id => `<@&${id}>`).join(' ');
+                            const warning = `${staffMentions} ⚠️ Обнаружен мат от <@${d.author.id}> в <#${d.channel_id}>`;
+                            bot.sendDiscordMessage(d.channel_id, warning, d.id)
+                                .then(() => bot.log(`🚨 Profanity detected from ${author.username}: "${msgContent.slice(0, 50)}" (match: ${profanityResult.match})`))
+                                .catch(e => bot.log(`❌ Profanity ping failed: ${e.message}`));
+                        }
                     }
                 }
             }

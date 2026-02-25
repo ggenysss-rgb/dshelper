@@ -109,4 +109,13 @@ module.exports = [
         response: 'Здравствуйте! Если Вы забыли пароль или аккаунт был взломан — обратитесь в поддержку: https://vk.com/funtime',
         enabled: true,
     },
+    {
+        name: 'пульс',
+        guildId: '690362306395111444',
+        channelId: '1093146249412231199',
+        includeAny: ['пульс'],
+        excludeAny: [],
+        response: 'https://cdn.discordapp.com/attachments/717734206586880060/1400463330576957563/2025-07-31_145831525.gif',
+        enabled: true,
+    },
 ];

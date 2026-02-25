@@ -91,7 +91,7 @@ function RuleCard({ rule, index, onChange, onDelete, onDuplicate }: {
 
             {/* Expanded Content — no Framer Motion, use CSS */}
             {expanded && (
-                <div className="px-4 pb-4 space-y-4 border-t border-[var(--color-border)]/50 pt-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div onClick={e => e.stopPropagation()} className="px-4 pb-4 space-y-4 border-t border-[var(--color-border)]/50 pt-4 animate-in fade-in slide-in-from-top-2 duration-200">
                     {/* Row 1: name, guild, channel, delay */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div>
@@ -270,7 +270,7 @@ export default function AutoReplies() {
                     const realIndex = list.indexOf(rule);
                     return (
                         <RuleCard
-                            key={`${rule.name}-${realIndex}`}
+                            key={`rule-${realIndex}`}
                             rule={rule}
                             index={realIndex}
                             onChange={r => updateRule(realIndex, r)}

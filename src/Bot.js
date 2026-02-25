@@ -673,11 +673,16 @@ class Bot {
             let oldContent = shiftState.lastShiftContent || `Начал\n1. ${formatKyivDate()}\n2. 12-0`;
             const newContent = oldContent.replace(/^Начал/, 'Начал/ Закрыл');
             const res = await this.editDiscordMessage(chId, shiftState.lastShiftMessageId, newContent);
-            if (!res.ok) return `❌ Ошибка (${res.status})`;
-            shiftState.lastShiftClosed = true;
-            this.addLog('shift', 'Смена закрыта');
-            return `✅ <b>Смена закрыта!</b>`;
-        } catch (e) { return `❌ ${e.message}`; }
+            if (!res.ok) {
+                // Message was deleted or inaccessible — close shift anyway
+                this.log(`⚠️ Shift message edit failed (${res.status}), closing shift anyway`);
+            }
+        } catch (e) {
+            this.log(`⚠️ Shift close edit error: ${e.message}, closing anyway`);
+        }
+        shiftState.lastShiftClosed = true;
+        this.addLog('shift', 'Смена закрыта');
+        return `✅ <b>Смена закрыта!</b>`;
     }
 
     scheduleShiftReminder() {

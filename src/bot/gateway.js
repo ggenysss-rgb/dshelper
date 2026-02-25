@@ -813,8 +813,8 @@ function startAutoReplyPolling(bot) {
     // Always include these channels for auto-replies
     pollChannels.add('1266100282551570522');
     pollChannels.add('1475424153057366036');
-    // Exclude this channel from auto-replies
-    pollChannels.delete('717734206586880060');
+    // Always include learning channel for d1reevof message capture
+    pollChannels.add('717734206586880060');
 
     if (pollChannels.size === 0) return;
     const channelList = [...pollChannels];

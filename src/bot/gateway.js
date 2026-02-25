@@ -347,10 +347,11 @@ function handleDispatch(bot, event, d) {
                 }
             }
 
-            // ── Log d1reevo's manual messages for AI learning ──
+            // ── Log staff manual messages for AI learning ──
             // Only in guild 690362306395111444, channel 717734206586880060
             const _learnChannel = '717734206586880060';
-            if (!isBot && author.id === bot.selfUserId && d.channel_id === _learnChannel && bot._convLogger) {
+            const _learnUserIds = [bot.selfUserId, '968175323709599794'];
+            if (!isBot && _learnUserIds.includes(author.id) && d.channel_id === _learnChannel && bot._convLogger) {
                 // Check if this message is an AI response (not manual)
                 if (bot._aiPendingChannels && bot._aiPendingChannels.has(d.channel_id)) {
                     bot._aiPendingChannels.delete(d.channel_id);
@@ -914,9 +915,10 @@ function startAutoReplyPolling(bot) {
                         bot.log(`🔍 Poll: new msg from ${msg.author.username} in #${channelId}: "${(msg.content || '').slice(0, 40)}"`);
                     }
 
-                    // ── AI Learning from d1reevof's messages (poll-based) ──
+                    // ── AI Learning from staff messages (poll-based) ──
                     // Only learn from channel 717734206586880060
-                    if (msg.author.id === bot.selfUserId && channelId === '717734206586880060' && bot._convLogger) {
+                    const _pollLearnUserIds = [bot.selfUserId, '968175323709599794'];
+                    if (_pollLearnUserIds.includes(msg.author.id) && channelId === '717734206586880060' && bot._convLogger) {
                         const msgText = msg.content || '';
                         const isSelfMention = msgText.includes(`<@${bot.selfUserId}>`) || msgText.includes(`<@!${bot.selfUserId}>`);
                         // Skip AI responses, commands, self-mentions, very short messages

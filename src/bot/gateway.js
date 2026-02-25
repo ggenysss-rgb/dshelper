@@ -899,7 +899,73 @@ function startAutoReplyPolling(bot) {
                         bot._lastChannelQuestion[channelId] = (msg.content || '').slice(0, 500);
                     }
 
-                    // Check auto-replies
+                    // ── AI handler (poll-based) — forward @d1reevof mentions to n8n ──
+                    const neuroExcludedPoll = ['1451246122755559555'];
+                    if (msg.author.id !== bot.selfUserId && !msg.author.bot && cfg.n8nWebhookUrl && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
+                        const content = msg.content || '';
+                        const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
+                        if (mentionsMe && !_neuroProcessed.has(msg.id)) {
+                            _neuroProcessed.add(msg.id);
+                            setTimeout(() => _neuroProcessed.delete(msg.id), 60000);
+                            let question = content
+                                .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
+                                .replace(/[,،\s]+/g, ' ')
+                                .trim();
+                            if (question.length > 0) {
+                                bot.log(`🧠 Poll: Neuro AI question from ${msg.author.username}: "${question.slice(0, 100)}"`);
+                                if (bot._convLogger) {
+                                    bot._convLogger.logAIResponse({
+                                        channelId,
+                                        question,
+                                        authorUsername: msg.author.username,
+                                    });
+                                }
+                                // Mark channel as having a pending AI response
+                                if (!bot._aiPendingChannels) bot._aiPendingChannels = new Set();
+                                bot._aiPendingChannels.add(channelId);
+                                setTimeout(() => bot._aiPendingChannels?.delete(channelId), 30000);
+                                // Send to n8n
+                                try {
+                                    const systemPrompt = loadSystemPrompt();
+                                    const convHistory = bot._convLogger
+                                        ? bot._convLogger.getChannelHistory(channelId, 10)
+                                            .map(e => `[${e.authorUsername || 'user'}]: ${e.question || e.answer || ''}`)
+                                            .join('\n')
+                                        : '';
+                                    const payload = JSON.stringify({
+                                        chatInput: question,
+                                        channelId,
+                                        messageId: msg.id,
+                                        authorId: msg.author.id,
+                                        authorUsername: msg.author.username,
+                                        guildId: guildId,
+                                        systemPrompt,
+                                        conversationHistory: convHistory,
+                                    });
+                                    const url = new URL(cfg.n8nWebhookUrl);
+                                    const options = {
+                                        hostname: url.hostname,
+                                        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                                        path: url.pathname + url.search,
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+                                    };
+                                    const http = url.protocol === 'https:' ? require('https') : require('http');
+                                    const req = http.request(options, (res) => {
+                                        let body = '';
+                                        res.on('data', chunk => body += chunk);
+                                        res.on('end', () => bot.log(`🧠 Poll: Neuro webhook response: ${res.statusCode}`));
+                                    });
+                                    req.on('error', e => bot.log(`❌ Poll: Neuro webhook error: ${e.message}`));
+                                    req.write(payload);
+                                    req.end();
+                                } catch (e) {
+                                    bot.log(`❌ Poll: Neuro AI error: ${e.message}`);
+                                }
+                            }
+                        }
+                    }
+
                     const ch = bot.channelCache.get(channelId);
                     const msgGuildId = ch?.guild_id || guildId;
                     const arExclude2 = cfg.autoReplyExcludeChannels || ['717735180546343032'];

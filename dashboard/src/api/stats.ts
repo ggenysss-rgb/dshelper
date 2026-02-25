@@ -82,3 +82,9 @@ export const fetchArchivedMessages = async (channelId: string) => {
     const { data } = await client.get(`/closed-tickets/${channelId}/messages`);
     return data;
 };
+
+// ── Conversation Log (AI Learning) ────────────────────────────
+export const fetchConversationLog = async (limit = 100, type = 'all') => {
+    const { data } = await client.get(`/conversation-log?limit=${limit}&type=${type}`);
+    return data;
+};

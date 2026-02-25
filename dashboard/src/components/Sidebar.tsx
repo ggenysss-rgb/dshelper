@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut, Settings, Bot, TicketX, X, User } from 'lucide-react';
+import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut, Settings, Bot, TicketX, X, User, Brain } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,6 +13,7 @@ const navItems = [
     { to: '/logs', icon: ScrollText, label: 'Логи' },
     { to: '/closed-tickets', icon: TicketX, label: 'Архив' },
     { to: '/autoreplies', icon: Bot, label: 'Авто-ответы' },
+    { to: '/ai-learning', icon: Brain, label: 'Обучение ИИ' },
     { to: '/profile', icon: User, label: 'Профиль' },
     { to: '/settings', icon: Settings, label: 'Настройки' },
 ];

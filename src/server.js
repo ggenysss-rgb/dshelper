@@ -180,6 +180,27 @@ async function main() {
         res.json(bot.getLogs(limit));
     });
 
+    // ── Conversation Log (AI learning) ──────────────────
+    app.get('/api/conversation-log', authenticateToken, (req, res) => {
+        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+        const type = req.query.type || 'all'; // 'manual', 'ai_question', 'all'
+        try {
+            const logPath = path.join(DATA_DIR, 'conversation_log.json');
+            if (!fs.existsSync(logPath)) return res.json({ entries: [], stats: { total: 0, manual: 0, ai: 0 } });
+            const entries = JSON.parse(fs.readFileSync(logPath, 'utf8'));
+            const filtered = type === 'all' ? entries : entries.filter(e => e.type === type);
+            const recent = filtered.slice(-limit).reverse(); // newest first
+            const stats = {
+                total: entries.length,
+                manual: entries.filter(e => e.type === 'manual').length,
+                ai: entries.filter(e => e.type === 'ai_question').length,
+            };
+            res.json({ entries: recent, stats });
+        } catch (e) {
+            res.json({ entries: [], stats: { total: 0, manual: 0, ai: 0 }, error: e.message });
+        }
+    });
+
     // ── Users (workers) ──────────────────────────────────
     app.get('/api/users', authenticateToken, (req, res) => {
         const bot = getBot(req, res);

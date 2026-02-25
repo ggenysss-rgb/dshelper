@@ -238,6 +238,59 @@ function handleDispatch(bot, event, d) {
                 }
             }
 
+            // ── AI "Нейро" handler — forward questions to n8n webhook ──
+            // Works on ALL guilds (or only specific ones if neuroGuildIds is set)
+            const neuroGuilds = cfg.neuroGuildIds || [];
+            const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
+            if (!isBot && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed) {
+                const content = d.content || '';
+                const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
+                const neuroKeyword = (cfg.neuroKeyword || 'нейро').toLowerCase();
+                if (mentionsMe && content.toLowerCase().includes(neuroKeyword)) {
+                    // Extract question: remove mention and keyword
+                    let question = content
+                        .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
+                        .replace(new RegExp(neuroKeyword, 'gi'), '')
+                        .replace(/[,،\s]+/g, ' ')
+                        .trim();
+                    if (question.length > 0) {
+                        bot.log(`🧠 Neuro AI: question from ${author.username}: "${question.slice(0, 100)}"`);
+                        // Fire and forget — n8n handles the response via Discord API
+                        (async () => {
+                            try {
+                                const payload = JSON.stringify({
+                                    chatInput: question,
+                                    channelId: d.channel_id,
+                                    messageId: d.id,
+                                    authorId: author.id,
+                                    authorUsername: author.username,
+                                    guildId: d.guild_id,
+                                });
+                                const url = new URL(cfg.n8nWebhookUrl);
+                                const options = {
+                                    hostname: url.hostname,
+                                    port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                                    path: url.pathname + url.search,
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+                                };
+                                const http = url.protocol === 'https:' ? require('https') : require('http');
+                                const req = http.request(options, (res) => {
+                                    let body = '';
+                                    res.on('data', chunk => body += chunk);
+                                    res.on('end', () => bot.log(`🧠 Neuro webhook response: ${res.statusCode}`));
+                                });
+                                req.on('error', e => bot.log(`❌ Neuro webhook error: ${e.message}`));
+                                req.write(payload);
+                                req.end();
+                            } catch (e) {
+                                bot.log(`❌ Neuro AI error: ${e.message}`);
+                            }
+                        })();
+                    }
+                }
+            }
+
             // Ticket-specific logic — only for the configured guild
             if (d.guild_id !== guildId) break;
 

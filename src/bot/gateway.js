@@ -268,9 +268,11 @@ function handleDispatch(bot, event, d) {
 
             // ── AI handler — forward questions to n8n webhook ──
             // Works on ALL guilds (or only specific ones if neuroGuildIds is set)
+            // Excluded channels: 717734206586880060
+            const neuroExcludedChannels = ['717734206586880060'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed) {
+            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                 if (mentionsMe) {
@@ -318,8 +320,6 @@ function handleDispatch(bot, event, d) {
                     }
                 }
             }
-
-
 
             // Ticket-specific logic — only for the configured guild
             if (d.guild_id !== guildId) break;
@@ -699,6 +699,8 @@ function startAutoReplyPolling(bot) {
     // Always include these channels for auto-replies
     pollChannels.add('1266100282551570522');
     pollChannels.add('1475424153057366036');
+    // Exclude this channel from auto-replies
+    pollChannels.delete('717734206586880060');
 
     if (pollChannels.size === 0) return;
     const channelList = [...pollChannels];

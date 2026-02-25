@@ -287,20 +287,29 @@ function handleDispatch(bot, event, d) {
             }
 
             // ── Log d1reevo's manual messages for AI learning ──
-            // Skip AI-generated responses (tracked via _aiPendingChannels)
-            if (!isBot && author.id === bot.selfUserId && d.guild_id === guildId && bot._convLogger) {
+            // Works in ALL guilds/channels. Skips AI-generated responses.
+            if (!isBot && author.id === bot.selfUserId && bot._convLogger) {
                 // Check if this message is an AI response (not manual)
                 if (bot._aiPendingChannels && bot._aiPendingChannels.has(d.channel_id)) {
                     bot._aiPendingChannels.delete(d.channel_id);
-                    bot.log(`🤖 Skipped AI response from logging as manual: "${(d.content || '').slice(0, 50)}"`);
+                    bot.log(`🤖 Skipped AI response from logging: "${(d.content || '').slice(0, 50)}"`);
                 } else {
                     const msgText = d.content || '';
-                    if (msgText.length > 5 && !msgText.startsWith('/') && !msgText.includes(`<@${bot.selfUserId}>`)) {
-                        // Find the previous non-self message in channel as the "question"
-                        const lastQ = bot._lastChannelQuestion?.[d.channel_id] || '';
+                    // Skip short messages, commands, and self-mentions (pinging yourself)
+                    const isSelfMention = msgText.includes(`<@${bot.selfUserId}>`) || msgText.includes(`<@!${bot.selfUserId}>`);
+                    if (msgText.length > 3 && !msgText.startsWith('/') && !isSelfMention) {
+                        // Get the question: prefer Discord reply, fall back to last channel message
+                        let question = '';
+                        if (d.referenced_message && d.referenced_message.content) {
+                            // User replied to a specific message — use that as context
+                            question = d.referenced_message.content.slice(0, 500);
+                        } else {
+                            question = bot._lastChannelQuestion?.[d.channel_id] || '';
+                        }
+
                         bot._convLogger.logManualResponse({
                             channelId: d.channel_id,
-                            question: lastQ,
+                            question,
                             answer: msgText,
                             authorUsername: author.username,
                         });
@@ -309,13 +318,11 @@ function handleDispatch(bot, event, d) {
                         try {
                             const extraPath = path.join(_dataDir, 'extra_examples.txt');
                             const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
-                            // Check dedup against base prompt + extras
                             const fullPrompt = loadSystemPrompt();
                             if (!fullPrompt.includes(escaped) && escaped.length > 5) {
                                 fs.appendFileSync(extraPath, `\n- "${escaped}"`, 'utf8');
-                                // Reset prompt cache so next AI request uses updated prompt
                                 _promptLoadedAt = 0;
-                                bot.log(`📝 New example added (persistent): "${escaped.slice(0, 50)}..."`);
+                                bot.log(`📝 New example saved: "${escaped.slice(0, 50)}..."`);
                             }
                         } catch (e) {
                             bot.log(`⚠️ Failed to append example: ${e.message}`);
@@ -324,7 +331,7 @@ function handleDispatch(bot, event, d) {
                 }
             }
             // Track last non-self message per channel as potential "question"
-            if (!isBot && author.id !== bot.selfUserId && d.guild_id === guildId) {
+            if (!isBot && author.id !== bot.selfUserId) {
                 if (!bot._lastChannelQuestion) bot._lastChannelQuestion = {};
                 bot._lastChannelQuestion[d.channel_id] = (d.content || '').slice(0, 500);
             }
@@ -356,7 +363,7 @@ function handleDispatch(bot, event, d) {
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
+            if (!isBot && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id) && author.id !== bot.selfUserId) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                 if (mentionsMe) {

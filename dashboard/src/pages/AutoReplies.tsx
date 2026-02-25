@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAutoReplies, updateAutoReplies } from '../api/stats';
 import { Bot, Plus, Trash2, Save, Loader2, Check, ChevronDown, Power, PowerOff, Search, Copy } from 'lucide-react';
@@ -214,9 +214,6 @@ export default function AutoReplies() {
     const [search, setSearch] = useState('');
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    // Track if server data was already initialised
-    const initializedRef = useRef(false);
-
     // Sync server data → internal list (only on first load or after save)
     const effectiveList: InternalRule[] = useMemo(() => {
         if (list !== null) return list;
@@ -345,7 +342,7 @@ export default function AutoReplies() {
 
             {/* Rules List */}
             <div className="space-y-3">
-                {filtered.map((rule, i) => (
+                {filtered.map((rule) => (
                     <RuleCard
                         key={rule._id}
                         rule={rule}

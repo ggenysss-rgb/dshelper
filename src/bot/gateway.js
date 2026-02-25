@@ -298,7 +298,7 @@ function handleDispatch(bot, event, d) {
                     const msgText = d.content || '';
                     // Skip short messages, commands, and self-mentions (pinging yourself)
                     const isSelfMention = msgText.includes(`<@${bot.selfUserId}>`) || msgText.includes(`<@!${bot.selfUserId}>`);
-                    if (msgText.length > 3 && !msgText.startsWith('/') && !isSelfMention) {
+                    if (msgText.length > 1 && !msgText.startsWith('/') && !isSelfMention) {
                         // Get the question: prefer Discord reply, fall back to last channel message
                         let question = '';
                         if (d.referenced_message && d.referenced_message.content) {
@@ -867,7 +867,7 @@ function startAutoReplyPolling(bot) {
                         if (bot._aiPendingChannels && bot._aiPendingChannels.has(channelId)) {
                             bot._aiPendingChannels.delete(channelId);
                             bot.log(`🤖 Poll: skipped AI response: "${msgText.slice(0, 50)}"`);
-                        } else if (msgText.length > 3 && !msgText.startsWith('/') && !isSelfMention) {
+                        } else if (msgText.length > 1 && !msgText.startsWith('/') && !isSelfMention) {
                             // Get question context from reply or last non-self message
                             let question = '';
                             if (msg.referenced_message && msg.referenced_message.content) {

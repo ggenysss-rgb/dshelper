@@ -21,13 +21,27 @@ const _profanityCooldown = new Map();
 // Cache for loaded system prompt
 let _cachedSystemPrompt = null;
 let _promptLoadedAt = 0;
+// Resolve persistent data dir (Railway volume or local)
+const _dataDir = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : path.join(__dirname, '..', '..', 'data'));
 
 function loadSystemPrompt() {
     // Reload prompt every 5 minutes to pick up changes
     if (_cachedSystemPrompt && Date.now() - _promptLoadedAt < 300000) return _cachedSystemPrompt;
     try {
+        // Base prompt from repo
         const promptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
-        _cachedSystemPrompt = fs.readFileSync(promptPath, 'utf8');
+        let prompt = fs.readFileSync(promptPath, 'utf8');
+
+        // Merge extra learned examples from persistent volume
+        const extraPath = path.join(_dataDir, 'extra_examples.txt');
+        if (fs.existsSync(extraPath)) {
+            const extra = fs.readFileSync(extraPath, 'utf8').trim();
+            if (extra.length > 0) {
+                prompt += '\n' + extra;
+            }
+        }
+
+        _cachedSystemPrompt = prompt;
         _promptLoadedAt = Date.now();
     } catch (e) {
         console.log(`[Neuro] Failed to load prompt: ${e.message}`);
@@ -285,20 +299,20 @@ function handleDispatch(bot, event, d) {
                         authorUsername: author.username,
                     });
 
-                    // ── Instant append to neuro_style_prompt.txt ──
+                    // ── Instant append to persistent extra_examples.txt ──
                     try {
-                        const promptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
-                        const currentPrompt = fs.readFileSync(promptPath, 'utf8');
+                        const extraPath = path.join(_dataDir, 'extra_examples.txt');
                         const escaped = msgText.replace(/"/g, '\\"').replace(/\n/g, ' ');
-                        // Only add if not already in prompt (deduplicate)
-                        if (!currentPrompt.includes(escaped) && escaped.length > 5) {
-                            fs.appendFileSync(promptPath, `\n- "${escaped}"`, 'utf8');
+                        // Check dedup against base prompt + extras
+                        const fullPrompt = loadSystemPrompt();
+                        if (!fullPrompt.includes(escaped) && escaped.length > 5) {
+                            fs.appendFileSync(extraPath, `\n- "${escaped}"`, 'utf8');
                             // Reset prompt cache so next AI request uses updated prompt
                             _promptLoadedAt = 0;
-                            bot.log(`📝 New example added to prompt: "${escaped.slice(0, 50)}..."`);
+                            bot.log(`📝 New example added (persistent): "${escaped.slice(0, 50)}..."`);
                         }
                     } catch (e) {
-                        bot.log(`⚠️ Failed to append to prompt: ${e.message}`);
+                        bot.log(`⚠️ Failed to append example: ${e.message}`);
                     }
                 }
             }

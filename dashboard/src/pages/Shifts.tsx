@@ -10,6 +10,16 @@ export default function Shifts() {
     const queryClient = useQueryClient();
     const [feedback, setFeedback] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
 
+    const normalizeFeedbackText = (text: string) =>
+        String(text || '')
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .trim();
+
     const statusConfig: Record<ShiftStatus, { badge: string; badgeClass: string; topLineClass: string; iconClass: string }> = {
         active: {
             badge: 'На смене',
@@ -32,7 +42,7 @@ export default function Shifts() {
     };
 
     const showFeedback = (type: 'ok' | 'error', text: string) => {
-        setFeedback({ type, text });
+        setFeedback({ type, text: normalizeFeedbackText(text) });
         setTimeout(() => setFeedback(null), 5000);
     };
 

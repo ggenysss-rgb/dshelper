@@ -4,7 +4,7 @@
 const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
-const { sleep, getTicketPrefixes, isStaffFromMember, isClosingPhrase, snowflakeToTimestamp, matchAutoReply } = require('./helpers');
+const { sleep, escapeHtml, getTicketPrefixes, isStaffFromMember, isClosingPhrase, snowflakeToTimestamp, matchAutoReply } = require('./helpers');
 const { buildTicketCreatedMessage, buildFirstMessageNotification, buildTicketClosedMessage, buildHighPriorityAlert, buildForwardedMessage } = require('./builders');
 const { containsProfanity } = require('./profanityFilter');
 const ConversationLogger = require('./conversationLogger');
@@ -233,6 +233,24 @@ function isReplyToTrackedNeuroMessage(bot, msg) {
         && isNeuroAuthor(bot, e.authorUsername)
         && String(e.question || '').trim() === refText
     );
+}
+
+function limitForTelegram(text, max = 200) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '—';
+    if (normalized.length <= max) return normalized;
+    return `${normalized.slice(0, max - 1).trimEnd()}…`;
+}
+
+function enqueueNeuroTelegramNotification(bot, { channelId, authorUsername, question, answer }) {
+    const safeChannel = escapeHtml(String(channelId || 'unknown'));
+    const safeAuthor = escapeHtml(String(authorUsername || 'unknown'));
+    const safeQuestion = escapeHtml(limitForTelegram(question, 180));
+    const safeAnswer = escapeHtml(limitForTelegram(answer, 240));
+
+    bot.enqueue({
+        text: `🧠 <b>Neuro ответил</b>\n\n📍 <b>Канал:</b> <code>${safeChannel}</code>\n👤 <b>Пользователь:</b> ${safeAuthor}\n❓ <b>Вопрос:</b> <i>${safeQuestion}</i>\n💬 <b>Ответ:</b> <i>${safeAnswer}</i>`
+    });
 }
 
 
@@ -640,6 +658,12 @@ function handleDispatch(bot, event, d) {
                                     if (sentRes.ok) {
                                         bot.log(`✅ Neuro response sent to #${d.channel_id}`);
                                         rememberNeuroMessageId(bot, sentRes);
+                                        enqueueNeuroTelegramNotification(bot, {
+                                            channelId: d.channel_id,
+                                            authorUsername: author.username || author.global_name || author.id,
+                                            question,
+                                            answer: answerText,
+                                        });
                                         if (convLogger) {
                                             convLogger.logAIResponse({
                                                 channelId: d.channel_id,
@@ -1192,6 +1216,12 @@ function startAutoReplyPolling(bot) {
                                             if (sentRes.ok) {
                                                 bot.log(`✅ Poll: Neuro response sent to #${channelId}`);
                                                 rememberNeuroMessageId(bot, sentRes);
+                                                enqueueNeuroTelegramNotification(bot, {
+                                                    channelId,
+                                                    authorUsername: msg.author?.username || msg.author?.global_name || msg.author?.id,
+                                                    question,
+                                                    answer: answerText,
+                                                });
                                                 if (bot._convLogger) {
                                                     bot._convLogger.logAIResponse({
                                                         channelId,

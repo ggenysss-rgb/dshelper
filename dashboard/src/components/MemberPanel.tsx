@@ -28,6 +28,27 @@ type MemberPanelProps = {
     onClose?: () => void;
 };
 
+type ModerationGroupKey =
+    | 'admin'
+    | 'deputyAdmin'
+    | 'leader'
+    | 'deputyLeader'
+    | 'projectStaff'
+    | 'communityHelper'
+    | 'sponsor'
+    | 'media';
+
+const MODERATION_GROUP_META: Record<ModerationGroupKey, { label: string; order: number; }> = {
+    admin: { label: 'Администратор', order: 10 },
+    deputyAdmin: { label: 'Зам. Администратора', order: 20 },
+    leader: { label: 'Руководитель', order: 30 },
+    deputyLeader: { label: 'Зам. Руководителя', order: 40 },
+    projectStaff: { label: 'Персонал Проекта', order: 50 },
+    communityHelper: { label: 'Помощник Сообщества', order: 60 },
+    sponsor: { label: 'Спонсор', order: 70 },
+    media: { label: 'Медиа', order: 80 },
+};
+
 const STATUS_ORDER: Record<string, number> = {
     online: 0,
     idle: 1,
@@ -54,6 +75,24 @@ const getMemberSubtitle = (member: Member) => {
     return member.id;
 };
 
+const normalizeRoleName = (value: string) => value.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').trim();
+
+const detectModerationGroup = (roleName: string): ModerationGroupKey | null => {
+    const normalized = normalizeRoleName(roleName);
+    const has = (token: string) => normalized.includes(token);
+
+    if (has('зам') && has('администратор')) return 'deputyAdmin';
+    if (has('администратор')) return 'admin';
+    if (has('зам') && has('руковод')) return 'deputyLeader';
+    if (has('руковод')) return 'leader';
+    if (has('персонал') && has('проект')) return 'projectStaff';
+    if (has('помощник') && has('сообществ')) return 'communityHelper';
+    if (has('спонсор')) return 'sponsor';
+    if (has('медиа')) return 'media';
+
+    return null;
+};
+
 export default function MemberPanel({ onClose }: MemberPanelProps) {
     const queryClient = useQueryClient();
     const socket = useSocket();
@@ -70,14 +109,51 @@ export default function MemberPanel({ onClose }: MemberPanelProps) {
 
     const preparedGroups = useMemo(() => {
         if (!groups) return [];
-        return groups.map(group => ({
+        const byModerationRole = new Map<ModerationGroupKey, RoleGroup>();
+
+        for (const group of groups) {
+            const key = detectModerationGroup(group.roleName || '');
+            if (!key) continue;
+
+            const existing = byModerationRole.get(key);
+            if (!existing) {
+                byModerationRole.set(key, {
+                    roleId: key,
+                    roleName: MODERATION_GROUP_META[key].label,
+                    roleColor: group.roleColor,
+                    position: group.position,
+                    members: [...group.members],
+                });
+                continue;
+            }
+
+            if (group.position > existing.position) {
+                existing.position = group.position;
+                existing.roleColor = group.roleColor;
+            }
+
+            const existingIds = new Set(existing.members.map(member => member.id));
+            for (const member of group.members) {
+                if (!existingIds.has(member.id)) {
+                    existing.members.push(member);
+                    existingIds.add(member.id);
+                }
+            }
+        }
+
+        return [...byModerationRole.values()].map(group => ({
             ...group,
-            members: [...group.members].sort((a, b) => {
+            members: group.members.sort((a, b) => {
                 const statusDiff = STATUS_ORDER[normalizeStatus(a.status)] - STATUS_ORDER[normalizeStatus(b.status)];
                 if (statusDiff !== 0) return statusDiff;
                 return (a.displayName || '').localeCompare(b.displayName || '', 'ru');
             })
-        }));
+        })).sort((a, b) => {
+            const aOrder = MODERATION_GROUP_META[a.roleId as ModerationGroupKey]?.order ?? 999;
+            const bOrder = MODERATION_GROUP_META[b.roleId as ModerationGroupKey]?.order ?? 999;
+            if (aOrder !== bOrder) return aOrder - bOrder;
+            return b.position - a.position;
+        });
     }, [groups]);
 
     const toggle = (roleId: string) => {
@@ -105,7 +181,7 @@ export default function MemberPanel({ onClose }: MemberPanelProps) {
         setAutoCollapsedApplied(true);
     }, [preparedGroups, autoCollapsedApplied, collapsed]);
 
-    const totalMembers = groups?.reduce((s, g) => s + g.members.length, 0) ?? 0;
+    const totalMembers = preparedGroups.reduce((sum, group) => sum + group.members.length, 0);
 
     return (
         <div className="member-panel-shell w-72 shrink-0 bg-card border-l border-border h-full overflow-y-auto custom-scrollbar">
@@ -143,7 +219,7 @@ export default function MemberPanel({ onClose }: MemberPanelProps) {
                 </div>
             ) : preparedGroups.length === 0 ? (
                 <div className="p-4 text-sm text-muted-foreground">
-                    Участники пока не загружены.
+                    Группы модерации пока не загружены.
                 </div>
             ) : (
                 <div className="py-2">

@@ -179,12 +179,27 @@ function shouldSkipBanAppealAutoReply(rule, content) {
     const ruleName = String(rule?.name || '').toLowerCase();
     if (!ruleName.includes('ошибоч') || !ruleName.includes('бан')) return false;
 
-    const text = String(content || '').toLowerCase();
+    const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
     if (!text) return false;
 
+    // Don’t send "appeal" auto-reply for unban purchase/payment contexts.
     const hasUnban = text.includes('разбан');
     const hasPurchase = /(куп|покуп|оплат|донат|стоим|цена|4[.,]13)/.test(text);
-    return hasUnban && hasPurchase;
+    if (hasUnban && hasPurchase) return true;
+
+    const isSimpleMentionRule = ruleName.includes('простое упоминание');
+    if (!isSimpleMentionRule) return false;
+
+    // For the broad "simple mention" rule, require a real request/question.
+    const hasQuestionMark = text.includes('?');
+    const hasHelpIntent = /(что делать|что мне делать|как быть|как же|куда писать|куда обращаться|куда идти|подскаж|помог|почему|за что|апелляц|обжал|оспор)/.test(text);
+    const hasDirectBanStory = /(заблокировали меня|забанили меня|меня заблокировали|меня забанили|я получил бан|мне дали бан|мне выдали бан|ошибочный бан|бан по ошибке)/.test(text);
+
+    // Long statements like "ситуация была..." should not trigger by themselves.
+    if (hasDirectBanStory && !hasQuestionMark && !hasHelpIntent) return true;
+    if (text.length > 160 && !hasQuestionMark && !hasHelpIntent) return true;
+
+    return false;
 }
 
 function rememberNeuroMessageId(bot, sendResult) {
@@ -462,7 +477,7 @@ function handleDispatch(bot, event, d) {
                 for (const rule of cfg.autoReplies) {
                     if (matchAutoReply(rule, d.content || '', d.channel_id, d.guild_id)) {
                         if (shouldSkipBanAppealAutoReply(rule, d.content || '')) {
-                            bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (purchase/unban context)`);
+                            bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (ban-context filter)`);
                             continue;
                         }
                         bot.log(`🤖 Auto-reply matched: "${rule.name}" in guild ${d.guild_id} channel ${d.channel_id}`);
@@ -1250,7 +1265,7 @@ function startAutoReplyPolling(bot) {
                     for (const rule of cfg.autoReplies) {
                         if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
                             if (shouldSkipBanAppealAutoReply(rule, msg.content || '')) {
-                                bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (purchase/unban context)`);
+                                bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (ban-context filter)`);
                                 continue;
                             }
                             bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);

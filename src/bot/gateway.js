@@ -189,13 +189,16 @@ function getModerationCheckAutoReply(content) {
     const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
     if (!text) return null;
 
-    const hasModerationContext = /(модер|модерат|проверк|проверяющ|прова|прове|прову|анидеск|anydesk|аник|ани деск)/.test(text);
-    if (!hasModerationContext) return null;
+    const hasCheckContext = /(проверк|проверяющ|прова|прове|прову|анидеск|anydesk|аник|ани деск)/.test(text);
+    const hasModeratorWord = /(модер|модерат)/.test(text);
 
     const hasWaitOrIgnore = /(игнор|не отвечает|не кидает|не делают|не делает|жду|долго|нет ответа|молчит|пропал|не пишет|ничего не делает|вызвали на пров|вызвали на провер)/.test(text);
     const hasBanContext = /(бан|забан|откин|блок|разбан|розбан)/.test(text);
     const hasSignal = hasWaitOrIgnore || hasHelpQuestionIntent(text);
 
+    // Guard against broad false positives like "как подать на модератора".
+    // "модер/модератор" alone should not trigger this rule.
+    if (!(hasCheckContext || (hasModeratorWord && hasWaitOrIgnore))) return null;
     if (!hasSignal) return null;
     return hasBanContext ? APPEAL_RESPONSE : SUPPORT_RESPONSE;
 }
@@ -502,7 +505,7 @@ function handleDispatch(bot, event, d) {
 
             // Auto-reply check — runs on ALL guilds, rule.guildId does filtering
             const arExclude = cfg.autoReplyExcludeChannels || ['717735180546343032'];
-            if (!isBot && cfg.autoReplies?.length > 0 && !arExclude.includes(d.channel_id)) {
+            if (!isBot && author.id !== bot.selfUserId && cfg.autoReplies?.length > 0 && !arExclude.includes(d.channel_id)) {
                 // Mark as processed to prevent REST polling from double-processing
                 if (!bot._arProcessed) bot._arProcessed = new Set();
                 bot._arProcessed.add(d.id);
@@ -1182,6 +1185,8 @@ function startAutoReplyPolling(bot) {
 
                     bot._arProcessed.add(msg.id);
                     if (msg.author.bot) continue;
+                    // Never auto-reply to own messages; self-mention is handled by AI flow.
+                    if (msg.author.id === bot.selfUserId) continue;
                     // Skip staff messages — avoid answering staff with auto-replies
                     const arStaffRoles = (Array.isArray(cfg.staffRoleIds) && cfg.staffRoleIds.length > 0) ? cfg.staffRoleIds : ['1475932249017946133', '1475961602619478116'];
                     if (msg.member && msg.member.roles) {

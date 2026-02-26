@@ -1040,17 +1040,66 @@ class Bot {
         const roleMap = {};
         for (const [id, r] of this.guildRolesCache) roleMap[id] = { id: r.id, name: r.name, color: r.color, position: r.position, hoist: r.hoist };
         const groups = {};
+        const fallbackGroupId = '__ungrouped__';
+
+        const toColor = (decimal) => {
+            if (!decimal) return '#99aab5';
+            return `#${Number(decimal).toString(16).padStart(6, '0')}`;
+        };
+
+        const getFallbackAvatar = (userId) => {
+            let idx = 0;
+            try { idx = Number(BigInt(userId) % 6n); } catch { }
+            return `https://cdn.discordapp.com/embed/avatars/${idx}.png`;
+        };
+
+        const normalizePresence = (presence) => {
+            if (!presence) return { status: 'offline', customStatus: null, activityText: null };
+            if (typeof presence === 'string') return { status: presence || 'offline', customStatus: null, activityText: null };
+            return {
+                status: presence.status || 'offline',
+                customStatus: presence.customStatus || null,
+                activityText: presence.activityText || null,
+            };
+        };
+
         for (const [uid, member] of this.guildMembersCache) {
-            if (!member.roles?.length || member.user?.bot) continue;
+            if (member.user?.bot) continue;
             let bestRole = null;
-            for (const rid of member.roles) { const role = roleMap[rid]; if (role?.hoist && (!bestRole || role.position > bestRole.position)) bestRole = role; }
-            if (!bestRole) continue;
-            if (!groups[bestRole.id]) groups[bestRole.id] = { roleId: bestRole.id, roleName: bestRole.name, roleColor: bestRole.color ? `#${bestRole.color.toString(16).padStart(6, '0')}` : '#99aab5', position: bestRole.position, members: [] };
+            for (const rid of (member.roles || [])) {
+                const role = roleMap[rid];
+                if (role?.hoist && (!bestRole || role.position > bestRole.position)) bestRole = role;
+            }
+            const groupRole = bestRole || { id: fallbackGroupId, name: 'Участники', color: 0, position: -99999 };
+            if (!groups[groupRole.id]) {
+                groups[groupRole.id] = {
+                    roleId: groupRole.id,
+                    roleName: groupRole.name,
+                    roleColor: toColor(groupRole.color),
+                    position: groupRole.position,
+                    members: []
+                };
+            }
             const avatarHash = member.avatar || member.user?.avatar;
             const id = member.user?.id || uid;
-            groups[bestRole.id].members.push({ id, username: member.user?.username, displayName: member.nick || member.user?.global_name || member.user?.username, avatar: avatarHash ? `https://cdn.discordapp.com/avatars/${id}/${avatarHash}.png?size=64` : `https://cdn.discordapp.com/embed/avatars/0.png`, status: this.guildPresenceCache.get(id) || 'offline' });
+            const presence = normalizePresence(this.guildPresenceCache.get(id));
+            groups[groupRole.id].members.push({
+                id,
+                username: member.user?.username || '',
+                displayName: member.nick || member.user?.global_name || member.user?.username || id,
+                avatar: avatarHash ? `https://cdn.discordapp.com/avatars/${id}/${avatarHash}.png?size=64` : getFallbackAvatar(id),
+                status: presence.status,
+                customStatus: presence.customStatus,
+                activityText: presence.activityText,
+                nameColor: bestRole?.color ? toColor(bestRole.color) : null,
+            });
         }
-        const result = Object.values(groups).sort((a, b) => b.position - a.position).map(g => ({ ...g, members: g.members.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '')) }));
+        const result = Object.values(groups)
+            .sort((a, b) => b.position - a.position)
+            .map(g => ({
+                ...g,
+                members: g.members.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'ru'))
+            }));
         this._membersCache = result;
         this._membersCacheAt = now;
         return result;

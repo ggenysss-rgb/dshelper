@@ -249,6 +249,85 @@ function enqueueNeuroTelegramNotification(bot, { channelId, authorUsername, ques
     });
 }
 
+function normalizePresenceEntry(presence) {
+    if (!presence) return { status: 'offline', activities: [], customStatus: null, activityText: null, clientStatus: null };
+    if (typeof presence === 'string') {
+        return { status: presence || 'offline', activities: [], customStatus: null, activityText: null, clientStatus: null };
+    }
+
+    const status = presence.status || 'offline';
+    const activities = Array.isArray(presence.activities) ? presence.activities : [];
+    const customActivity = activities.find(a => Number(a?.type) === 4) || null;
+    const primaryActivity = activities.find(a => Number(a?.type) !== 4) || null;
+    const customStatus = customActivity?.state || customActivity?.name || null;
+    const activityText = primaryActivity
+        ? [primaryActivity.name, primaryActivity.details, primaryActivity.state].filter(Boolean).join(' - ')
+        : null;
+
+    return {
+        status,
+        activities,
+        customStatus: customStatus ? String(customStatus).slice(0, 120) : null,
+        activityText: activityText ? String(activityText).slice(0, 120) : null,
+        clientStatus: presence.client_status || null,
+    };
+}
+
+const VIEW_CHANNEL_PERMISSION = 1n << 10n;
+
+function parsePermissionBits(value) {
+    try {
+        if (value == null || value === '') return 0n;
+        return BigInt(value);
+    } catch {
+        return 0n;
+    }
+}
+
+function overwriteAllowsView(overwrite) {
+    if (!overwrite) return false;
+    return (parsePermissionBits(overwrite.allow) & VIEW_CHANNEL_PERMISSION) === VIEW_CHANNEL_PERMISSION;
+}
+
+function overwriteDeniesView(overwrite) {
+    if (!overwrite) return false;
+    return (parsePermissionBits(overwrite.deny) & VIEW_CHANNEL_PERMISSION) === VIEW_CHANNEL_PERMISSION;
+}
+
+function getEveryoneOverwrite(channel, guildId) {
+    const overwrites = Array.isArray(channel?.permission_overwrites) ? channel.permission_overwrites : [];
+    return overwrites.find(ow =>
+        String(ow?.id || '') === String(guildId)
+        && (ow?.type === 0 || ow?.type === '0' || ow?.type === 'role' || ow?.type == null)
+    ) || null;
+}
+
+function getMembersSidebarChannelScore(channel, guildId, ticketsCategoryId, channelCache) {
+    let score = 0;
+    const name = String(channel?.name || '').toLowerCase();
+
+    if (!ticketsCategoryId || channel.parent_id !== ticketsCategoryId) score += 8;
+    else score -= 3;
+
+    const ownOverwrite = getEveryoneOverwrite(channel, guildId);
+    if (overwriteAllowsView(ownOverwrite)) score += 14;
+    if (overwriteDeniesView(ownOverwrite)) score -= 26;
+
+    if (!ownOverwrite && channel?.parent_id) {
+        const parent = channelCache.get(channel.parent_id);
+        const parentOverwrite = getEveryoneOverwrite(parent, guildId);
+        if (overwriteAllowsView(parentOverwrite)) score += 6;
+        if (overwriteDeniesView(parentOverwrite)) score -= 18;
+    }
+
+    if (/(general|chat|общ|основ|main|lobby|лобби|welcome|чат)/.test(name)) score += 10;
+    if (/(staff|admin|админ|mod|модер|персонал|ticket|тикет|заявк|appeal|обращ|log|лог|audit)/.test(name)) score -= 10;
+
+    if (typeof channel?.position === 'number') score += channel.position / 1000;
+
+    return score;
+}
+
 function emitDashboard(bot, event, payload = {}) {
     if (typeof bot.emitToDashboard === 'function') {
         bot.emitToDashboard(event, payload);
@@ -411,7 +490,7 @@ function handleDispatch(bot, event, d) {
             // Cache members
             if (d.members) for (const m of d.members) { if (m.user) bot.guildMembersCache.set(m.user.id, m); }
             // Cache presences
-            if (d.presences) for (const p of d.presences) { if (p.user) bot.guildPresenceCache.set(p.user.id, p.status); }
+            if (d.presences) for (const p of d.presences) { if (p.user) bot.guildPresenceCache.set(p.user.id, normalizePresenceEntry(p)); }
             if ((d.members && d.members.length) || (d.presences && d.presences.length)) scheduleMembersUpdate(bot);
             // Scan channels if we got them (bot token sends them here)
             if (d.channels?.length > 0 && !bot.guildCreateHandled) {
@@ -824,7 +903,7 @@ function handleDispatch(bot, event, d) {
 
         case 'PRESENCE_UPDATE': {
             if (d.guild_id !== guildId) break;
-            if (d.user?.id) bot.guildPresenceCache.set(d.user.id, d.status);
+            if (d.user?.id) bot.guildPresenceCache.set(d.user.id, normalizePresenceEntry(d));
             scheduleMembersUpdate(bot);
             break;
         }
@@ -848,7 +927,7 @@ function handleDispatch(bot, event, d) {
                         if (item.member && item.member.user) {
                             bot.guildMembersCache.set(item.member.user.id, item.member);
                             if (item.member.presence) {
-                                bot.guildPresenceCache.set(item.member.user.id, item.member.presence.status || 'offline');
+                                bot.guildPresenceCache.set(item.member.user.id, normalizePresenceEntry(item.member.presence));
                             }
                             added++;
                         }
@@ -965,6 +1044,9 @@ async function fetchAndScanChannels(bot) {
             setTimeout(() => {
                 requestDashboardMembersSidebar(bot, guildId, categoryId);
             }, 1200);
+            setTimeout(() => {
+                requestDashboardMembersSidebar(bot, guildId, categoryId, 1);
+            }, 3400);
         }
 
         // Background: fetch last message for each ticket to populate preview
@@ -1022,6 +1104,9 @@ async function fetchAndScanChannels(bot) {
             setTimeout(() => {
                 requestDashboardMembersSidebar(bot, guildId, categoryId);
             }, 2500);
+            setTimeout(() => {
+                requestDashboardMembersSidebar(bot, guildId, categoryId, 1);
+            }, 4300);
         }
     } catch (e) { bot.log(`❌ Members fetch error: ${e.message}`); }
 
@@ -1055,7 +1140,7 @@ function sendLazyRequest(bot, guildId, channelIds) {
     } catch (e) { bot.log(`❌ Lazy Request error: ${e.message}`); }
 }
 
-function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId) {
+function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, channelOffset = 0) {
     if (!bot.ws || bot.ws.readyState !== 1) return false;
     if (!guildId) return false;
 
@@ -1065,9 +1150,19 @@ function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId) {
         return false;
     }
 
-    const preferred = textChannels.find(ch => !ticketsCategoryId || ch.parent_id !== ticketsCategoryId) || textChannels[0];
+    const rankedChannels = textChannels
+        .map(ch => ({
+            channel: ch,
+            score: getMembersSidebarChannelScore(ch, guildId, ticketsCategoryId, bot.channelCache),
+        }))
+        .sort((a, b) => b.score - a.score)
+        .map(entry => entry.channel);
+
+    const preferred = rankedChannels[channelOffset] || rankedChannels[0];
+    const ranges = [];
+    for (let i = 0; i < 2500; i += 100) ranges.push([i, i + 99]);
     const channels = {
-        [preferred.id]: [[0, 99], [100, 199], [200, 299], [300, 399], [400, 499]]
+        [preferred.id]: ranges
     };
 
     try {
@@ -1082,7 +1177,8 @@ function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId) {
                 channels,
             }
         }));
-        bot.log(`👥 Requested member sidebar for dashboard (channel: ${preferred.id})`);
+        const selectedScore = getMembersSidebarChannelScore(preferred, guildId, ticketsCategoryId, bot.channelCache);
+        bot.log(`👥 Requested member sidebar for dashboard (channel: ${preferred.id} #${preferred.name || 'unknown'}, ranges: ${ranges.length}, score: ${selectedScore.toFixed(1)})`);
         return true;
     } catch (e) {
         bot.log(`❌ Members sidebar request error: ${e.message}`);

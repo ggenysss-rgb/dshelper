@@ -1,25 +1,34 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut, Settings, Bot, TicketX, X, User, Brain, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const navItems = [
-    { to: '/tickets', icon: Ticket, label: 'Тикеты' },
-    { to: '/analytics', icon: LayoutDashboard, label: 'Аналитика' },
-    { to: '/binds', icon: Keyboard, label: 'Биндлы' },
-    { to: '/shifts', icon: Clock, label: 'Смены' },
-    { to: '/logs', icon: ScrollText, label: 'Логи' },
-    { to: '/closed-tickets', icon: TicketX, label: 'Архив' },
-    { to: '/autoreplies', icon: Bot, label: 'Авто-ответы' },
-    { to: '/ai-learning', icon: Brain, label: 'Обучение ИИ' },
-    { to: '/profile', icon: User, label: 'Профиль' },
-    { to: '/settings', icon: Settings, label: 'Настройки' },
+type NavAccent = 'primary' | 'admin';
+type NavItem = {
+    to: string;
+    label: string;
+    icon: ComponentType<{ className?: string; }>;
+    accent: NavAccent;
+};
+
+const BASE_NAV_ITEMS: NavItem[] = [
+    { to: '/tickets', icon: Ticket, label: 'Тикеты', accent: 'primary' },
+    { to: '/analytics', icon: LayoutDashboard, label: 'Аналитика', accent: 'primary' },
+    { to: '/binds', icon: Keyboard, label: 'Биндлы', accent: 'primary' },
+    { to: '/shifts', icon: Clock, label: 'Смены', accent: 'primary' },
+    { to: '/logs', icon: ScrollText, label: 'Логи', accent: 'primary' },
+    { to: '/closed-tickets', icon: TicketX, label: 'Архив', accent: 'primary' },
+    { to: '/autoreplies', icon: Bot, label: 'Авто-ответы', accent: 'primary' },
+    { to: '/ai-learning', icon: Brain, label: 'Обучение ИИ', accent: 'primary' },
+    { to: '/profile', icon: User, label: 'Профиль', accent: 'primary' },
+    { to: '/settings', icon: Settings, label: 'Настройки', accent: 'primary' },
 ];
 
+const ADMIN_NAV_ITEM: NavItem = { to: '/admin', icon: ShieldCheck, label: 'Администрирование', accent: 'admin' };
 const ADMIN_ALIASES = new Set(['d1reevo', 'd1reevof']);
-const ACTIVE_PILL_TRANSITION = { type: 'tween', duration: 0.28, ease: [0.22, 1, 0.36, 1] as const };
+const ACTIVE_PILL_TRANSITION = { type: 'tween', duration: 0.32, ease: [0.22, 1, 0.36, 1] as const };
 const MOBILE_SIDEBAR_TRANSITION = { type: 'spring', stiffness: 220, damping: 28, mass: 0.8 };
 
 export default function Sidebar() {
@@ -28,133 +37,70 @@ export default function Sidebar() {
     const normalizedUsername = String(user?.username || '').trim().toLowerCase();
     const isAdmin = user?.role === 'admin' || user?.id === 1 || ADMIN_ALIASES.has(normalizedUsername);
     const [mobileOpen, setMobileOpen] = useState(false);
-    const navRef = useRef<HTMLElement | null>(null);
-    const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
-    const [indicator, setIndicator] = useState({ top: 0, height: 0, opacity: 0 });
 
     const allNavItems = useMemo(
-        () => isAdmin ? [...navItems, { to: '/admin', icon: ShieldCheck, label: 'Администрирование' }] : navItems,
+        () => (isAdmin ? [...BASE_NAV_ITEMS, ADMIN_NAV_ITEM] : BASE_NAV_ITEMS),
         [isAdmin]
     );
 
-    const isRouteActive = useCallback((pathname: string, to: string) => {
-        return pathname === to || pathname.startsWith(`${to}/`);
-    }, []);
-
-    const activeRoute = useMemo(
-        () => allNavItems.find(item => isRouteActive(location.pathname, item.to))?.to || null,
-        [allNavItems, isRouteActive, location.pathname]
-    );
-
-    const updateIndicator = useCallback(() => {
-        if (!navRef.current || !activeRoute) {
-            setIndicator(prev => ({ ...prev, opacity: 0 }));
-            return;
-        }
-
-        const activeEl = itemRefs.current[activeRoute];
-        if (!activeEl) {
-            setIndicator(prev => ({ ...prev, opacity: 0 }));
-            return;
-        }
-
-        const navRect = navRef.current.getBoundingClientRect();
-        const itemRect = activeEl.getBoundingClientRect();
-        setIndicator({
-            top: itemRect.top - navRect.top,
-            height: itemRect.height,
-            opacity: 1,
-        });
-    }, [activeRoute]);
-
-    // Listen for hamburger toggle from Topbar
     useEffect(() => {
         const handler = () => setMobileOpen(prev => !prev);
         window.addEventListener('toggle-sidebar', handler);
         return () => window.removeEventListener('toggle-sidebar', handler);
     }, []);
 
-    // Close on route change
     useEffect(() => {
         setMobileOpen(false);
     }, [location.pathname]);
 
-    useLayoutEffect(() => {
-        updateIndicator();
-    }, [updateIndicator, location.pathname]);
-
-    useEffect(() => {
-        const onResize = () => updateIndicator();
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
-    }, [updateIndicator]);
-
     const renderNav = (isMobile: boolean) => (
-        <nav ref={isMobile ? undefined : navRef} className="flex-1 space-y-1 relative">
-            {!isMobile && (
-                <motion.div
-                    className={cn(
-                        'sidebar-active-pill pointer-events-none absolute left-0 right-0 rounded-r-md border-l-2',
-                        activeRoute === '/admin'
-                            ? 'bg-purple-500/10 border-purple-500'
-                            : 'bg-primary/10 border-primary'
-                    )}
-                    initial={false}
-                    animate={indicator}
-                    transition={ACTIVE_PILL_TRANSITION}
-                />
-            )}
-
-            {navItems.map((item) => (
-                <NavLink
-                    key={item.to}
-                    ref={isMobile ? undefined : (el) => { itemRefs.current[item.to] = el; }}
-                    to={item.to}
-                    onClick={() => setMobileOpen(false)}
-                    className={({ isActive }) =>
-                        cn(
-                            'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
-                            isActive
-                                ? isMobile
-                                    ? 'text-foreground bg-primary/10 border-l-2 border-primary rounded-r-md'
-                                    : 'text-foreground'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                        )
-                    }
-                >
-                    {({ isActive }) => (
-                        <>
-                            <item.icon className={cn('w-5 h-5 relative z-10', isActive && 'text-primary')} />
-                            <span className="relative z-10">{item.label}</span>
-                        </>
-                    )}
-                </NavLink>
-            ))}
-
-            {isAdmin && (
-                <NavLink
-                    ref={isMobile ? undefined : (el) => { itemRefs.current['/admin'] = el; }}
-                    to="/admin"
-                    onClick={() => setMobileOpen(false)}
-                    className={({ isActive }) =>
-                        cn(
-                            'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
-                            isActive
-                                ? isMobile
-                                    ? 'text-foreground bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md'
-                                    : 'text-foreground'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                        )
-                    }
-                >
-                    {({ isActive }) => (
-                        <>
-                            <ShieldCheck className={cn('w-5 h-5 relative z-10', isActive ? 'text-purple-400' : '')} />
-                            <span className="relative z-10">Администрирование</span>
-                        </>
-                    )}
-                </NavLink>
-            )}
+        <nav className="flex-1 space-y-1 relative">
+            {allNavItems.map((item) => {
+                const isAdminItem = item.accent === 'admin';
+                return (
+                    <NavLink
+                        key={item.to}
+                        to={item.to}
+                        onClick={() => setMobileOpen(false)}
+                        className={({ isActive }) =>
+                            cn(
+                                'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative overflow-hidden group font-medium',
+                                isActive
+                                    ? isMobile
+                                        ? isAdminItem
+                                            ? 'text-foreground bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md'
+                                            : 'text-foreground bg-primary/10 border-l-2 border-primary rounded-r-md'
+                                        : 'text-foreground'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                            )
+                        }
+                    >
+                        {({ isActive }) => (
+                            <>
+                                {!isMobile && isActive && (
+                                    <motion.span
+                                        layoutId="sidebar-active-pill"
+                                        transition={ACTIVE_PILL_TRANSITION}
+                                        className={cn(
+                                            'sidebar-active-pill pointer-events-none absolute inset-0 rounded-md border-l-2',
+                                            isAdminItem
+                                                ? 'bg-purple-500/10 border-purple-500'
+                                                : 'bg-primary/10 border-primary'
+                                        )}
+                                    />
+                                )}
+                                <item.icon
+                                    className={cn(
+                                        'w-5 h-5 relative z-10',
+                                        isActive && (isAdminItem ? 'text-purple-400' : 'text-primary')
+                                    )}
+                                />
+                                <span className="relative z-10">{item.label}</span>
+                            </>
+                        )}
+                    </NavLink>
+                );
+            })}
         </nav>
     );
 
@@ -184,12 +130,10 @@ export default function Sidebar() {
 
     return (
         <>
-            {/* Desktop sidebar */}
             <aside className="sidebar-shell hidden md:flex w-64 h-screen bg-card border-r border-border flex-col p-4 fixed left-0 top-0 z-50">
                 {renderSidebarContent(false)}
             </aside>
 
-            {/* Mobile sidebar overlay */}
             <AnimatePresence>
                 {mobileOpen && (
                     <>

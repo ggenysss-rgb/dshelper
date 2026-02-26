@@ -123,7 +123,8 @@ function createProfileRoutes(db, botManager) {
             'activityCheckMin', 'closingCheckMin', 'closingPhrase',
             'ticketPrefix', 'pollingIntervalSec', 'rateLimitMs',
             'maxMessageLength', 'forumMode', 'priorityKeywords',
-            'ticketsCategoryId', 'staffRoleIds', 'shiftChannelId'
+            'ticketsCategoryId', 'staffRoleIds', 'shiftChannelId',
+            'geminiApiKeys'
         ];
 
         const body = req.body;

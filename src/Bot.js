@@ -885,12 +885,34 @@ class Bot {
             priorityKeywords: this.config.priorityKeywords || [],
             ticketsCategoryId: this.config.ticketsCategoryId || '',
             shiftChannelId: this.config.shiftChannelId || '',
+            autoGreetAllChannels: this.config.autoGreetAllChannels || false,
+            staffRoleIds: this.config.staffRoleIds || [],
+            autoGreetRoleIds: this.config.autoGreetRoleIds || [],
+            geminiApiKeys: this.config.geminiApiKeys || [],
         };
     }
 
     updateSettings(settings) {
+        const allowedKeys = [
+            'autoGreetEnabled', 'autoGreetText', 'activityCheckMin', 'closingCheckMin',
+            'maxMessageLength', 'ticketPrefix', 'closingPhrase', 'forumMode',
+            'includeFirstUserMessage', 'notifyOnClose', 'mentionOnHighPriority',
+            'pollingIntervalSec', 'rateLimitMs', 'priorityKeywords', 'ticketsCategoryId',
+            'shiftChannelId', 'autoGreetAllChannels', 'staffRoleIds', 'autoGreetRoleIds', 'geminiApiKeys'
+        ];
+        const arrayKeysComma = ['priorityKeywords', 'staffRoleIds', 'autoGreetRoleIds'];
+        const arrayKeysNewline = ['geminiApiKeys'];
+
         for (const [k, v] of Object.entries(settings)) {
-            if (k in this.config) this.config[k] = v;
+            if (allowedKeys.includes(k)) {
+                if (arrayKeysComma.includes(k) && typeof v === 'string') {
+                    this.config[k] = v.split(',').map(x => x.trim()).filter(Boolean);
+                } else if (arrayKeysNewline.includes(k) && typeof v === 'string') {
+                    this.config[k] = v.split('\n').map(x => x.trim()).filter(Boolean);
+                } else {
+                    this.config[k] = v;
+                }
+            }
         }
         this.addLog('settings', 'Настройки обновлены');
     }

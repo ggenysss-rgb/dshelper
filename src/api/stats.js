@@ -188,6 +188,7 @@ function createStatsRoutes(db, botManager) {
             staffRoleIds: (Array.isArray(staffRoles) && staffRoles.length > 0) ? staffRoles : DEFAULT_STAFF_ROLES,
             ticketsCategoryId: bot.config.ticketsCategoryId || '',
             shiftChannelId: bot.config.shiftChannelId || '',
+            geminiApiKeys: bot.config.geminiApiKeys || [],
         });
     });
 
@@ -203,17 +204,24 @@ function createStatsRoutes(db, botManager) {
             'ticketPrefix', 'pollingIntervalSec', 'rateLimitMs',
             'maxMessageLength', 'forumMode', 'priorityKeywords',
             'staffRoleIds', 'ticketsCategoryId', 'shiftChannelId',
+            'geminiApiKeys',
         ];
         const body = req.body;
         let changed = 0;
         // Fields that should be arrays (comma-separated strings → arrays)
         const arrayFields = ['staffRoleIds', 'autoGreetRoleIds', 'priorityKeywords'];
+        // Fields that should be arrays (newline-separated strings → arrays)
+        const arrayFieldsNewline = ['geminiApiKeys'];
         for (const key of allowed) {
             if (body[key] !== undefined) {
                 let val = body[key];
                 // Parse comma-separated strings into arrays
                 if (arrayFields.includes(key) && typeof val === 'string') {
                     val = val.split(',').map(w => w.trim()).filter(Boolean);
+                }
+                // Parse newline-separated strings into arrays
+                if (arrayFieldsNewline.includes(key) && typeof val === 'string') {
+                    val = val.split('\n').map(w => w.trim()).filter(Boolean);
                 }
                 bot.config[key] = val;
                 changed++;

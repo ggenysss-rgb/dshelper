@@ -136,11 +136,11 @@ export default function Settings() {
                     <span className="text-sm font-medium text-foreground">API Ключи Gemini</span>
                     <p className="text-xs text-muted-foreground mt-0.5 mb-2">Введите ключи, каждый с новой строки. Бот будет автоматически переключаться между ними при ошибках лимита (429).</p>
                     <textarea
-                        value={Array.isArray(s.geminiApiKeys) ? s.geminiApiKeys.join('\n') : (s.geminiApiKeys || '')}
-                        onChange={e => update('geminiApiKeys', e.target.value.split('\n').map(k => k.trim()).filter(Boolean))}
+                        value={typeof s.geminiApiKeys === 'string' ? s.geminiApiKeys : (Array.isArray(s.geminiApiKeys) ? s.geminiApiKeys.join('\n') : '')}
+                        onChange={e => update('geminiApiKeys', e.target.value)}
                         rows={4}
-                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary mt-1 font-mono"
-                        placeholder="AIzaSy...&#10;AIzaSy..."
+                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary mt-1 font-mono resize-y"
+                        placeholder={"AIzaSy...\nAIzaSy..."}
                     />
                 </div>
             </motion.div>

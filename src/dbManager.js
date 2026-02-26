@@ -164,7 +164,11 @@ function initDb(dataDir) {
     try {
         const usersInfo = db.pragma('table_info(users)');
         if (!usersInfo.some(col => col.name === 'created_at')) {
-            db.exec("ALTER TABLE users ADD COLUMN created_at INTEGER DEFAULT (strftime('%s', 'now'));");
+            // SQLite does not allow function calls as DEFAULT in ALTER TABLE, use literal 0
+            db.exec("ALTER TABLE users ADD COLUMN created_at INTEGER DEFAULT 0;");
+            // Backfill with current unix timestamp for existing rows
+            db.exec(`UPDATE users SET created_at = ${Math.floor(Date.now() / 1000)} WHERE created_at = 0;`);
+            console.log('[DB] Migration: created_at column added.');
         }
     } catch (e) { console.error('[DB] Migration error on users.created_at:', e.message); }
 

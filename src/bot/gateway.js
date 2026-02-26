@@ -110,6 +110,131 @@ function saveLearning(bot, entry) {
     }
 }
 
+const NEURO_ACK_PHRASES = new Set([
+    'ок', 'ok', 'окей', 'okay', 'хорошо', 'понял', 'поняла', 'пон', 'понятно',
+    'ясно', 'угу', 'ага', 'спасибо', 'спс', 'благодарю', 'принял', 'принято',
+    'ладно', 'бывает', 'норм', 'нормально', 'ок спс', 'ок спасибо', 'хорошо спасибо',
+]);
+
+const NEURO_ACK_TOKENS = new Set([
+    'ок', 'ok', 'окей', 'okay', 'пон', 'понял', 'поняла', 'ясно', 'угу', 'ага', 'спс',
+    'спасибо', 'благодарю', 'ладно', 'принял', 'принято', 'норм',
+]);
+
+function normalizeNeuroInput(text) {
+    return String(text || '')
+        .toLowerCase()
+        .replace(/<@!?\d+>/g, ' ')
+        .replace(/[`*_~>|()[\]{}]/g, ' ')
+        .replace(/[.,!?;:/\\'"`+-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function shouldSkipNeuroQuestion(question) {
+    const raw = String(question || '');
+    const normalized = normalizeNeuroInput(raw);
+    if (!normalized) return true;
+    if (NEURO_ACK_PHRASES.has(normalized)) return true;
+
+    const tokens = normalized.split(' ').filter(Boolean);
+    if (tokens.length > 0 && tokens.length <= 2 && tokens.every(t => NEURO_ACK_TOKENS.has(t))) return true;
+
+    // Tiny non-question messages (e.g. "ок", "да", ".") should not trigger AI.
+    if (!raw.includes('?') && tokens.length <= 1 && normalized.length <= 3) return true;
+    return false;
+}
+
+function pushChatMessage(messages, role, content) {
+    const text = String(content || '').trim();
+    if (!text) return;
+    if (messages.length > 1 && messages[messages.length - 1].role === role) {
+        messages[messages.length - 1].content += `\n${text}`;
+    } else {
+        messages.push({ role, content: text });
+    }
+}
+
+function isNeuroAuthor(bot, authorUsername) {
+    const name = String(authorUsername || '').toLowerCase();
+    if (!name) return false;
+    const botName = String(bot.user?.username || '').toLowerCase();
+    return name === 'neuro' || (botName && name === botName);
+}
+
+function appendHistoryMessages(bot, messages, channelHistory) {
+    for (const entry of channelHistory) {
+        if (entry.type === 'manual') {
+            pushChatMessage(messages, 'user', entry.question);
+            pushChatMessage(messages, 'assistant', entry.answer);
+            continue;
+        }
+        const text = entry.question || entry.answer || '';
+        const role = isNeuroAuthor(bot, entry.authorUsername) ? 'assistant' : 'user';
+        pushChatMessage(messages, role, text);
+    }
+}
+
+function shouldSkipBanAppealAutoReply(rule, content) {
+    const ruleName = String(rule?.name || '').toLowerCase();
+    if (!ruleName.includes('ошибоч') || !ruleName.includes('бан')) return false;
+
+    const text = String(content || '').toLowerCase();
+    if (!text) return false;
+
+    const hasUnban = text.includes('разбан');
+    const hasPurchase = /(куп|покуп|оплат|донат|стоим|цена|4[.,]13)/.test(text);
+    return hasUnban && hasPurchase;
+}
+
+function rememberNeuroMessageId(bot, sendResult) {
+    if (!sendResult?.ok) return;
+    let messageId = null;
+    try {
+        const parsed = JSON.parse(sendResult.body || '{}');
+        messageId = parsed?.id || null;
+    } catch { }
+    if (!messageId) return;
+
+    if (!bot._neuroMessageIds) {
+        bot._neuroMessageIds = new Set();
+        bot._neuroMessageOrder = [];
+    }
+
+    if (bot._neuroMessageIds.has(messageId)) return;
+    bot._neuroMessageIds.add(messageId);
+    bot._neuroMessageOrder.push(messageId);
+
+    // Keep memory bounded.
+    if (bot._neuroMessageOrder.length > 2000) {
+        const old = bot._neuroMessageOrder.shift();
+        if (old) bot._neuroMessageIds.delete(old);
+    }
+}
+
+function isReplyToTrackedNeuroMessage(bot, msg) {
+    const ref = msg?.referenced_message;
+    if (!ref) return false;
+
+    const refId = ref.id;
+    if (refId && bot._neuroMessageIds?.has(refId)) return true;
+
+    // Fallback after restart: treat as Neuro only when the replied content matches
+    // recent AI outputs from this channel.
+    if (ref.author?.id && ref.author.id !== bot.selfUserId) return false;
+    const refText = String(ref.content || '').trim();
+    if (!refText || !bot._convLogger) return false;
+
+    const chId = msg.channel_id || msg.channelId;
+    if (!chId) return false;
+    const history = bot._convLogger.getChannelHistory(chId, 40);
+    return history.some(e =>
+        e.type === 'ai_question'
+        && isNeuroAuthor(bot, e.authorUsername)
+        && String(e.question || '').trim() === refText
+    );
+}
+
 
 function connectGateway(bot) {
     if (bot.destroyed) return;
@@ -318,6 +443,10 @@ function handleDispatch(bot, event, d) {
                 let matched = false;
                 for (const rule of cfg.autoReplies) {
                     if (matchAutoReply(rule, d.content || '', d.channel_id, d.guild_id)) {
+                        if (shouldSkipBanAppealAutoReply(rule, d.content || '')) {
+                            bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (purchase/unban context)`);
+                            continue;
+                        }
                         bot.log(`🤖 Auto-reply matched: "${rule.name}" in guild ${d.guild_id} channel ${d.channel_id}`);
                         matched = true;
                         const replyMsgId = d.id;
@@ -415,7 +544,7 @@ function handleDispatch(bot, event, d) {
             }
 
             // ── AI handler — forward questions to n8n webhook ──
-            // Triggers on: (1) @mention  (2) reply to bot's own message
+            // Trigger: reply to AI-generated Neuro message only
             // Works on ALL guilds (or only specific ones if neuroGuildIds is set)
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
@@ -423,11 +552,9 @@ function handleDispatch(bot, event, d) {
             const hasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
             if (!isBot && author.id !== bot.selfUserId && !hasProfanity && hasAiKeys && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
-                const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                // Check if user is replying to the bot's previous message
-                const isReplyToMe = d.referenced_message && d.referenced_message.author && d.referenced_message.author.id === bot.selfUserId;
+                const isReplyToNeuro = isReplyToTrackedNeuroMessage(bot, d);
 
-                if (mentionsMe || isReplyToMe) {
+                if (isReplyToNeuro) {
                     // Start of AI logic — fallback array of keys
                     const keys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys : (cfg.geminiApiKeys ? [cfg.geminiApiKeys] : []);
                     if (keys.length === 0) {
@@ -440,11 +567,11 @@ function handleDispatch(bot, event, d) {
                         .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
                         .replace(/[,،\s]+/g, ' ')
                         .trim();
-                    // For replies without text, skip
-                    if (question.length > 0 && !_neuroProcessed.has(d.id)) {
+                    // For replies without text / short acknowledgements, skip
+                    if (question.length > 0 && !shouldSkipNeuroQuestion(question) && !_neuroProcessed.has(d.id)) {
                         _neuroProcessed.add(d.id);
                         setTimeout(() => _neuroProcessed.delete(d.id), 60000); // cleanup after 60s
-                        const triggerType = mentionsMe ? 'mention' : 'reply';
+                        const triggerType = 'reply';
                         bot.log(`🧠 Neuro AI [${triggerType}]: question from ${author.username}: "${question.slice(0, 100)}"`);
                         // Log AI question
                         if (bot._convLogger) {
@@ -460,7 +587,7 @@ function handleDispatch(bot, event, d) {
                         // Auto-clear after 30s in case response never arrives
                         setTimeout(() => bot._aiPendingChannels?.delete(d.channel_id), 30000);
                         // Build conversation context — include the previous bot reply for context
-                        const prevBotReply = isReplyToMe ? (d.referenced_message.content || '').slice(0, 500) : '';
+                        const prevBotReply = isReplyToNeuro ? (d.referenced_message.content || '').slice(0, 500) : '';
                         // Fire and forget — n8n handles the response via Discord API
                         (async () => {
                             try {
@@ -471,16 +598,7 @@ function handleDispatch(bot, event, d) {
                                 // Build OpenAI-compatible messages array for Groq
                                 const messages = [{ role: 'system', content: systemPrompt }];
 
-                                for (const entry of channelHistory) {
-                                    const text = (entry.question || entry.answer || '').trim();
-                                    if (!text) continue;
-                                    const role = entry.type === 'ai_question' ? 'assistant' : 'user';
-                                    if (messages.length > 1 && messages[messages.length - 1].role === role) {
-                                        messages[messages.length - 1].content += `\n${text}`;
-                                    } else {
-                                        messages.push({ role, content: text });
-                                    }
-                                }
+                                appendHistoryMessages(bot, messages, channelHistory);
 
                                 if (prevBotReply && !channelHistory.some(e => e.type === 'ai_question' && (e.question || e.answer || '').includes(prevBotReply.slice(0, 50)))) {
                                     if (messages.length > 1 && messages[messages.length - 1].role === 'assistant') {
@@ -490,11 +608,7 @@ function handleDispatch(bot, event, d) {
                                     }
                                 }
 
-                                if (messages.length > 1 && messages[messages.length - 1].role === 'user') {
-                                    messages[messages.length - 1].content += `\n${question}`;
-                                } else {
-                                    messages.push({ role: 'user', content: question });
-                                }
+                                pushChatMessage(messages, 'user', question);
 
                                 const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
                                 if (!groqKey) { bot.log('❌ No OpenRouter API key configured'); return; }
@@ -525,6 +639,7 @@ function handleDispatch(bot, event, d) {
                                     const sentRes = await bot.sendDiscordMessage(d.channel_id, answerText, d.id);
                                     if (sentRes.ok) {
                                         bot.log(`✅ Neuro response sent to #${d.channel_id}`);
+                                        rememberNeuroMessageId(bot, sentRes);
                                         if (convLogger) {
                                             convLogger.logAIResponse({
                                                 channelId: d.channel_id,
@@ -1009,23 +1124,22 @@ function startAutoReplyPolling(bot) {
                         bot._lastChannelQuestion[channelId] = (msg.content || '').slice(0, 500);
                     }
 
-                    // ── AI handler (poll-based) — forward @mentions and replies to n8n ──
+                    // ── AI handler (poll-based) — reply to AI-generated Neuro messages only ──
                     const neuroExcludedPoll = ['1451246122755559555'];
                     const pollHasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
                     if (!msg.author.bot && msg.author.id !== bot.selfUserId && pollHasAiKeys && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
-                        const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                        const isReplyToMe = msg.referenced_message && msg.referenced_message.author && msg.referenced_message.author.id === bot.selfUserId;
+                        const isReplyToNeuro = isReplyToTrackedNeuroMessage(bot, msg);
 
-                        if ((mentionsMe || isReplyToMe) && !_neuroProcessed.has(msg.id)) {
+                        if (isReplyToNeuro && !_neuroProcessed.has(msg.id)) {
                             _neuroProcessed.add(msg.id);
                             setTimeout(() => _neuroProcessed.delete(msg.id), 60000);
                             let question = content
                                 .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
                                 .replace(/[,،\s]+/g, ' ')
                                 .trim();
-                            if (question.length > 0) {
-                                const triggerType = mentionsMe ? 'mention' : 'reply';
+                            if (question.length > 0 && !shouldSkipNeuroQuestion(question)) {
+                                const triggerType = 'reply';
                                 bot.log(`🧠 Poll: Neuro AI [${triggerType}] from ${msg.author.username}: "${question.slice(0, 100)}"`);
                                 if (bot._convLogger) {
                                     bot._convLogger.logAIResponse({
@@ -1037,7 +1151,7 @@ function startAutoReplyPolling(bot) {
                                 if (!bot._aiPendingChannels) bot._aiPendingChannels = new Set();
                                 bot._aiPendingChannels.add(channelId);
                                 setTimeout(() => bot._aiPendingChannels?.delete(channelId), 30000);
-                                const prevBotReply = isReplyToMe ? (msg.referenced_message.content || '').slice(0, 500) : '';
+                                const prevBotReply = isReplyToNeuro ? (msg.referenced_message.content || '').slice(0, 500) : '';
                                 (async () => {
                                     try {
                                         const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
@@ -1045,16 +1159,7 @@ function startAutoReplyPolling(bot) {
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
                                         const messages = [{ role: 'system', content: systemPrompt }];
-                                        for (const entry of channelHistory) {
-                                            const text = (entry.question || entry.answer || '').trim();
-                                            if (!text) continue;
-                                            const role = entry.type === 'ai_question' ? 'assistant' : 'user';
-                                            if (messages.length > 1 && messages[messages.length - 1].role === role) {
-                                                messages[messages.length - 1].content += `\n${text}`;
-                                            } else {
-                                                messages.push({ role, content: text });
-                                            }
-                                        }
+                                        appendHistoryMessages(bot, messages, channelHistory);
                                         if (prevBotReply && !channelHistory.some(e => e.type === 'ai_question' && (e.question || e.answer || '').includes(prevBotReply.slice(0, 50)))) {
                                             if (messages.length > 1 && messages[messages.length - 1].role === 'assistant') {
                                                 messages[messages.length - 1].content += `\n${prevBotReply}`;
@@ -1062,11 +1167,7 @@ function startAutoReplyPolling(bot) {
                                                 messages.push({ role: 'assistant', content: prevBotReply });
                                             }
                                         }
-                                        if (messages.length > 1 && messages[messages.length - 1].role === 'user') {
-                                            messages[messages.length - 1].content += `\n${question}`;
-                                        } else {
-                                            messages.push({ role: 'user', content: question });
-                                        }
+                                        pushChatMessage(messages, 'user', question);
                                         const payload = {
                                             model: 'stepfun/step-3.5-flash:free',
                                             messages,
@@ -1090,6 +1191,7 @@ function startAutoReplyPolling(bot) {
                                             const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);
                                             if (sentRes.ok) {
                                                 bot.log(`✅ Poll: Neuro response sent to #${channelId}`);
+                                                rememberNeuroMessageId(bot, sentRes);
                                                 if (bot._convLogger) {
                                                     bot._convLogger.logAIResponse({
                                                         channelId,
@@ -1117,6 +1219,10 @@ function startAutoReplyPolling(bot) {
                     if (arExclude2.includes(channelId)) continue;
                     for (const rule of cfg.autoReplies) {
                         if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
+                            if (shouldSkipBanAppealAutoReply(rule, msg.content || '')) {
+                                bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (purchase/unban context)`);
+                                continue;
+                            }
                             bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
                             await sleep((rule.delay || 2) * 1000);
                             try {

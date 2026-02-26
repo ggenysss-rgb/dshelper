@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
 type Theme = 'dark' | 'light';
-type Design = 'midnight' | 'arctic' | 'sunset' | 'neon';
+type Design = 'classic' | 'midnight' | 'arctic' | 'sunset' | 'neon';
 
 const DESIGN_SCENES: { id: Design; label: string; theme: Theme }[] = [
+    { id: 'classic', label: 'Classic (Old)', theme: 'dark' },
     { id: 'midnight', label: 'Midnight Pulse', theme: 'dark' },
     { id: 'arctic', label: 'Arctic Glass', theme: 'light' },
     { id: 'sunset', label: 'Sunset Bloom', theme: 'light' },
@@ -35,10 +36,14 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     });
 
     const [design, setDesign] = useState<Design>(() => {
+        const migrationKey = 'dashboard_design_default_classic_v1';
+        if (localStorage.getItem(migrationKey) !== '1') {
+            localStorage.setItem(migrationKey, '1');
+            return 'classic';
+        }
         const savedDesign = localStorage.getItem('dashboard_design');
         if (isDesign(savedDesign)) return savedDesign;
-        const savedTheme = localStorage.getItem('dashboard_theme');
-        return savedTheme === 'light' ? 'arctic' : DESIGN_SCENES[0].id;
+        return DESIGN_SCENES[0].id;
     });
 
     useEffect(() => {

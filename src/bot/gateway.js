@@ -497,17 +497,17 @@ function handleDispatch(bot, event, d) {
                                 }
 
                                 const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                if (!groqKey) { bot.log('❌ No Groq API key configured'); return; }
+                                if (!groqKey) { bot.log('❌ No DeepSeek API key configured'); return; }
 
                                 const payload = {
-                                    model: 'llama-3.1-8b-instant',
+                                    model: 'deepseek-chat',
                                     messages,
                                     temperature: 0.7,
                                     max_tokens: 800
                                 };
 
                                 const res = await bot.httpPostWithHeaders(
-                                    'https://api.groq.com/openai/v1/chat/completions',
+                                    'https://api.deepseek.com/chat/completions',
                                     payload,
                                     { 'Authorization': `Bearer ${groqKey}` }
                                 );
@@ -516,9 +516,9 @@ function handleDispatch(bot, event, d) {
                                 let answerText = null;
                                 if (res.ok && data.choices && data.choices.length > 0) {
                                     answerText = data.choices[0].message.content;
-                                    bot.log(`🧠 Groq AI Success`);
+                                    bot.log(`🧠 DeepSeek AI Success`);
                                 } else {
-                                    bot.log(`⚠️ Groq Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                    bot.log(`⚠️ DeepSeek Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
                                 }
 
                                 if (answerText) {
@@ -1041,7 +1041,7 @@ function startAutoReplyPolling(bot) {
                                 (async () => {
                                     try {
                                         const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                        if (!groqKey) { bot.log('❌ Poll: No Groq API key configured'); return; }
+                                        if (!groqKey) { bot.log('❌ Poll: No DeepSeek API key configured'); return; }
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
                                         const messages = [{ role: 'system', content: systemPrompt }];
@@ -1068,13 +1068,13 @@ function startAutoReplyPolling(bot) {
                                             messages.push({ role: 'user', content: question });
                                         }
                                         const payload = {
-                                            model: 'llama-3.1-8b-instant',
+                                            model: 'deepseek-chat',
                                             messages,
                                             temperature: 0.7,
                                             max_tokens: 800
                                         };
                                         const res = await bot.httpPostWithHeaders(
-                                            'https://api.groq.com/openai/v1/chat/completions',
+                                            'https://api.deepseek.com/chat/completions',
                                             payload,
                                             { 'Authorization': `Bearer ${groqKey}` }
                                         );
@@ -1082,9 +1082,9 @@ function startAutoReplyPolling(bot) {
                                         let answerText = null;
                                         if (res.ok && data.choices && data.choices.length > 0) {
                                             answerText = data.choices[0].message.content;
-                                            bot.log(`🧠 Poll: Groq AI Success`);
+                                            bot.log(`🧠 Poll: DeepSeek AI Success`);
                                         } else {
-                                            bot.log(`⚠️ Poll: Groq Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                            bot.log(`⚠️ Poll: DeepSeek Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
                                         }
                                         if (answerText) {
                                             const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);

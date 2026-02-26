@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAutoReplies, updateAutoReplies, simulateAutoReply } from '../api/stats';
-import { Bot, Plus, Trash2, Save, Loader2, Check, ChevronDown, Power, PowerOff, Search, Copy, FlaskConical, WandSparkles, Target, ArrowRight } from 'lucide-react';
+import { Bot, Plus, Trash2, Save, Loader2, Check, ChevronDown, Power, PowerOff, Search, Copy, FlaskConical, WandSparkles, ArrowRight, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface AutoReplyRule {
     name: string;
@@ -62,28 +63,36 @@ function TagEditor({ tags, onChange, placeholder, color = 'emerald' }: {
         const t = input.trim();
         if (t && !tags.includes(t)) { onChange([...tags, t]); setInput(''); }
     };
-    const colorClasses: Record<string, string> = {
-        emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
-        red: 'bg-red-500/10 border-red-500/20 text-red-400',
-        blue: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
+    const styles: Record<string, string> = {
+        emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500',
+        red: 'bg-red-500/10 border-red-500/20 text-red-500',
+        blue: 'bg-blue-500/10 border-blue-500/20 text-blue-500',
     };
     return (
-        <div>
-            {tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
+        <div className="space-y-2">
+            <div className="flex flex-wrap gap-2 min-h-[28px]">
+                <AnimatePresence>
                     {tags.map((tag, i) => (
-                        <span key={`${tag}-${i}`} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs border ${colorClasses[color] || colorClasses.emerald}`}>
+                        <motion.span
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            key={`${tag}-${i}`}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border ${styles[color] || styles.emerald}`}
+                        >
                             {tag}
-                            <button onClick={() => onChange(tags.filter((_, j) => j !== i))} className="hover:text-white ml-0.5 opacity-60 hover:opacity-100 transition-opacity">×</button>
-                        </span>
+                            <button onClick={() => onChange(tags.filter((_, j) => j !== i))} className="hover:text-foreground ml-1 opacity-50 hover:opacity-100 transition-opacity"><X className="w-3 h-3" /></button>
+                        </motion.span>
                     ))}
-                </div>
-            )}
+                </AnimatePresence>
+            </div>
             <div className="flex gap-2">
-                <input type="text" value={input} onChange={e => setInput(e.target.value)} placeholder={placeholder}
+                <input type="text" value={input} onChange={e => setInput(e.target.value)} placeholder={placeholder} 
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
-                    className="flex-1 bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
-                <button onClick={addTag} className="px-3 py-1.5 bg-[var(--color-accent)]/10 text-xs rounded-lg hover:bg-[var(--color-accent)]/20 transition-colors border border-[var(--color-accent)]/20 text-[var(--color-accent)]">+</button>
+                    className="flex-1 bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+                <button onClick={addTag} className="px-3 py-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors border border-primary/20">
+                    <Plus className="w-4 h-4" />
+                </button>
             </div>
         </div>
     );
@@ -105,123 +114,128 @@ function RuleCard({ rule, index, expanded, onToggleExpand, onChange, onDelete, o
     }, [onChange, rule]);
 
     return (
-        <div className={`bg-[var(--color-bg-secondary)] border rounded-xl overflow-hidden transition-all duration-200 ${rule.enabled ? 'border-[var(--color-border)]' : 'border-[var(--color-border)]/30 opacity-50'}`}>
+        <motion.div
+            layout
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className={`bg-card border rounded-xl overflow-hidden transition-all duration-200 ${rule.enabled ? 'border-border shadow-sm' : 'border-border/50 opacity-60'}`}
+        >
             {/* Header — clickable to expand/collapse */}
-            <div className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none hover:bg-[var(--color-bg-primary)]/50 transition-colors"
+            <div className="flex items-center gap-4 px-5 py-4 cursor-pointer select-none hover:bg-secondary/30 transition-colors"
                 onClick={onToggleExpand}>
                 {/* Toggle enabled */}
                 <button
                     onClick={e => { e.stopPropagation(); handleFieldChange('enabled', !rule.enabled); }}
-                    className="shrink-0 p-1 rounded-lg hover:bg-[var(--color-bg-primary)] transition-colors"
+                    className={`shrink-0 p-2 rounded-lg transition-colors ${rule.enabled ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}
                     title={rule.enabled ? 'Выключить' : 'Включить'}
                 >
-                    {rule.enabled ? <Power className="w-4 h-4 text-emerald-500" /> : <PowerOff className="w-4 h-4 text-red-400" />}
+                    {rule.enabled ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
                 </button>
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold truncate">{rule.name || `Правило ${index + 1}`}</span>
-                        {rule.channelId && <span className="text-[10px] text-[var(--color-text-secondary)] bg-[var(--color-bg-primary)] px-1.5 py-0.5 rounded font-mono">#{rule.channelId.slice(-4)}</span>}
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="text-base font-semibold text-foreground truncate">{rule.name || `Правило ${index + 1}`}</span>
+                        {rule.channelId && <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded font-mono">#{rule.channelId.slice(-4)}</span>}
                     </div>
-                    <p className="text-xs text-[var(--color-text-secondary)] truncate mt-0.5">{rule.response?.slice(0, 80)}</p>
+                    <p className="text-xs text-muted-foreground truncate">{rule.response?.slice(0, 100) || <span className="italic opacity-50">Нет ответа...</span>}</p>
                 </div>
                 {/* Badges */}
                 <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-full border border-emerald-500/20 font-medium">
                         {wordCount} слов
                     </span>
                     {(rule.excludeAny?.length || 0) > 0 && (
-                        <span className="text-[10px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded-full border border-red-500/20">
+                        <span className="text-[10px] bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full border border-red-500/20 font-medium">
                             -{rule.excludeAny!.length}
                         </span>
                     )}
-                    <ChevronDown className={`w-4 h-4 text-[var(--color-text-secondary)] transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
                 </div>
             </div>
 
             {/* Expanded Content */}
-            {expanded && (
-                <div
-                    className="px-4 pb-4 space-y-4 border-t border-[var(--color-border)]/50 pt-4"
-                    onClick={e => e.stopPropagation()}
-                    onMouseDown={e => e.stopPropagation()}
-                >
-                    {/* Row 1: name, guild, channel, delay */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div>
-                            <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Название</label>
-                            <input type="text" value={rule.name}
-                                onChange={e => handleFieldChange('name', e.target.value)}
-                                onMouseDown={e => e.stopPropagation()}
-                                onKeyDown={e => e.stopPropagation()}
-                                className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Guild ID</label>
-                            <input type="text" value={rule.guildId}
-                                onChange={e => handleFieldChange('guildId', e.target.value)}
-                                onMouseDown={e => e.stopPropagation()}
-                                onKeyDown={e => e.stopPropagation()}
-                                className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Channel ID</label>
-                            <input type="text" value={rule.channelId}
-                                onChange={e => handleFieldChange('channelId', e.target.value)}
-                                onMouseDown={e => e.stopPropagation()}
-                                onKeyDown={e => e.stopPropagation()}
-                                placeholder="Все каналы"
-                                className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Задержка (сек)</label>
-                            <input type="number" value={rule.delay || 2}
-                                onChange={e => handleFieldChange('delay', parseInt(e.target.value) || 2)}
-                                onMouseDown={e => e.stopPropagation()}
-                                onKeyDown={e => e.stopPropagation()}
-                                className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" min={0} max={60} />
-                        </div>
-                    </div>
-
-                    {/* Keywords */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1.5 block tracking-wider">
-                                ✅ Включающие слова <span className="normal-case font-normal">(includeAny)</span>
-                            </label>
-                            <TagEditor tags={rule.includeAny || []} onChange={t => handleFieldChange('includeAny', t)} placeholder="Добавить слово..." color="emerald" />
-                        </div>
-                        <div>
-                            <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1.5 block tracking-wider">
-                                ❌ Исключающие слова <span className="normal-case font-normal">(excludeAny)</span>
-                            </label>
-                            <TagEditor tags={rule.excludeAny || []} onChange={t => handleFieldChange('excludeAny', t)} placeholder="Добавить исключение..." color="red" />
-                        </div>
-                    </div>
-
-                    {/* Response */}
-                    <div>
-                        <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">💬 Ответ</label>
-                        <textarea value={rule.response}
-                            onChange={e => handleFieldChange('response', e.target.value)}
+            <AnimatePresence>
+                {expanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                    >
+                        <div
+                            className="px-5 pb-5 space-y-5 border-t border-border/50 pt-5"
+                            onClick={e => e.stopPropagation()}
                             onMouseDown={e => e.stopPropagation()}
-                            onKeyDown={e => e.stopPropagation()}
-                            rows={3}
-                            className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y" />
-                    </div>
+                        >
+                            {/* Row 1: name, guild, channel, delay */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">Название</label>
+                                    <input type="text" value={rule.name}
+                                        onChange={e => handleFieldChange('name', e.target.value)}
+                                        className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">Guild ID</label>
+                                    <input type="text" value={rule.guildId}
+                                        onChange={e => handleFieldChange('guildId', e.target.value)}
+                                        className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">Channel ID</label>
+                                    <input type="text" value={rule.channelId}
+                                        onChange={e => handleFieldChange('channelId', e.target.value)}
+                                        placeholder="Все каналы"
+                                        className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">Задержка (сек)</label>
+                                    <input type="number" value={rule.delay || 2}
+                                        onChange={e => handleFieldChange('delay', parseInt(e.target.value) || 2)}
+                                        className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" min={0} max={60} />
+                                </div>
+                            </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 pt-1">
-                        <button onClick={onDuplicate} className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-500/10">
-                            <Copy className="w-3.5 h-3.5" /> Дублировать
-                        </button>
-                        <button onClick={onDelete} className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors px-3 py-1.5 rounded-lg hover:bg-red-500/10">
-                            <Trash2 className="w-3.5 h-3.5" /> Удалить
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
+                            {/* Keywords */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-2 block tracking-wider">
+                                        ✅ Включающие слова <span className="normal-case font-normal opacity-70">(includeAny)</span>
+                                    </label>
+                                    <TagEditor tags={rule.includeAny || []} onChange={t => handleFieldChange('includeAny', t)} placeholder="Добавить слово..." color="emerald" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-2 block tracking-wider">
+                                        ❌ Исключающие слова <span className="normal-case font-normal opacity-70">(excludeAny)</span>
+                                    </label>
+                                    <TagEditor tags={rule.excludeAny || []} onChange={t => handleFieldChange('excludeAny', t)} placeholder="Добавить исключение..." color="red" />
+                                </div>
+                            </div>
+
+                            {/* Response */}
+                            <div>
+                                <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">💬 Ответ</label>
+                                <textarea value={rule.response}
+                                    onChange={e => handleFieldChange('response', e.target.value)}
+                                    rows={3}
+                                    className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-y transition-all" />
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-2 pt-2">
+                                <button onClick={onDuplicate} className="flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-400 transition-colors px-3 py-2 rounded-lg hover:bg-blue-500/10 border border-transparent hover:border-blue-500/20">
+                                    <Copy className="w-3.5 h-3.5" /> Дублировать
+                                </button>
+                                <button onClick={onDelete} className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-400 transition-colors px-3 py-2 rounded-lg hover:bg-red-500/10 border border-transparent hover:border-red-500/20">
+                                    <Trash2 className="w-3.5 h-3.5" /> Удалить
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </motion.div>
     );
 }
 
@@ -351,145 +365,156 @@ export default function AutoReplies() {
     const simulateResult = simulateMutation.data as SimulateResponse | undefined;
 
     return (
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto h-full flex flex-col gap-6">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500/20 to-purple-600/10 border border-violet-500/20 flex items-center justify-center">
-                        <Bot className="w-5 h-5 text-violet-400" />
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500/20 to-violet-600/5 border border-violet-500/20 flex items-center justify-center">
+                        <Bot className="w-6 h-6 text-violet-400" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold">Авто-ответы</h1>
-                        <p className="text-xs text-[var(--color-text-secondary)]">
-                            {effectiveList.length} правил • <span className="text-emerald-400">{activeCount} активных</span>
-                            {hasChanges && <span className="text-amber-400 ml-2">• Есть несохранённые изменения</span>}
+                        <h1 className="text-2xl md:text-3xl font-rajdhani font-bold text-foreground">Авто-ответы</h1>
+                        <p className="text-sm text-muted-foreground">
+                            {effectiveList.length} правил • <span className="text-emerald-500">{activeCount} активных</span>
+                            {hasChanges && <span className="text-amber-500 ml-2">• Есть несохранённые изменения</span>}
                         </p>
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={addRule} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--color-bg-secondary)] text-sm font-medium hover:bg-[var(--color-bg-primary)] transition-colors border border-[var(--color-border)]">
+                    <button onClick={addRule} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-card text-sm font-medium hover:bg-secondary transition-colors border border-border shadow-sm">
                         <Plus className="w-4 h-4" /> Добавить
                     </button>
                     <button onClick={handleSave} disabled={!hasChanges || mutation.isPending}
-                        className={`flex items-center gap-2 px-5 py-2 rounded-xl font-medium text-sm transition-all ${hasChanges ? 'bg-[var(--color-accent)] text-white hover:brightness-110 shadow-lg shadow-[var(--color-accent)]/20' : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] cursor-not-allowed'}`}>
+                        className={`flex items-center gap-2 px-5 py-2 rounded-xl font-medium text-sm transition-all ${hasChanges ? 'bg-primary text-primary-foreground hover:brightness-110 shadow-lg shadow-primary/20' : 'bg-secondary text-muted-foreground cursor-not-allowed'}`}>
                         {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
                         {saved ? 'Сохранено!' : 'Сохранить'}
                     </button>
                 </div>
             </div>
 
-            {/* Search */}
-            {effectiveList.length > 3 && (
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-secondary)]" />
-                    <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по правилам..."
-                        className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
-                </div>
-            )}
-
-            {/* Simulator */}
-            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl p-4 space-y-4">
-                <div className="flex items-center gap-2">
-                    <FlaskConical className="w-4 h-4 text-violet-400" />
-                    <h2 className="text-sm font-semibold">Симулятор авто-ответов</h2>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                        <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Guild ID</label>
-                        <input type="text" value={simGuildId} onChange={e => setSimGuildId(e.target.value)}
-                            className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left Column: Search & Rules */}
+                <div className="lg:col-span-2 space-y-4">
+                    {/* Search */}
+                    <div className="relative group">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по правилам..."
+                            className="w-full bg-card border border-border rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all shadow-sm" />
+                        {search && (
+                            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        )}
                     </div>
-                    <div>
-                        <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Channel ID</label>
-                        <input type="text" value={simChannelId} onChange={e => setSimChannelId(e.target.value)} placeholder="Опционально"
-                            className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
+
+                    {/* Rules List */}
+                    <div className="space-y-3">
+                        <AnimatePresence initial={false}>
+                            {filtered.map((rule) => (
+                                <RuleCard
+                                    key={rule._id}
+                                    rule={rule}
+                                    index={effectiveList.indexOf(rule)}
+                                    expanded={expandedId === rule._id}
+                                    onToggleExpand={() => toggleExpand(rule._id)}
+                                    onChange={r => updateRule(rule._id, r)}
+                                    onDelete={() => deleteRule(rule._id)}
+                                    onDuplicate={() => duplicateRule(rule._id)}
+                                />
+                            ))}
+                        </AnimatePresence>
+                        {filtered.length === 0 && (
+                            <div className="text-center py-12 text-muted-foreground border-2 border-dashed border-border rounded-xl">
+                                <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                                <p className="font-medium">Ничего не найдено</p>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                <div>
-                    <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Тестовое сообщение</label>
-                    <textarea value={simMessage} onChange={e => setSimMessage(e.target.value)} rows={3}
-                        placeholder="Вставь текст игрока, чтобы проверить, что сработает..."
-                        className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y" />
-                </div>
+                {/* Right Column: Simulator */}
+                <div className="lg:col-span-1">
+                    <div className="sticky top-6">
+                        <div className="bg-card border border-border rounded-xl p-5 space-y-5 shadow-sm">
+                            <div className="flex items-center gap-2 pb-3 border-b border-border/50">
+                                <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                                    <FlaskConical className="w-4 h-4 text-violet-500" />
+                                </div>
+                                <h2 className="text-base font-bold font-rajdhani">Симулятор</h2>
+                            </div>
 
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={handleSimulate}
-                        disabled={!simMessage.trim() || simulateMutation.isPending}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        {simulateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <WandSparkles className="w-4 h-4" />}
-                        Проверить
-                    </button>
-                    {simulateMutation.isError && (
-                        <span className="text-xs text-red-400">Не удалось выполнить симуляцию</span>
-                    )}
-                </div>
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">Guild ID</label>
+                                    <input type="text" value={simGuildId} onChange={e => setSimGuildId(e.target.value)}
+                                        className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">Channel ID</label>
+                                    <input type="text" value={simChannelId} onChange={e => setSimChannelId(e.target.value)} placeholder="Опционально"
+                                        className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground uppercase font-bold mb-1.5 block tracking-wider">Сообщение</label>
+                                    <textarea value={simMessage} onChange={e => setSimMessage(e.target.value)} rows={4}
+                                        placeholder="Текст игрока..."
+                                        className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-y transition-all" />
+                                </div>
+                            </div>
 
-                {simulateResult?.decision && (
-                    <div className={`rounded-lg border p-3 space-y-2 ${simulateResult.decision.action === 'send' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-500/30 bg-slate-500/5'}`}>
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <span className={`px-2 py-1 rounded-md border ${simulateResult.decision.action === 'send' ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-slate-500/40 text-slate-300 bg-slate-500/10'}`}>
-                                {simulateResult.decision.action === 'send' ? 'Сработает' : 'Не сработает'}
-                            </span>
-                            <span className="px-2 py-1 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)]">
-                                source: {simulateResult.decision.source}
-                            </span>
-                            <span className="px-2 py-1 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)] inline-flex items-center gap-1">
-                                <Target className="w-3 h-3" />
-                                confidence: {Number(simulateResult.decision.confidence || 0).toFixed(2)}
-                            </span>
+                            <div className="flex items-center justify-between pt-2">
+                                <button
+                                    onClick={handleSimulate}
+                                    disabled={!simMessage.trim() || simulateMutation.isPending}
+                                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-violet-500/10 text-violet-500 border border-violet-500/20 hover:bg-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium"
+                                >
+                                    {simulateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <WandSparkles className="w-4 h-4" />}
+                                    Проверить
+                                </button>
+                            </div>
+
+                            {simulateResult?.decision && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className={`rounded-lg border p-3 space-y-2.5 ${simulateResult.decision.action === 'send' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-500/30 bg-slate-500/5'}`}
+                                >
+                                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                                        <span className={`px-2 py-1 rounded-md border font-medium ${simulateResult.decision.action === 'send' ? 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10' : 'border-slate-500/40 text-slate-500 bg-slate-500/10'}`}>
+                                            {simulateResult.decision.action === 'send' ? 'Сработает' : 'Не сработает'}
+                                        </span>
+                                        <span className="px-2 py-1 rounded-md border border-border text-muted-foreground">
+                                            src: {simulateResult.decision.source}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm">
+                                        <span className="text-muted-foreground text-xs uppercase font-bold tracking-wider">Причина:</span><br/>
+                                        <span className="font-medium text-foreground">{simulateResult.decision.reason}</span>
+                                    </p>
+                                    {simulateResult.decision.ruleName && (
+                                        <p className="text-sm">
+                                            <span className="text-muted-foreground text-xs uppercase font-bold tracking-wider">Правило:</span><br/>
+                                            <span className="font-medium text-foreground">{simulateResult.decision.ruleName}</span>
+                                        </p>
+                                    )}
+                                    {!!simulateResult.decision.keywords?.length && (
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {simulateResult.decision.keywords.map((k, i) => (
+                                                <span key={`${k}-${i}`} className="text-[10px] px-1.5 py-0.5 rounded border border-violet-500/30 text-violet-500 bg-violet-500/10">{k}</span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {simulateResult.decision.response && (
+                                        <div className="text-xs bg-background border border-border rounded-md p-2 whitespace-pre-wrap">
+                                            <span className="inline-flex items-center gap-1 text-muted-foreground mb-1 font-bold"><ArrowRight className="w-3 h-3" /> Ответ:</span>
+                                            <div className="text-foreground/90">{simulateResult.decision.response}</div>
+                                        </div>
+                                    )}
+                                </motion.div>
+                            )}
                         </div>
-                        <p className="text-sm">
-                            <span className="text-[var(--color-text-secondary)]">Причина:</span>{' '}
-                            <span className="font-medium">{simulateResult.decision.reason}</span>
-                        </p>
-                        {simulateResult.decision.ruleName && (
-                            <p className="text-sm">
-                                <span className="text-[var(--color-text-secondary)]">Правило:</span>{' '}
-                                <span className="font-medium">{simulateResult.decision.ruleName}</span>{' '}
-                                <span className="text-[var(--color-text-secondary)]">({simulateResult.decision.ruleId})</span>
-                            </p>
-                        )}
-                        {!!simulateResult.decision.keywords?.length && (
-                            <div className="flex flex-wrap gap-1.5">
-                                {simulateResult.decision.keywords.map((k, i) => (
-                                    <span key={`${k}-${i}`} className="text-[11px] px-2 py-0.5 rounded-md border border-violet-500/30 text-violet-300 bg-violet-500/10">{k}</span>
-                                ))}
-                            </div>
-                        )}
-                        {simulateResult.decision.response && (
-                            <div className="text-xs bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-md p-2 whitespace-pre-wrap">
-                                <span className="inline-flex items-center gap-1 text-[var(--color-text-secondary)] mb-1"><ArrowRight className="w-3 h-3" /> Ответ:</span>
-                                <div>{simulateResult.decision.response}</div>
-                            </div>
-                        )}
                     </div>
-                )}
-            </div>
-
-            {/* Rules List */}
-            <div className="space-y-3">
-                {filtered.map((rule) => (
-                    <RuleCard
-                        key={rule._id}
-                        rule={rule}
-                        index={effectiveList.indexOf(rule)}
-                        expanded={expandedId === rule._id}
-                        onToggleExpand={() => toggleExpand(rule._id)}
-                        onChange={r => updateRule(rule._id, r)}
-                        onDelete={() => deleteRule(rule._id)}
-                        onDuplicate={() => duplicateRule(rule._id)}
-                    />
-                ))}
-                {filtered.length === 0 && search && (
-                    <div className="text-center py-12 text-[var(--color-text-secondary)]">
-                        <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">Ничего не найдено по запросу «{search}»</p>
-                    </div>
-                )}
+                </div>
             </div>
         </div>
     );

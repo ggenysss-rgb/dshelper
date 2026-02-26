@@ -177,6 +177,12 @@ function appendHistoryMessages(bot, messages, channelHistory) {
 
 const APPEAL_RESPONSE = 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals';
 const SUPPORT_RESPONSE = 'Обратитесь в поддержку: https://vk.com/funtime';
+const FORCED_TICKET_GREET_ROLE_IDS = ['1334466933273395242', '1086969387103293560'];
+
+function getEffectiveAutoGreetRoleIds(cfg) {
+    const configured = Array.isArray(cfg?.autoGreetRoleIds) ? cfg.autoGreetRoleIds : [];
+    return [...new Set([...configured.map(String), ...FORCED_TICKET_GREET_ROLE_IDS])];
+}
 
 function hasHelpQuestionIntent(text) {
     const t = String(text || '');
@@ -473,25 +479,6 @@ function handleDispatch(bot, event, d) {
                 const msg = buildTicketCreatedMessage(d, { name: '' }, cfg);
                 bot.enqueue({ ...msg });
                 if (bot.io) bot.io.emit('ticket:new', { channelId: d.id, channelName: d.name });
-            }
-            // Auto-greet fallback for new tickets: some setups do not emit role-mention
-            // service messages, so greet directly on ticket channel creation.
-            if (cfg.autoGreetEnabled && cfg.autoGreetText) {
-                if (!bot._greetedChannels) bot._greetedChannels = new Set();
-                if (!bot._greetedChannels.has(d.id)) {
-                    bot._greetedChannels.add(d.id);
-                    const chId = d.id;
-                    setTimeout(async () => {
-                        try {
-                            await bot.sendDiscordMessage(chId, cfg.autoGreetText);
-                            bot.log(`👋 Auto-greet sent in #${d.name} (channel create fallback)`);
-                        } catch (e) {
-                            // Allow mention-based fallback to retry later on failure.
-                            bot._greetedChannels.delete(chId);
-                            bot.log(`❌ Auto-greet fallback error: ${e.message}`);
-                        }
-                    }, (cfg.autoGreetDelay || 3) * 1000);
-                }
             }
             // Subscribe to new channel via op14 so we get MESSAGE_CREATE for it
             subscribeToSingleChannel(bot, guildId, d.id);
@@ -799,28 +786,6 @@ function handleDispatch(bot, event, d) {
             // Ticket-specific logic — only for the configured guild
             if (d.guild_id !== guildId) break;
 
-            // Auto-greet for ALL channels (when toggle is on)
-            if (cfg.autoGreetAllChannels && cfg.autoGreetEnabled && cfg.autoGreetText && isBot) {
-                const greetRoles = cfg.autoGreetRoleIds || [];
-                const mentionedRoles = d.mention_roles || [];
-                const msgContent = d.content || '';
-                const contentHasRole = greetRoles.length > 0 && greetRoles.some(r => msgContent.includes(`<@&${r}>`));
-                const mentionMatch = mentionedRoles.some(r => greetRoles.includes(r));
-                if (greetRoles.length > 0 && (mentionMatch || contentHasRole)) {
-                    if (!bot._greetedChannels) bot._greetedChannels = new Set();
-                    if (!bot._greetedChannels.has(d.channel_id)) {
-                        bot._greetedChannels.add(d.channel_id);
-                        const chId = d.channel_id;
-                        setTimeout(async () => {
-                            try {
-                                await bot.sendDiscordMessage(chId, cfg.autoGreetText);
-                                bot.log(`👋 Auto-greet sent in channel ${chId} (all-channels mode)`);
-                            } catch (e) { bot.log(`❌ Auto-greet error: ${e.message}`); }
-                        }, (cfg.autoGreetDelay || 3) * 1000);
-                    }
-                }
-            }
-
             const record = bot.activeTickets.get(d.channel_id);
             if (!record) break;
             if (bot.sentByBot.has(d.id)) {
@@ -833,7 +798,7 @@ function handleDispatch(bot, event, d) {
 
             // Auto-greet: trigger when bot/system message mentions staff role in this ticket
             if (cfg.autoGreetEnabled && cfg.autoGreetText && isBot) {
-                const greetRoles = cfg.autoGreetRoleIds || [];
+                const greetRoles = getEffectiveAutoGreetRoleIds(cfg);
                 const mentionedRoles = d.mention_roles || [];
                 const msgContent = d.content || '';
                 // Also check content for <@&roleId> format (some bots don't populate mention_roles)

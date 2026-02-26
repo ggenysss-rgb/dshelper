@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut, Settings, Bot, TicketX, X, User, Brain, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { cn } from '../lib/utils';
@@ -19,14 +19,53 @@ const navItems = [
 ];
 
 const ADMIN_ALIASES = new Set(['d1reevo', 'd1reevof']);
-const ACTIVE_PILL_TRANSITION = { type: 'spring', stiffness: 170, damping: 24, mass: 0.75 };
+const ACTIVE_PILL_TRANSITION = { type: 'tween', duration: 0.28, ease: [0.22, 1, 0.36, 1] as const };
 const MOBILE_SIDEBAR_TRANSITION = { type: 'spring', stiffness: 220, damping: 28, mass: 0.8 };
 
 export default function Sidebar() {
     const { logout, user } = useAuth();
+    const location = useLocation();
     const normalizedUsername = String(user?.username || '').trim().toLowerCase();
     const isAdmin = user?.role === 'admin' || user?.id === 1 || ADMIN_ALIASES.has(normalizedUsername);
     const [mobileOpen, setMobileOpen] = useState(false);
+    const navRef = useRef<HTMLElement | null>(null);
+    const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+    const [indicator, setIndicator] = useState({ top: 0, height: 0, opacity: 0 });
+
+    const allNavItems = useMemo(
+        () => isAdmin ? [...navItems, { to: '/admin', icon: ShieldCheck, label: 'Администрирование' }] : navItems,
+        [isAdmin]
+    );
+
+    const isRouteActive = useCallback((pathname: string, to: string) => {
+        return pathname === to || pathname.startsWith(`${to}/`);
+    }, []);
+
+    const activeRoute = useMemo(
+        () => allNavItems.find(item => isRouteActive(location.pathname, item.to))?.to || null,
+        [allNavItems, isRouteActive, location.pathname]
+    );
+
+    const updateIndicator = useCallback(() => {
+        if (!navRef.current || !activeRoute) {
+            setIndicator(prev => ({ ...prev, opacity: 0 }));
+            return;
+        }
+
+        const activeEl = itemRefs.current[activeRoute];
+        if (!activeEl) {
+            setIndicator(prev => ({ ...prev, opacity: 0 }));
+            return;
+        }
+
+        const navRect = navRef.current.getBoundingClientRect();
+        const itemRect = activeEl.getBoundingClientRect();
+        setIndicator({
+            top: itemRect.top - navRect.top,
+            height: itemRect.height,
+            opacity: 1,
+        });
+    }, [activeRoute]);
 
     // Listen for hamburger toggle from Topbar
     useEffect(() => {
@@ -38,9 +77,88 @@ export default function Sidebar() {
     // Close on route change
     useEffect(() => {
         setMobileOpen(false);
-    }, []);
+    }, [location.pathname]);
 
-    const sidebarContent = (
+    useLayoutEffect(() => {
+        updateIndicator();
+    }, [updateIndicator, location.pathname]);
+
+    useEffect(() => {
+        const onResize = () => updateIndicator();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [updateIndicator]);
+
+    const renderNav = (isMobile: boolean) => (
+        <nav ref={isMobile ? undefined : navRef} className="flex-1 space-y-1 relative">
+            {!isMobile && (
+                <motion.div
+                    className={cn(
+                        'sidebar-active-pill pointer-events-none absolute left-0 right-0 rounded-r-md border-l-2',
+                        activeRoute === '/admin'
+                            ? 'bg-purple-500/10 border-purple-500'
+                            : 'bg-primary/10 border-primary'
+                    )}
+                    initial={false}
+                    animate={indicator}
+                    transition={ACTIVE_PILL_TRANSITION}
+                />
+            )}
+
+            {navItems.map((item) => (
+                <NavLink
+                    key={item.to}
+                    ref={isMobile ? undefined : (el) => { itemRefs.current[item.to] = el; }}
+                    to={item.to}
+                    onClick={() => setMobileOpen(false)}
+                    className={({ isActive }) =>
+                        cn(
+                            'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
+                            isActive
+                                ? isMobile
+                                    ? 'text-foreground bg-primary/10 border-l-2 border-primary rounded-r-md'
+                                    : 'text-foreground'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                        )
+                    }
+                >
+                    {({ isActive }) => (
+                        <>
+                            <item.icon className={cn('w-5 h-5 relative z-10', isActive && 'text-primary')} />
+                            <span className="relative z-10">{item.label}</span>
+                        </>
+                    )}
+                </NavLink>
+            ))}
+
+            {isAdmin && (
+                <NavLink
+                    ref={isMobile ? undefined : (el) => { itemRefs.current['/admin'] = el; }}
+                    to="/admin"
+                    onClick={() => setMobileOpen(false)}
+                    className={({ isActive }) =>
+                        cn(
+                            'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
+                            isActive
+                                ? isMobile
+                                    ? 'text-foreground bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md'
+                                    : 'text-foreground'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                        )
+                    }
+                >
+                    {({ isActive }) => (
+                        <>
+                            <ShieldCheck className={cn('w-5 h-5 relative z-10', isActive ? 'text-purple-400' : '')} />
+                            <span className="relative z-10">Администрирование</span>
+                        </>
+                    )}
+                </NavLink>
+            )}
+        </nav>
+    );
+
+    const renderSidebarContent = (isMobile: boolean) => (
         <>
             <div className="flex items-center justify-between px-2 mb-8 mt-2">
                 <div className="flex items-center gap-3">
@@ -52,64 +170,7 @@ export default function Sidebar() {
                 </button>
             </div>
 
-            <nav className="flex-1 space-y-1 relative">
-                {navItems.map((item) => (
-                    <NavLink
-                        key={item.to}
-                        to={item.to}
-                        onClick={() => setMobileOpen(false)}
-                        className={({ isActive }) =>
-                            cn(
-                                'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
-                                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                            )
-                        }
-                    >
-                        {({ isActive }) => (
-                            <>
-                                {isActive && (
-                                    <motion.div
-                                        layoutId="sidebar-active"
-                                        className="sidebar-active-pill absolute inset-0 bg-primary/10 border-l-2 border-primary rounded-r-md"
-                                        initial={false}
-                                        transition={ACTIVE_PILL_TRANSITION}
-                                    />
-                                )}
-                                <item.icon className={cn('w-5 h-5 relative z-10', isActive && 'text-primary')} />
-                                <span className="relative z-10">{item.label}</span>
-                            </>
-                        )}
-                    </NavLink>
-                ))}
-
-                {isAdmin && (
-                    <NavLink
-                        to="/admin"
-                        onClick={() => setMobileOpen(false)}
-                        className={({ isActive }) =>
-                            cn(
-                                'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
-                                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-                            )
-                        }
-                    >
-                        {({ isActive }) => (
-                            <>
-                                {isActive && (
-                                    <motion.div
-                                        layoutId="sidebar-active"
-                                        className="sidebar-active-pill absolute inset-0 bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md"
-                                        initial={false}
-                                        transition={ACTIVE_PILL_TRANSITION}
-                                    />
-                                )}
-                                <ShieldCheck className={cn('w-5 h-5 relative z-10', isActive ? 'text-purple-400' : '')} />
-                                <span className="relative z-10">Администрирование</span>
-                            </>
-                        )}
-                    </NavLink>
-                )}
-            </nav>
+            {renderNav(isMobile)}
 
             <button
                 onClick={logout}
@@ -125,7 +186,7 @@ export default function Sidebar() {
         <>
             {/* Desktop sidebar */}
             <aside className="sidebar-shell hidden md:flex w-64 h-screen bg-card border-r border-border flex-col p-4 fixed left-0 top-0 z-50">
-                {sidebarContent}
+                {renderSidebarContent(false)}
             </aside>
 
             {/* Mobile sidebar overlay */}
@@ -146,7 +207,7 @@ export default function Sidebar() {
                             transition={MOBILE_SIDEBAR_TRANSITION}
                             className="sidebar-shell md:hidden fixed left-0 top-0 w-72 h-screen bg-card border-r border-border flex flex-col p-4 z-[70]"
                         >
-                            {sidebarContent}
+                            {renderSidebarContent(true)}
                         </motion.aside>
                     </>
                 )}

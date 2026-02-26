@@ -960,6 +960,12 @@ async function fetchAndScanChannels(bot) {
         bot.restoreActivityTimers();
         // Subscribe to ALL ticket channels via op14
         subscribeToTicketChannels(bot);
+        // For selfbot flow: explicitly request member sidebar data for dashboard members list
+        if (!cfg.discordBotToken) {
+            setTimeout(() => {
+                requestDashboardMembersSidebar(bot, guildId, categoryId);
+            }, 1200);
+        }
 
         // Background: fetch last message for each ticket to populate preview
         (async () => {
@@ -992,22 +998,31 @@ async function fetchAndScanChannels(bot) {
 
     // Fetch guild members — use search API (works for user tokens, /members requires bot privilege)
     try {
-        // Search with empty query returns members, do multiple letter searches for broader coverage
-        const searches = ['', 'a', 'e', 'i', 'o', 'u', 'с', 'а', 'е'];
+        const searches = ['a', 'e', 'i', 'o', 'u', 'n', 'm', 'd', 'с', 'а', 'е', 'и'];
         const seen = new Set();
+        let okResponses = 0;
         for (const q of searches) {
             try {
                 const url = `https://discord.com/api/v9/guilds/${guildId}/members/search?query=${encodeURIComponent(q)}&limit=100`;
                 const res = await bot.httpGet(url, { Authorization: token });
                 if (res.ok) {
+                    okResponses++;
                     const members = JSON.parse(res.body);
                     for (const m of members) { if (m.user && !seen.has(m.user.id)) { seen.add(m.user.id); bot.guildMembersCache.set(m.user.id, m); } }
+                } else if (okResponses === 0) {
+                    bot.log(`⚠️ Members search returned ${res.status} for query "${q}"`);
                 }
             } catch { }
             await sleep(300); // rate limit safety
         }
         bot.log(`👥 Members search: ${seen.size} members loaded`);
         if (seen.size > 0) scheduleMembersUpdate(bot);
+        if (seen.size === 0 && !cfg.discordBotToken) {
+            // Retry sidebar request once more if REST search returned nothing
+            setTimeout(() => {
+                requestDashboardMembersSidebar(bot, guildId, categoryId);
+            }, 2500);
+        }
     } catch (e) { bot.log(`❌ Members fetch error: ${e.message}`); }
 
     // Fetch guild roles
@@ -1038,6 +1053,41 @@ function sendLazyRequest(bot, guildId, channelIds) {
         }));
         bot.log(`📡 Lazy Request: subscribed to ${channelIds.length} channels`);
     } catch (e) { bot.log(`❌ Lazy Request error: ${e.message}`); }
+}
+
+function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId) {
+    if (!bot.ws || bot.ws.readyState !== 1) return false;
+    if (!guildId) return false;
+
+    const textChannels = [...bot.channelCache.values()].filter(ch => ch.guild_id === guildId && ch.type === 0);
+    if (textChannels.length === 0) {
+        bot.log('⚠️ Members sidebar request skipped: no text channels in cache');
+        return false;
+    }
+
+    const preferred = textChannels.find(ch => !ticketsCategoryId || ch.parent_id !== ticketsCategoryId) || textChannels[0];
+    const channels = {
+        [preferred.id]: [[0, 99], [100, 199], [200, 299], [300, 399], [400, 499]]
+    };
+
+    try {
+        bot.ws.send(JSON.stringify({
+            op: 14,
+            d: {
+                guild_id: guildId,
+                typing: true,
+                threads: true,
+                activities: true,
+                members: [],
+                channels,
+            }
+        }));
+        bot.log(`👥 Requested member sidebar for dashboard (channel: ${preferred.id})`);
+        return true;
+    } catch (e) {
+        bot.log(`❌ Members sidebar request error: ${e.message}`);
+        return false;
+    }
 }
 
 function subscribeToTicketChannels(bot) {

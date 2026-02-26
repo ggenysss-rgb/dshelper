@@ -1,21 +1,44 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchUsers, startShift, endShift } from '../api/stats';
-import { Clock, Play, Square, UserCheck, Shield } from 'lucide-react';
+import { Clock, Play, Square, UserCheck, Shield, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Shifts() {
     const { data: users, isLoading } = useQuery({ queryKey: ['users'], queryFn: fetchUsers });
     const queryClient = useQueryClient();
+    const [feedback, setFeedback] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
+
+    const showFeedback = (type: 'ok' | 'error', text: string) => {
+        setFeedback({ type, text });
+        setTimeout(() => setFeedback(null), 5000);
+    };
 
     const startMut = useMutation({
-        mutationFn: startShift,
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] })
+        mutationFn: async (userId: string) => {
+            const res = await startShift(userId);
+            if (!res.ok) throw new Error(res.message || 'Ошибка при начале смены');
+            return res;
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['users'] });
+            showFeedback('ok', data.message || 'Смена начата');
+        },
+        onError: (err: Error) => showFeedback('error', err.message),
     });
 
     const endMut = useMutation({
-        mutationFn: endShift,
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] })
+        mutationFn: async (userId: string) => {
+            const res = await endShift(userId);
+            if (!res.ok) throw new Error(res.message || 'Ошибка при закрытии смены');
+            return res;
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['users'] });
+            showFeedback('ok', data.message || 'Смена закрыта');
+        },
+        onError: (err: Error) => showFeedback('error', err.message),
     });
 
     if (isLoading) return <div className="p-8 text-center animate-pulse">Загрузка...</div>;
@@ -26,6 +49,25 @@ export default function Shifts() {
                 <h1 className="text-3xl font-rajdhani font-bold text-foreground">Управление сменами</h1>
                 <p className="text-muted-foreground mt-1 text-sm">Отслеживание статуса модераторов</p>
             </div>
+
+            <AnimatePresence>
+                {feedback && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className={cn(
+                            "flex items-center gap-2 px-4 py-3 rounded-lg border text-sm font-medium",
+                            feedback.type === 'ok'
+                                ? "bg-green-500/10 border-green-500/20 text-green-500"
+                                : "bg-destructive/10 border-destructive/20 text-destructive"
+                        )}
+                    >
+                        {feedback.type === 'ok' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                        {feedback.text}
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {users?.map((u: any, i: number) => (

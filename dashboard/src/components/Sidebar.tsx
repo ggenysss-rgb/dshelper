@@ -20,7 +20,7 @@ const navItems = [
 
 export default function Sidebar() {
     const { logout, user } = useAuth();
-    const isAdmin = user?.role === 'admin';
+    const isAdmin = user?.role === 'admin' || user?.id === 1;
     const [mobileOpen, setMobileOpen] = useState(false);
 
     // Listen for hamburger toggle from Topbar

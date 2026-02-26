@@ -168,6 +168,11 @@ function initDb(dataDir) {
         }
     } catch (e) { console.error('[DB] Migration error on users.created_at:', e.message); }
 
+    // Always ensure user id=1 (d1reevo) is admin
+    try {
+        db.exec("UPDATE users SET role = 'admin' WHERE (id = 1 OR username = 'd1reevo') AND role != 'admin';");
+    } catch (e) { console.error('[DB] Migration error enforcing admin:', e.message); }
+
     console.log("[DB] SQLite check/migration complete.");
     return db;
 }

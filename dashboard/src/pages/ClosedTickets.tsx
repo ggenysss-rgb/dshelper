@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchClosedTickets, fetchArchivedMessages } from '../api/stats';
 import { Search, TicketX, Clock, User, Hash, ChevronLeft, ChevronRight, X, MessageSquare, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../hooks/useAuth';
 
 interface Embed {
     title?: string;
@@ -28,10 +29,10 @@ interface ArchivedMessage {
 interface ArchiveData {
     channelId: string;
     channelName: string;
-    openerId: string;
-    openerUsername: string;
-    createdAt: number;
-    archivedAt: number;
+    openerId?: string;
+    openerUsername?: string;
+    createdAt?: number;
+    archivedAt?: number;
     messages: ArchivedMessage[];
 }
 
@@ -43,15 +44,30 @@ interface ClosedTicketsResponse {
 }
 
 // ── Chat Viewer ───────────────────────────────────────────────
-function ChatViewer({ channelId, channelName, onClose }: { channelId: string; channelName: string; onClose: () => void }) {
+function ChatViewer({ channelId, channelName, onClose, currentUsername }: { channelId: string; channelName: string; onClose: () => void; currentUsername?: string }) {
     const { data: archive, isLoading, error } = useQuery<ArchiveData>({
         queryKey: ['archive', channelId],
         queryFn: () => fetchArchivedMessages(channelId),
         enabled: !!channelId,
     });
-    const inferredOpener = archive?.messages?.find(m => !m.author?.bot);
-    const openerId = archive?.openerId || inferredOpener?.author?.id || '';
-    const openerName = archive?.openerUsername || inferredOpener?.author?.global_name || inferredOpener?.author?.username || 'Игрок';
+
+    const ownerAliases = new Set(
+        [currentUsername, 'd1reevo', 'd1reevof']
+            .map(v => String(v || '').trim().toLowerCase())
+            .filter(Boolean)
+    );
+
+    const isOwnerMessage = (msg: ArchivedMessage) => {
+        const username = String(msg.author?.username || '').trim().toLowerCase();
+        const globalName = String(msg.author?.global_name || '').trim().toLowerCase();
+        return ownerAliases.has(username) || ownerAliases.has(globalName);
+    };
+
+    const inferredPlayer = archive?.messages?.find(m => !m.author?.bot && !isOwnerMessage(m));
+    const openerName =
+        archive?.openerUsername && !ownerAliases.has(String(archive.openerUsername).trim().toLowerCase())
+            ? archive.openerUsername
+            : (inferredPlayer?.author?.global_name || inferredPlayer?.author?.username || 'Игрок');
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -95,10 +111,10 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                     )}
                     {archive?.messages.map((msg) => {
                         const isBot = msg.author.bot;
-                        const isOpener = !!openerId && msg.author.id === openerId;
+                        const isOwner = isOwnerMessage(msg);
 
                         return (
-                            <div key={msg.id} className={`flex gap-3 ${!isOpener ? 'flex-row-reverse' : ''}`}>
+                            <div key={msg.id} className={`flex gap-3 ${isOwner ? 'flex-row-reverse' : ''}`}>
                                 {/* Avatar */}
                                 <div className="shrink-0 mt-0.5">
                                     {msg.author.avatar ? (
@@ -114,9 +130,9 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                                 </div>
 
                                 {/* Bubble */}
-                                <div className={`max-w-[75%] ${!isOpener ? 'items-end' : 'items-start'}`}>
-                                    <div className={`flex items-baseline gap-2 mb-0.5 ${!isOpener ? 'justify-end' : ''}`}>
-                                        <span className={`text-xs font-semibold ${!isOpener ? 'text-primary' : 'text-foreground'}`}>
+                                <div className={`max-w-[75%] ${isOwner ? 'items-end' : 'items-start'}`}>
+                                    <div className={`flex items-baseline gap-2 mb-0.5 ${isOwner ? 'justify-end' : ''}`}>
+                                        <span className={`text-xs font-semibold ${isOwner ? 'text-primary' : 'text-foreground'}`}>
                                             {msg.author.global_name || msg.author.username}
                                         </span>
                                         {isBot && <span className="text-[9px] bg-[#5865F2] text-white px-1 py-0.5 rounded font-medium">BOT</span>}
@@ -125,7 +141,7 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                                         </span>
                                     </div>
                                     {msg.content ? (
-                                        <div className={`px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${!isOpener
+                                        <div className={`px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap leading-relaxed ${isOwner
                                             ? 'bg-primary text-primary-foreground rounded-tr-sm'
                                             : 'bg-secondary text-foreground rounded-tl-sm border border-border/50'
                                             }`}>
@@ -192,6 +208,7 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function ClosedTickets() {
+    const { user } = useAuth();
     const [page, setPage] = useState(1);
     const [search, setSearch] = useState('');
     const [searchDebounced, setSearchDebounced] = useState('');
@@ -331,7 +348,12 @@ export default function ClosedTickets() {
             {/* Chat Viewer Modal */}
             <AnimatePresence>
                 {viewTicket && (
-                    <ChatViewer channelId={viewTicket.channelId} channelName={viewTicket.channelName} onClose={() => setViewTicket(null)} />
+                    <ChatViewer
+                        channelId={viewTicket.channelId}
+                        channelName={viewTicket.channelName}
+                        currentUsername={user?.username}
+                        onClose={() => setViewTicket(null)}
+                    />
                 )}
             </AnimatePresence>
         </div>

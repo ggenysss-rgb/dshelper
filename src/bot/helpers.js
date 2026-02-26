@@ -89,23 +89,108 @@ function msUntilKyivHour(targetHour, targetMinute = 0) {
 
 // Auto-reply matching
 function matchAutoReply(rule, content, channelId, guildId) {
-    if (!rule.enabled) return false;
-    if (rule.guildId && rule.guildId !== guildId) return false;
-    if (rule.channelId && rule.channelId !== channelId) return false;
-    const text = content.toLowerCase();
+    return analyzeAutoReplyRule(rule, content, channelId, guildId).matched;
+}
+
+function analyzeAutoReplyRule(rule, content, channelId, guildId) {
+    const text = String(content || '').toLowerCase();
+    const ruleGuildId = String(rule?.guildId || '');
+    const ruleChannelId = String(rule?.channelId || '');
+    const currentGuildId = String(guildId || '');
+    const currentChannelId = String(channelId || '');
+
+    if (!rule.enabled) {
+        return {
+            matched: false,
+            reason: 'disabled',
+            matchedKeywords: [],
+            confidence: 0,
+        };
+    }
+
+    if (ruleGuildId && ruleGuildId !== currentGuildId) {
+        return {
+            matched: false,
+            reason: 'guild_mismatch',
+            matchedKeywords: [],
+            confidence: 0,
+        };
+    }
+
+    if (ruleChannelId && ruleChannelId !== currentChannelId) {
+        return {
+            matched: false,
+            reason: 'channel_mismatch',
+            matchedKeywords: [],
+            confidence: 0,
+        };
+    }
 
     // Exclude check
-    if (rule.excludeAny && rule.excludeAny.some(e => text.includes(e.toLowerCase()))) return false;
+    const excludeAny = Array.isArray(rule.excludeAny) ? rule.excludeAny : [];
+    const excludedKeywords = excludeAny.filter(e => text.includes(String(e).toLowerCase()));
+    if (excludedKeywords.length > 0) {
+        return {
+            matched: false,
+            reason: 'excluded',
+            matchedKeywords: excludedKeywords,
+            confidence: 0.1,
+        };
+    }
 
     // Include check
-    if (rule.includeAny && rule.includeAny.some(k => text.includes(k.toLowerCase()))) return true;
-    if (rule.includeAll) {
-        return rule.includeAll.every(group => {
-            if (Array.isArray(group)) return group.some(k => text.includes(k.toLowerCase()));
-            return text.includes(String(group).toLowerCase());
-        });
+    const includeAny = Array.isArray(rule.includeAny) ? rule.includeAny : [];
+    const includeAnyMatches = includeAny.filter(k => text.includes(String(k).toLowerCase()));
+    if (includeAnyMatches.length > 0) {
+        return {
+            matched: true,
+            reason: 'include_any',
+            matchedKeywords: includeAnyMatches,
+            confidence: Math.min(0.7 + includeAnyMatches.length * 0.1, 0.98),
+        };
     }
-    return false;
+
+    if (rule.includeAll) {
+        const includeAll = Array.isArray(rule.includeAll) ? rule.includeAll : [];
+        const matchedIncludeAll = [];
+        const allGroupsMatched = includeAll.every(group => {
+            if (Array.isArray(group)) {
+                const localMatches = group.filter(k => text.includes(String(k).toLowerCase()));
+                if (localMatches.length > 0) {
+                    matchedIncludeAll.push(...localMatches);
+                    return true;
+                }
+                return false;
+            }
+            const token = String(group || '');
+            if (text.includes(token.toLowerCase())) {
+                matchedIncludeAll.push(token);
+                return true;
+            }
+            return false;
+        });
+        if (allGroupsMatched && includeAll.length > 0) {
+            return {
+                matched: true,
+                reason: 'include_all',
+                matchedKeywords: matchedIncludeAll,
+                confidence: Math.min(0.75 + matchedIncludeAll.length * 0.06, 0.99),
+            };
+        }
+        return {
+            matched: false,
+            reason: 'include_miss',
+            matchedKeywords: matchedIncludeAll,
+            confidence: 0,
+        };
+    }
+
+    return {
+        matched: false,
+        reason: 'no_include_rules',
+        matchedKeywords: [],
+        confidence: 0,
+    };
 }
 
 module.exports = {
@@ -113,5 +198,5 @@ module.exports = {
     channelLink, sleep, getPriority, getTicketPrefixes, isStaffFromMember,
     isClosingPhrase, getMemberDisplayName, snowflakeToTimestamp, slaEmoji,
     getKyivDate, getKyivHour, getKyivMinute, formatKyivDate, getKyivNow, msUntilKyivHour,
-    matchAutoReply, SHIFT_TZ,
+    matchAutoReply, analyzeAutoReplyRule, SHIFT_TZ,
 };

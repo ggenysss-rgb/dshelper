@@ -4,10 +4,11 @@
 const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
-const { sleep, escapeHtml, getTicketPrefixes, isStaffFromMember, isClosingPhrase, snowflakeToTimestamp, matchAutoReply } = require('./helpers');
+const { sleep, escapeHtml, getTicketPrefixes, isStaffFromMember, isClosingPhrase, snowflakeToTimestamp } = require('./helpers');
 const { buildTicketCreatedMessage, buildFirstMessageNotification, buildTicketClosedMessage, buildHighPriorityAlert, buildForwardedMessage } = require('./builders');
 const { containsProfanity } = require('./profanityFilter');
 const ConversationLogger = require('./conversationLogger');
+const { evaluateAutoReplyDecision } = require('./autoReplyEngine');
 
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const RESUMABLE_CODES = [4000, 4001, 4002, 4003, 4005, 4007, 4009];
@@ -175,78 +176,11 @@ function appendHistoryMessages(bot, messages, channelHistory) {
     }
 }
 
-const APPEAL_RESPONSE = 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals';
-const SUPPORT_RESPONSE = 'Обратитесь в поддержку: https://vk.com/funtime';
 const FORCED_TICKET_GREET_ROLE_IDS = ['1334466933273395242', '1086969387103293560'];
 
 function getEffectiveAutoGreetRoleIds(cfg) {
     const configured = Array.isArray(cfg?.autoGreetRoleIds) ? cfg.autoGreetRoleIds : [];
     return [...new Set([...configured.map(String), ...FORCED_TICKET_GREET_ROLE_IDS])];
-}
-
-function hasHelpQuestionIntent(text) {
-    const t = String(text || '');
-    if (!t) return false;
-    if (t.includes('?')) return true;
-    return /(что делать|что мне делать|как быть|как быть\?|как же|что делать если|куда писать|куда обращаться|куда идти|подскаж|помог|почему|за что|как обжал|обжал|оспор|кто поможет|что теперь|как дальше)/.test(t);
-}
-
-function getModerationCheckAutoReply(content) {
-    const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    if (!text) return null;
-
-    // Ignore recruitment/announcement templates that mention "проверка", but are not support requests.
-    const looksLikeAnnouncement = /(проходит набор|набор в|критери|pvp\s*0\/10|pve\s*0\/10|привилеги|имя\(настоящее\)|играли когда то с софтами|готовы ли пройти проверку)/.test(text);
-    if (looksLikeAnnouncement) return null;
-
-    const hasCheckContext = /(проверк|проверяющ|прова|прове|прову|анидеск|anydesk|аник|ани деск)/.test(text);
-    const hasModeratorWord = /(модер|модерат)/.test(text);
-
-    const hasWaitOrIgnore = /(игнор|не отвечает|не кидает|не делают|не делает|жду|долго|нет ответа|молчит|пропал|не пишет|ничего не делает|вызвали на пров|вызвали на провер)/.test(text);
-    const hasBanContext = /(бан|забан|откин|блок|разбан|розбан)/.test(text);
-    const hasPersonalContext = /(^|\s)(я|меня|мне|мной|у меня|мой|моя|мои|мою|вызвали)(\s|$)/.test(text);
-    const hasSignal = hasWaitOrIgnore || (hasHelpQuestionIntent(text) && hasPersonalContext);
-
-    // Guard against broad false positives like "как подать на модератора".
-    // "модер/модератор" alone should not trigger this rule.
-    if (!(hasCheckContext || (hasModeratorWord && hasWaitOrIgnore))) return null;
-    if (!hasSignal) return null;
-    return hasBanContext ? APPEAL_RESPONSE : SUPPORT_RESPONSE;
-}
-
-function getBanAppealOverrideResponse(rule, content) {
-    const ruleName = String(rule?.name || '').toLowerCase();
-    if (!ruleName.includes('ошибоч') || !ruleName.includes('бан')) return null;
-
-    const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    if (!text) return null;
-
-    const hasUnban = /(разбан|розбан)/.test(text);
-    const hasPurchase = /(куп|покуп|оплат|донат|стоим|цена|4[.,]13|5000|5к)/.test(text);
-    if (hasUnban && hasPurchase) return SUPPORT_RESPONSE;
-    return null;
-}
-
-function shouldSkipBanAppealAutoReply(rule, content) {
-    const ruleName = String(rule?.name || '').toLowerCase();
-    if (!ruleName.includes('ошибоч') || !ruleName.includes('бан')) return false;
-
-    const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    if (!text) return false;
-
-    // Don’t send "appeal" auto-reply for unban purchase/payment contexts.
-    const hasUnban = /(разбан|розбан)/.test(text);
-    const hasPurchase = /(куп|покуп|оплат|донат|стоим|цена|4[.,]13|5000|5к)/.test(text);
-    if (hasUnban && hasPurchase) return true;
-
-    const isSimpleMentionRule = ruleName.includes('простое упоминание');
-    // User asked to keep only the "question" ban flow.
-    if (isSimpleMentionRule) return true;
-
-    // For question-based flow, require explicit help/question intent.
-    if (!hasHelpQuestionIntent(text)) return true;
-
-    return false;
 }
 
 function rememberNeuroMessageId(bot, sendResult) {
@@ -520,60 +454,37 @@ function handleDispatch(bot, event, d) {
                 if (!bot._arProcessed) bot._arProcessed = new Set();
                 bot._arProcessed.add(d.id);
                 let matched = false;
-                const moderationResponse = d.guild_id === guildId ? getModerationCheckAutoReply(d.content || '') : null;
-                if (moderationResponse) {
+                const decision = evaluateAutoReplyDecision({
+                    rules: cfg.autoReplies || [],
+                    content: d.content || '',
+                    channelId: d.channel_id,
+                    guildId: d.guild_id,
+                    source: 'gateway',
+                });
+                if (decision.action === 'send' && decision.response) {
                     matched = true;
-                    bot.log(`🤖 Auto-reply matched: "проверка/модерация" in guild ${d.guild_id} channel ${d.channel_id}`);
+                    const details = {
+                        rule_id: decision.ruleId,
+                        rule_name: decision.ruleName,
+                        keywords: decision.keywords,
+                        confidence: decision.confidence,
+                        source: decision.source,
+                        reason: decision.reason,
+                        channel_id: d.channel_id,
+                        guild_id: d.guild_id,
+                    };
+                    bot.log(`🤖 Auto-reply matched: "${decision.ruleName}" in guild ${d.guild_id} channel ${d.channel_id}`, 'autoreply', details);
                     const replyMsgId = d.id;
+                    const delaySec = decision.ruleId === 'moderation_check' ? 2 : (((cfg.autoReplies || []).find(r => (r.id || '') === decision.ruleId || r.name === decision.ruleName)?.delay) || 2);
                     setTimeout(async () => {
                         try {
-                            await bot.sendDiscordMessage(d.channel_id, moderationResponse, replyMsgId);
-                            bot.log(`✅ Auto-reply sent: "проверка/модерация"`);
-                            bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> проверка/модерация\n👤 <b>Игрок:</b> ${d.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(d.content || '').slice(0, 150)}</i>` });
+                            await bot.sendDiscordMessage(d.channel_id, decision.response, replyMsgId);
+                            bot.log(`✅ Auto-reply sent: "${decision.ruleName}"`, 'autoreply', details);
+                            bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${decision.ruleName}\n🧾 <b>rule_id:</b> <code>${decision.ruleId}</code>\n🎯 <b>confidence:</b> <code>${Number(decision.confidence || 0).toFixed(2)}</code>\n🔎 <b>source:</b> <code>${decision.source}</code>\n👤 <b>Игрок:</b> ${d.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(d.content || '').slice(0, 150)}</i>` });
                         } catch (e) {
                             bot.log(`❌ Auto-reply send failed: ${e.message}`);
                         }
-                    }, 2000);
-                } else {
-                    for (const rule of cfg.autoReplies) {
-                        if (matchAutoReply(rule, d.content || '', d.channel_id, d.guild_id)) {
-                            const overrideResponse = getBanAppealOverrideResponse(rule, d.content || '');
-                            if (overrideResponse) {
-                                bot.log(`🤖 Auto-reply matched: "${rule.name}" in guild ${d.guild_id} channel ${d.channel_id}`);
-                                bot.log(`↪️ Auto-reply override: "${rule.name}" -> support link`);
-                                matched = true;
-                                const replyMsgId = d.id;
-                                setTimeout(async () => {
-                                    try {
-                                        await bot.sendDiscordMessage(d.channel_id, overrideResponse, replyMsgId);
-                                        bot.log(`✅ Auto-reply sent: "${rule.name}"`);
-                                        bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${rule.name}\n👤 <b>Игрок:</b> ${d.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(d.content || '').slice(0, 150)}</i>` });
-                                    } catch (e) {
-                                        bot.log(`❌ Auto-reply send failed: ${e.message}`);
-                                    }
-                                }, (rule.delay || 2) * 1000);
-                                break;
-                            }
-                            if (shouldSkipBanAppealAutoReply(rule, d.content || '')) {
-                                bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (ban-context filter)`);
-                                continue;
-                            }
-                            bot.log(`🤖 Auto-reply matched: "${rule.name}" in guild ${d.guild_id} channel ${d.channel_id}`);
-                            matched = true;
-                            const replyMsgId = d.id;
-                            setTimeout(async () => {
-                                try {
-                                    await bot.sendDiscordMessage(d.channel_id, rule.response, replyMsgId);
-                                    bot.log(`✅ Auto-reply sent: "${rule.name}"`);
-                                    // Telegram notification
-                                    bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${rule.name}\n👤 <b>Игрок:</b> ${d.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(d.content || '').slice(0, 150)}</i>` });
-                                } catch (e) {
-                                    bot.log(`❌ Auto-reply send failed: ${e.message}`);
-                                }
-                            }, (rule.delay || 2) * 1000);
-                            break;
-                        }
-                    }
+                    }, delaySec * 1000);
                 }
                 // Debug: log when message is checked but no rule matched (only for target guild, limit noise)
                 if (!matched && d.guild_id === guildId && !bot._arDebugCount) bot._arDebugCount = 0;
@@ -1329,50 +1240,33 @@ function startAutoReplyPolling(bot) {
                     const msgGuildId = ch?.guild_id || guildId;
                     const arExclude2 = cfg.autoReplyExcludeChannels || ['717735180546343032'];
                     if (arExclude2.includes(channelId)) continue;
-                    const moderationResponse = msgGuildId === guildId ? getModerationCheckAutoReply(msg.content || '') : null;
-                    if (moderationResponse) {
-                        bot.log(`🤖 Auto-reply matched (poll): "проверка/модерация" from ${msg.author.username} in #${channelId}`);
-                        await sleep(2000);
+                    const decision = evaluateAutoReplyDecision({
+                        rules: cfg.autoReplies || [],
+                        content: msg.content || '',
+                        channelId,
+                        guildId: msgGuildId,
+                        source: 'poll',
+                    });
+                    if (decision.action === 'send' && decision.response) {
+                        const details = {
+                            rule_id: decision.ruleId,
+                            rule_name: decision.ruleName,
+                            keywords: decision.keywords,
+                            confidence: decision.confidence,
+                            source: decision.source,
+                            reason: decision.reason,
+                            channel_id: channelId,
+                            guild_id: msgGuildId,
+                        };
+                        bot.log(`🤖 Auto-reply matched (poll): "${decision.ruleName}" from ${msg.author.username} in #${channelId}`, 'autoreply', details);
+                        const delaySec = decision.ruleId === 'moderation_check' ? 2 : (((cfg.autoReplies || []).find(r => (r.id || '') === decision.ruleId || r.name === decision.ruleName)?.delay) || 2);
+                        await sleep(delaySec * 1000);
                         try {
-                            await bot.sendDiscordMessage(channelId, moderationResponse, msg.id);
-                            bot.log(`✅ Auto-reply sent: "проверка/модерация"`);
-                            bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> проверка/модерация\n👤 <b>Игрок:</b> ${msg.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(msg.content || '').slice(0, 150)}</i>` });
+                            await bot.sendDiscordMessage(channelId, decision.response, msg.id);
+                            bot.log(`✅ Auto-reply sent: "${decision.ruleName}"`, 'autoreply', details);
+                            bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${decision.ruleName}\n🧾 <b>rule_id:</b> <code>${decision.ruleId}</code>\n🎯 <b>confidence:</b> <code>${Number(decision.confidence || 0).toFixed(2)}</code>\n🔎 <b>source:</b> <code>${decision.source}</code>\n👤 <b>Игрок:</b> ${msg.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(msg.content || '').slice(0, 150)}</i>` });
                         } catch (e) {
                             bot.log(`❌ Auto-reply send failed: ${e.message}`);
-                        }
-                    } else {
-                        for (const rule of cfg.autoReplies) {
-                            if (matchAutoReply(rule, msg.content || '', channelId, msgGuildId)) {
-                                const overrideResponse = getBanAppealOverrideResponse(rule, msg.content || '');
-                                if (overrideResponse) {
-                                    bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
-                                    bot.log(`↪️ Auto-reply override: "${rule.name}" -> support link`);
-                                    await sleep((rule.delay || 2) * 1000);
-                                    try {
-                                        await bot.sendDiscordMessage(channelId, overrideResponse, msg.id);
-                                        bot.log(`✅ Auto-reply sent: "${rule.name}"`);
-                                        bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${rule.name}\n👤 <b>Игрок:</b> ${msg.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(msg.content || '').slice(0, 150)}</i>` });
-                                    } catch (e) {
-                                        bot.log(`❌ Auto-reply send failed: ${e.message}`);
-                                    }
-                                    break;
-                                }
-                                if (shouldSkipBanAppealAutoReply(rule, msg.content || '')) {
-                                    bot.log(`⏭️ Auto-reply skipped: "${rule.name}" (ban-context filter)`);
-                                    continue;
-                                }
-                                bot.log(`🤖 Auto-reply matched (poll): "${rule.name}" from ${msg.author.username} in #${channelId}`);
-                                await sleep((rule.delay || 2) * 1000);
-                                try {
-                                    await bot.sendDiscordMessage(channelId, rule.response, msg.id);
-                                    bot.log(`✅ Auto-reply sent: "${rule.name}"`);
-                                    // Telegram notification
-                                    bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${rule.name}\n👤 <b>Игрок:</b> ${msg.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(msg.content || '').slice(0, 150)}</i>` });
-                                } catch (e) {
-                                    bot.log(`❌ Auto-reply send failed: ${e.message}`);
-                                }
-                                break;
-                            }
                         }
                     }
                 }

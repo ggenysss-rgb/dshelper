@@ -66,7 +66,21 @@ function getDateLabel(ts: string) {
     return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' });
 }
 
-interface LogEntry { ts: string; type: string; message: string; }
+interface LogDetails {
+    rule_id?: string;
+    rule_name?: string;
+    keywords?: string[];
+    confidence?: number;
+    source?: string;
+    reason?: string;
+}
+
+interface LogEntry {
+    ts: string;
+    type: string;
+    message: string;
+    details?: LogDetails;
+}
 
 export default function Logs() {
     const queryClient = useQueryClient();
@@ -233,6 +247,35 @@ export default function Logs() {
                                                             )}
                                                         </div>
                                                         <p className="text-xs md:text-sm text-foreground/90 leading-snug truncate">{log.message}</p>
+                                                        {log.details && (
+                                                            <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                                                                {log.details.rule_id && (
+                                                                    <span className="px-1.5 py-0.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300">
+                                                                        rule_id: {log.details.rule_id}
+                                                                    </span>
+                                                                )}
+                                                                {typeof log.details.confidence === 'number' && (
+                                                                    <span className="px-1.5 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                                                        confidence: {log.details.confidence.toFixed(2)}
+                                                                    </span>
+                                                                )}
+                                                                {log.details.source && (
+                                                                    <span className="px-1.5 py-0.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
+                                                                        source: {log.details.source}
+                                                                    </span>
+                                                                )}
+                                                                {log.details.reason && (
+                                                                    <span className="px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300">
+                                                                        reason: {log.details.reason}
+                                                                    </span>
+                                                                )}
+                                                                {!!log.details.keywords?.length && (
+                                                                    <span className="px-1.5 py-0.5 rounded border border-slate-500/30 bg-slate-500/10 text-slate-300 truncate max-w-[420px]">
+                                                                        keywords: {log.details.keywords.join(', ')}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="text-right shrink-0 hidden sm:block">
                                                         <span className="text-[11px] text-muted-foreground font-mono block">{getTimeStr(log.ts)}</span>

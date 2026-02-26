@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchAutoReplies, updateAutoReplies } from '../api/stats';
-import { Bot, Plus, Trash2, Save, Loader2, Check, ChevronDown, Power, PowerOff, Search, Copy } from 'lucide-react';
+import { fetchAutoReplies, updateAutoReplies, simulateAutoReply } from '../api/stats';
+import { Bot, Plus, Trash2, Save, Loader2, Check, ChevronDown, Power, PowerOff, Search, Copy, FlaskConical, WandSparkles, Target, ArrowRight } from 'lucide-react';
 
 interface AutoReplyRule {
     name: string;
@@ -18,6 +18,28 @@ interface AutoReplyRule {
 // Internal rule with stable ID for React reconciliation
 interface InternalRule extends AutoReplyRule {
     _id: string;
+}
+
+interface SimulateDecision {
+    action: 'send' | 'none';
+    source: string;
+    ruleId: string | null;
+    ruleName: string | null;
+    response: string | null;
+    reason: string;
+    keywords: string[];
+    confidence: number;
+    checkedRules: number;
+}
+
+interface SimulateResponse {
+    ok: boolean;
+    input: {
+        content: string;
+        guildId: string;
+        channelId: string;
+    };
+    decision: SimulateDecision;
 }
 
 let _nextId = 1;
@@ -213,6 +235,9 @@ export default function AutoReplies() {
     const [saved, setSaved] = useState(false);
     const [search, setSearch] = useState('');
     const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [simMessage, setSimMessage] = useState('');
+    const [simGuildId, setSimGuildId] = useState('690362306395111444');
+    const [simChannelId, setSimChannelId] = useState('');
 
     // Sync server data → internal list (only on first load or after save)
     const effectiveList: InternalRule[] = useMemo(() => {
@@ -244,6 +269,18 @@ export default function AutoReplies() {
             setTimeout(() => setSaved(false), 2000);
         }
     });
+
+    const simulateMutation = useMutation({
+        mutationFn: (payload: { content: string; guildId?: string; channelId?: string; }) => simulateAutoReply(payload),
+    });
+
+    useEffect(() => {
+        if (!serverRules?.length) return;
+        const firstWithGuild = serverRules.find((r: AutoReplyRule) => !!r.guildId);
+        if (firstWithGuild?.guildId) setSimGuildId(firstWithGuild.guildId);
+        const firstWithChannel = serverRules.find((r: AutoReplyRule) => !!r.channelId);
+        if (firstWithChannel?.channelId) setSimChannelId(firstWithChannel.channelId);
+    }, [serverRules]);
 
     const updateRule = useCallback((id: string, updated: InternalRule) => {
         setList(prev => {
@@ -295,6 +332,15 @@ export default function AutoReplies() {
         mutation.mutate(stripIds(list));
     }, [list, mutation]);
 
+    const handleSimulate = useCallback(() => {
+        if (!simMessage.trim()) return;
+        simulateMutation.mutate({
+            content: simMessage.trim(),
+            guildId: simGuildId.trim(),
+            channelId: simChannelId.trim(),
+        });
+    }, [simMessage, simGuildId, simChannelId, simulateMutation]);
+
     const toggleExpand = useCallback((id: string) => {
         setExpandedId(prev => prev === id ? null : id);
     }, []);
@@ -302,6 +348,7 @@ export default function AutoReplies() {
     if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-2 border-[var(--color-accent)] border-t-transparent rounded-full" /></div>;
 
     const activeCount = effectiveList.filter(r => r.enabled).length;
+    const simulateResult = simulateMutation.data as SimulateResponse | undefined;
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -339,6 +386,89 @@ export default function AutoReplies() {
                         className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
                 </div>
             )}
+
+            {/* Simulator */}
+            <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl p-4 space-y-4">
+                <div className="flex items-center gap-2">
+                    <FlaskConical className="w-4 h-4 text-violet-400" />
+                    <h2 className="text-sm font-semibold">Симулятор авто-ответов</h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Guild ID</label>
+                        <input type="text" value={simGuildId} onChange={e => setSimGuildId(e.target.value)}
+                            className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Channel ID</label>
+                        <input type="text" value={simChannelId} onChange={e => setSimChannelId(e.target.value)} placeholder="Опционально"
+                            className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]" />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="text-[10px] text-[var(--color-text-secondary)] uppercase font-bold mb-1 block tracking-wider">Тестовое сообщение</label>
+                    <textarea value={simMessage} onChange={e => setSimMessage(e.target.value)} rows={3}
+                        placeholder="Вставь текст игрока, чтобы проверить, что сработает..."
+                        className="w-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)] resize-y" />
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleSimulate}
+                        disabled={!simMessage.trim() || simulateMutation.isPending}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        {simulateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <WandSparkles className="w-4 h-4" />}
+                        Проверить
+                    </button>
+                    {simulateMutation.isError && (
+                        <span className="text-xs text-red-400">Не удалось выполнить симуляцию</span>
+                    )}
+                </div>
+
+                {simulateResult?.decision && (
+                    <div className={`rounded-lg border p-3 space-y-2 ${simulateResult.decision.action === 'send' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-500/30 bg-slate-500/5'}`}>
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className={`px-2 py-1 rounded-md border ${simulateResult.decision.action === 'send' ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' : 'border-slate-500/40 text-slate-300 bg-slate-500/10'}`}>
+                                {simulateResult.decision.action === 'send' ? 'Сработает' : 'Не сработает'}
+                            </span>
+                            <span className="px-2 py-1 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)]">
+                                source: {simulateResult.decision.source}
+                            </span>
+                            <span className="px-2 py-1 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)] inline-flex items-center gap-1">
+                                <Target className="w-3 h-3" />
+                                confidence: {Number(simulateResult.decision.confidence || 0).toFixed(2)}
+                            </span>
+                        </div>
+                        <p className="text-sm">
+                            <span className="text-[var(--color-text-secondary)]">Причина:</span>{' '}
+                            <span className="font-medium">{simulateResult.decision.reason}</span>
+                        </p>
+                        {simulateResult.decision.ruleName && (
+                            <p className="text-sm">
+                                <span className="text-[var(--color-text-secondary)]">Правило:</span>{' '}
+                                <span className="font-medium">{simulateResult.decision.ruleName}</span>{' '}
+                                <span className="text-[var(--color-text-secondary)]">({simulateResult.decision.ruleId})</span>
+                            </p>
+                        )}
+                        {!!simulateResult.decision.keywords?.length && (
+                            <div className="flex flex-wrap gap-1.5">
+                                {simulateResult.decision.keywords.map((k, i) => (
+                                    <span key={`${k}-${i}`} className="text-[11px] px-2 py-0.5 rounded-md border border-violet-500/30 text-violet-300 bg-violet-500/10">{k}</span>
+                                ))}
+                            </div>
+                        )}
+                        {simulateResult.decision.response && (
+                            <div className="text-xs bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-md p-2 whitespace-pre-wrap">
+                                <span className="inline-flex items-center gap-1 text-[var(--color-text-secondary)] mb-1"><ArrowRight className="w-3 h-3" /> Ответ:</span>
+                                <div>{simulateResult.decision.response}</div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* Rules List */}
             <div className="space-y-3">

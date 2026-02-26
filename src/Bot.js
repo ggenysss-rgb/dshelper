@@ -10,7 +10,8 @@ const Database = require('better-sqlite3');
 
 const { escapeHtml, truncate, formatDuration, sleep, isStaffFromMember, isClosingPhrase,
     getKyivDate, formatKyivDate, msUntilKyivHour, getKyivHour, getKyivMinute, getMemberDisplayName,
-    matchAutoReply } = require('./bot/helpers');
+} = require('./bot/helpers');
+const { evaluateAutoReplyDecision } = require('./bot/autoReplyEngine');
 const { buildActivityMessage } = require('./bot/builders');
 const { connectGateway, cleanupGateway } = require('./bot/gateway');
 const { startPolling, stopPolling } = require('./bot/telegram');
@@ -153,10 +154,10 @@ class Bot {
         return 'system';
     }
 
-    log(msg, type) {
+    log(msg, type, details = undefined) {
         const message = String(msg || '');
         console.log(`[Bot:${this.userId}] ${message}`);
-        this.addLog(type || this.inferLogType(message), message);
+        this.addLog(type || this.inferLogType(message), message, details);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -325,7 +326,7 @@ class Bot {
 
     stopAutosave() { if (this.autosaveTimer) { clearInterval(this.autosaveTimer); this.autosaveTimer = null; } }
 
-    addLog(type, message) {
+    addLog(type, message, details = undefined) {
         const ts = new Date().toISOString();
         const entry = {
             type: type || this.inferLogType(message),
@@ -333,6 +334,7 @@ class Bot {
             ts,
             timestamp: Date.now(),
         };
+        if (details && typeof details === 'object') entry.details = details;
         this.dashboardLogs.unshift(entry);
         if (this.dashboardLogs.length > 5000) this.dashboardLogs.length = 5000;
         if (this.io) {
@@ -1012,6 +1014,16 @@ class Bot {
 
     getAutoReplies() { return this.config.autoReplies || []; }
     updateAutoReplies(rules) { this.config.autoReplies = rules; this.addLog('autoreplies', `Обновлено ${rules.length} правил`); }
+
+    simulateAutoReply({ content = '', channelId = '', guildId = '' }) {
+        return evaluateAutoReplyDecision({
+            rules: this.config.autoReplies || [],
+            content,
+            channelId: String(channelId || ''),
+            guildId: String(guildId || this.config.guildId || ''),
+            source: 'simulator',
+        });
+    }
 
     getMembers() {
         const roleMap = {};

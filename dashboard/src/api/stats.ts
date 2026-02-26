@@ -87,6 +87,11 @@ export const updateAutoReplies = async (autoReplies: any[]) => {
     return data;
 };
 
+export const simulateAutoReply = async (payload: { content: string; guildId?: string; channelId?: string; }) => {
+    const { data } = await client.post('/autoreplies/simulate', payload);
+    return data;
+};
+
 // ── Closed Tickets ────────────────────────────────────────────
 export const fetchClosedTickets = async (page = 1, search = '') => {
     const { data } = await client.get(`/closed-tickets?page=${page}&limit=50&search=${encodeURIComponent(search)}`);

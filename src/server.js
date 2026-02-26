@@ -356,6 +356,27 @@ async function main() {
         res.json({ ok: true, count: autoReplies.length });
     });
 
+    app.post('/api/autoreplies/simulate', authenticateToken, (req, res) => {
+        const bot = getBot(req, res); if (!bot) return res.status(400).json({ error: 'Bot not running' });
+        const { content = '', guildId = '', channelId = '' } = req.body || {};
+        const text = String(content || '').trim();
+        if (!text) return res.status(400).json({ error: 'content is required' });
+        const decision = bot.simulateAutoReply({
+            content: text,
+            guildId: String(guildId || bot.config.guildId || ''),
+            channelId: String(channelId || ''),
+        });
+        res.json({
+            ok: true,
+            input: {
+                content: text,
+                guildId: String(guildId || bot.config.guildId || ''),
+                channelId: String(channelId || ''),
+            },
+            decision,
+        });
+    });
+
     // ── Closed Tickets ───────────────────────────────────
     app.get('/api/closed-tickets', authenticateToken, (req, res) => {
         const bot = getBot(req, res);

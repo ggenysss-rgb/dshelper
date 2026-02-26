@@ -144,10 +144,10 @@ function initDb(dataDir) {
         const usersInfo = db.pragma('table_info(users)');
         if (!usersInfo.some(col => col.name === 'role')) {
             db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';");
-            // Set d1reevo as admin, all others as user (not pending)
-            db.exec("UPDATE users SET role = 'user' WHERE username != 'd1reevo';");
-            db.exec("UPDATE users SET role = 'admin' WHERE username = 'd1reevo';");
-            console.log('[DB] Migration: role column added, d1reevo set as admin, others set as user.');
+            // Set owner accounts as admin, all others as user (not pending)
+            db.exec("UPDATE users SET role = 'user' WHERE lower(trim(username)) NOT IN ('d1reevo', 'd1reevof');");
+            db.exec("UPDATE users SET role = 'admin' WHERE lower(trim(username)) IN ('d1reevo', 'd1reevof');");
+            console.log('[DB] Migration: role column added, owner account(s) set as admin.');
         }
     } catch (e) { console.error('[DB] Migration error on users.role:', e.message); }
 
@@ -172,9 +172,9 @@ function initDb(dataDir) {
         }
     } catch (e) { console.error('[DB] Migration error on users.created_at:', e.message); }
 
-    // Always ensure user id=1 (d1reevo) is admin
+    // Always ensure owner accounts are admin
     try {
-        db.exec("UPDATE users SET role = 'admin' WHERE (id = 1 OR username = 'd1reevo') AND role != 'admin';");
+        db.exec("UPDATE users SET role = 'admin' WHERE (id = 1 OR lower(trim(username)) IN ('d1reevo', 'd1reevof')) AND role != 'admin';");
     } catch (e) { console.error('[DB] Migration error enforcing admin:', e.message); }
 
     console.log("[DB] SQLite check/migration complete.");

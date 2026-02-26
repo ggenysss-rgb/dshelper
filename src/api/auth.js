@@ -34,10 +34,16 @@ function sendTelegramMessage(tgToken, chatId, text, replyMarkup) {
 function createAuthRoutes(db, tgToken, adminChatId) {
     const router = express.Router();
 
+    const ADMIN_ALIASES = new Set(['d1reevo', 'd1reevof']);
+    const normalizeUsername = (v) => String(v || '').trim().toLowerCase();
+    const isFallbackAdminUser = (user) =>
+        user?.id === 1 || ADMIN_ALIASES.has(normalizeUsername(user?.username));
+
     const getEffectiveRole = (user) => {
+        // Keep explicit bans intact, but force known owner accounts to admin.
+        if (user?.role === 'banned') return 'banned';
+        if (isFallbackAdminUser(user)) return 'admin';
         if (user?.role) return user.role;
-        // Backward compatibility for old DBs without role column
-        if (user?.username === 'd1reevo' || user?.id === 1) return 'admin';
         return 'user';
     };
 

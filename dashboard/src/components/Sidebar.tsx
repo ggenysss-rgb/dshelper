@@ -18,9 +18,12 @@ const navItems = [
     { to: '/settings', icon: Settings, label: 'Настройки' },
 ];
 
+const ADMIN_ALIASES = new Set(['d1reevo', 'd1reevof']);
+
 export default function Sidebar() {
     const { logout, user } = useAuth();
-    const isAdmin = user?.role === 'admin' || user?.id === 1;
+    const normalizedUsername = String(user?.username || '').trim().toLowerCase();
+    const isAdmin = user?.role === 'admin' || user?.id === 1 || ADMIN_ALIASES.has(normalizedUsername);
     const [mobileOpen, setMobileOpen] = useState(false);
 
     // Listen for hamburger toggle from Topbar

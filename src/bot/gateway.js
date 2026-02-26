@@ -427,6 +427,13 @@ function handleDispatch(bot, event, d) {
                 const isReplyToMe = d.referenced_message && d.referenced_message.author && d.referenced_message.author.id === bot.selfUserId;
 
                 if (mentionsMe || isReplyToMe) {
+                    // Start of AI logic — fallback array of keys
+                    const keys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys : (cfg.geminiApiKeys ? [cfg.geminiApiKeys] : []);
+                    if (keys.length === 0) {
+                        bot.log('❌ No Gemini API keys configured. Set geminiApiKeys array in config.');
+                        break;
+                    }
+
                     // Extract question: remove mention if present
                     let question = content
                         .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
@@ -458,47 +465,103 @@ function handleDispatch(bot, event, d) {
                             try {
                                 // Load system prompt and conversation history
                                 const systemPrompt = loadSystemPrompt();
-                                const convHistory = bot._convLogger
-                                    ? bot._convLogger.getChannelHistory(d.channel_id, 10)
-                                        .map(e => `[${e.authorUsername || 'user'}]: ${e.question || e.answer || ''}`)
-                                        .join('\n')
-                                    : '';
+                                const convLogger = bot._convLogger;
+                                const channelHistory = convLogger ? convLogger.getChannelHistory(d.channel_id, 10) : [];
 
-                                // If replying to bot, prepend the bot's message as context
-                                let fullHistory = convHistory;
-                                if (prevBotReply && !convHistory.includes(prevBotReply.slice(0, 50))) {
-                                    fullHistory = `[d1reevo]: ${prevBotReply}\n${convHistory}`;
+                                // Build Gemini conversational contents format
+                                const contents = [];
+
+                                // Insert history as alternating user/model turns
+                                for (const entry of channelHistory) {
+                                    const text = (entry.question || entry.answer || '').trim();
+                                    if (!text) continue;
+
+                                    // Map everything not from bot to "user" (Gemini only supports user/model roles)
+                                    const role = entry.type === 'ai_question' ? 'model' : 'user';
+
+                                    // Avoid consecutive messages of the same role by squashing them, required by API
+                                    if (contents.length > 0 && contents[contents.length - 1].role === role) {
+                                        contents[contents.length - 1].parts[0].text += `\n[${entry.authorUsername || 'user'}]: ${text}`;
+                                    } else {
+                                        contents.push({ role, parts: [{ text: `[${entry.authorUsername || 'user'}]: ${text}` }] });
+                                    }
                                 }
 
-                                const payload = JSON.stringify({
-                                    chatInput: question,
-                                    channelId: d.channel_id,
-                                    messageId: d.id,
-                                    authorId: author.id,
-                                    authorUsername: author.username,
-                                    guildId: d.guild_id,
-                                    systemPrompt,
-                                    conversationHistory: fullHistory,
-                                });
-                                const url = new URL(cfg.n8nWebhookUrl);
-                                const options = {
-                                    hostname: url.hostname,
-                                    port: url.port || (url.protocol === 'https:' ? 443 : 80),
-                                    path: url.pathname + url.search,
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+                                // If replying to bot, append it
+                                if (prevBotReply && !channelHistory.some(e => e.type === 'ai_question' && (e.question || e.answer || '').includes(prevBotReply.slice(0, 50)))) {
+                                    if (contents.length > 0 && contents[contents.length - 1].role === 'model') {
+                                        contents[contents.length - 1].parts[0].text += `\n${prevBotReply}`;
+                                    } else {
+                                        contents.push({ role: 'model', parts: [{ text: prevBotReply }] });
+                                    }
+                                }
+
+                                // Append current question
+                                if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+                                    contents[contents.length - 1].parts[0].text += `\n[${author.username}]: ${question}`;
+                                } else {
+                                    contents.push({ role: 'user', parts: [{ text: `[${author.username}]: ${question}` }] });
+                                }
+
+                                const payload = {
+                                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                                    contents,
+                                    generationConfig: { temperature: 0.7, maxOutputTokens: 800 }
                                 };
-                                const http = url.protocol === 'https:' ? require('https') : require('http');
-                                const req = http.request(options, (res) => {
-                                    let body = '';
-                                    res.on('data', chunk => body += chunk);
-                                    res.on('end', () => bot.log(`🧠 Neuro webhook response: ${res.statusCode}`));
-                                });
-                                req.on('error', e => bot.log(`❌ Neuro webhook error: ${e.message}`));
-                                req.write(payload);
-                                req.end();
+
+                                let success = false;
+                                let answerText = null;
+
+                                // Try keys in order until success
+                                for (let i = 0; i < keys.length; i++) {
+                                    const key = keys[i];
+                                    try {
+                                        const fetch = require('node-fetch');
+                                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(payload)
+                                        });
+
+                                        const data = await res.json();
+
+                                        if (res.ok && data.candidates && data.candidates.length > 0) {
+                                            answerText = data.candidates[0].content.parts[0].text;
+                                            success = true;
+                                            bot.log(`🧠 Gemini Success with key ${i + 1}/${keys.length}`);
+                                            break;
+                                        } else {
+                                            bot.log(`⚠️ Gemini Error (Key ${i + 1}/${keys.length}): ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                            if (res.status !== 429 && res.status !== 503) {
+                                                // If not rate limit or server error, don't try other keys (probably bad request)
+                                                break;
+                                            }
+                                        }
+                                    } catch (err) {
+                                        bot.log(`⚠️ Fetch Error (Key ${i + 1}/${keys.length}): ${err.message}`);
+                                    }
+                                }
+
+                                if (success && answerText) {
+                                    // Send the raw text back to Discord
+                                    const sentRes = await bot.sendDiscordMessage(d.channel_id, answerText, d.id);
+                                    if (sentRes.ok) {
+                                        bot.log(`✅ Neuro response sent to #${d.channel_id}`);
+                                        if (convLogger) {
+                                            convLogger.logAIResponse({
+                                                channelId: d.channel_id,
+                                                question: answerText,
+                                                authorUsername: bot.user?.username || 'Neuro'
+                                            });
+                                        }
+                                    } else {
+                                        bot.log(`❌ Failed to send Discord message: ${sentRes.status} ${sentRes.body}`);
+                                    }
+                                } else {
+                                    bot.log(`❌ Neuro API: All keys failed or no response generated.`);
+                                }
                             } catch (e) {
-                                bot.log(`❌ Neuro AI error: ${e.message}`);
+                                bot.log(`❌ Neuro AI error: ${e.stack}`);
                             }
                         })();
                     }

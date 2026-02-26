@@ -75,7 +75,7 @@ class BotManager {
             pollingIntervalSec: row.polling_interval_sec || 3,
             rateLimitMs: row.rate_limit_ms || parseInt(env.RATE_LIMIT_MS || '200', 10),
             maxMessageLength: row.max_message_length || 300,
-            n8nWebhookUrl: env.N8N_WEBHOOK_URL || '',
+            geminiApiKeys: (row.gemini_api_keys && row.gemini_api_keys !== '[]') ? JSON.parse(row.gemini_api_keys) : [],
             neuroKeyword: env.NEURO_KEYWORD || 'нейро',
         };
         // DEBUG: log what was loaded

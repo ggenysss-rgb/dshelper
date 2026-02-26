@@ -38,6 +38,7 @@ function initDb(dataDir) {
             ticket_prefix TEXT DEFAULT 'ticket-',
             auto_replies TEXT DEFAULT '[]',
             binds TEXT DEFAULT '{}',
+            gemini_api_keys TEXT DEFAULT '[]',
             
             polling_interval_sec INTEGER DEFAULT 3,
             rate_limit_ms INTEGER DEFAULT 1500,
@@ -124,6 +125,16 @@ function initDb(dataDir) {
         }
     } catch (e) {
         console.error("[DB] Migration error on users.shift_channel_id:", e.message);
+    }
+
+    // Add gemini_api_keys column if missing
+    try {
+        const usersInfo = db.pragma('table_info(users)');
+        if (!usersInfo.some(col => col.name === 'gemini_api_keys')) {
+            db.exec("ALTER TABLE users ADD COLUMN gemini_api_keys TEXT DEFAULT '[]';");
+        }
+    } catch (e) {
+        console.error("[DB] Migration error on users.gemini_api_keys:", e.message);
     }
 
     console.log("[DB] SQLite check/migration complete.");

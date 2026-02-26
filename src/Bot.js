@@ -232,7 +232,8 @@ class Bot {
                     rate_limit_ms = ?, max_message_length = ?,
                     forum_mode = ?, binds = ?, auto_replies = ?,
                     priority_keywords = ?, staff_role_ids = ?,
-                    tickets_category_id = ?, shift_channel_id = ?
+                    tickets_category_id = ?, shift_channel_id = ?,
+                    gemini_api_keys = ?
                     WHERE id = ?`).run(
                     this.config.autoGreetEnabled ? 1 : 0, this.config.autoGreetText || '',
                     JSON.stringify(this.config.autoGreetRoleIds || []),
@@ -247,6 +248,7 @@ class Bot {
                     JSON.stringify(this.config.staffRoleIds || []),
                     this.config.ticketsCategoryId || '',
                     this.config.shiftChannelId || '',
+                    JSON.stringify(this.config.geminiApiKeys || []),
                     this.userId
                 );
             } catch (e) { console.error(`[Bot:${this.userId}] ❌ saveConfigToDb FAILED:`, e.message); this.log(`❌ saveConfigToDb FAILED: ${e.message}`); }

@@ -34,6 +34,13 @@ function sendTelegramMessage(tgToken, chatId, text, replyMarkup) {
 function createAuthRoutes(db, tgToken, adminChatId) {
     const router = express.Router();
 
+    const getEffectiveRole = (user) => {
+        if (user?.role) return user.role;
+        // Backward compatibility for old DBs without role column
+        if (user?.username === 'd1reevo' || user?.id === 1) return 'admin';
+        return 'user';
+    };
+
     router.post('/register', async (req, res) => {
         const { username, password } = req.body;
 
@@ -102,16 +109,18 @@ function createAuthRoutes(db, tgToken, adminChatId) {
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
-            if (user.role === 'pending') {
+            const role = getEffectiveRole(user);
+
+            if (role === 'pending') {
                 return res.status(403).json({ error: 'Аккаунт ожидает подтверждения администратора' });
             }
-            if (user.role === 'banned') {
+            if (role === 'banned') {
                 return res.status(403).json({ error: 'Аккаунт заблокирован' });
             }
 
-            const token = jwt.sign({ userId: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+            const token = jwt.sign({ userId: user.id, username: user.username, role }, JWT_SECRET, { expiresIn: '7d' });
 
-            res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+            res.json({ token, user: { id: user.id, username: user.username, role } });
         } catch (error) {
             console.error('[Auth API] Login error:', error);
             res.status(500).json({ error: 'Internal server error' });
@@ -120,11 +129,21 @@ function createAuthRoutes(db, tgToken, adminChatId) {
 
     router.get('/me', authenticateToken, (req, res) => {
         try {
-            const user = db.prepare('SELECT id, username, discord_token, tg_token, tg_chat_id, role FROM users WHERE id = ?').get(req.user.userId);
+            const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.userId);
             if (!user) return res.status(404).json({ error: 'User not found' });
+            const role = getEffectiveRole(user);
             // Check banned again on /me
-            if (user.role === 'banned') return res.status(403).json({ error: 'Аккаунт заблокирован' });
-            res.json({ user });
+            if (role === 'banned') return res.status(403).json({ error: 'Аккаунт заблокирован' });
+            res.json({
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    discord_token: user.discord_token,
+                    tg_token: user.tg_token,
+                    tg_chat_id: user.tg_chat_id,
+                    role,
+                }
+            });
         } catch (error) {
             res.status(500).json({ error: 'Internal server error' });
         }

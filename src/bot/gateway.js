@@ -328,6 +328,156 @@ function getMembersSidebarChannelScore(channel, guildId, ticketsCategoryId, chan
     return score;
 }
 
+const MEMBER_SEARCH_QUERY_CHARS = Array.from(new Set([
+    '', // try broad query once; Discord may reject it for some tokens
+    ...'etaoinshrdlucmfwypvbgkjqxz',
+    ...'0123456789',
+    '_', '-', '.',
+    ...'аеоинтрсвлкмдпуяыьбгчйхжшюцщэфё',
+]));
+
+function upsertGuildMemberCache(bot, member) {
+    if (!member?.user?.id) return false;
+    const userId = String(member.user.id);
+    const existed = bot.guildMembersCache.has(userId);
+    const prev = bot.guildMembersCache.get(userId) || {};
+    bot.guildMembersCache.set(userId, { ...prev, ...member });
+    return !existed;
+}
+
+function buildRankedSidebarChannels(bot, guildId, ticketsCategoryId) {
+    const textChannels = [...bot.channelCache.values()].filter(ch => ch.guild_id === guildId && ch.type === 0);
+    if (textChannels.length === 0) return [];
+    return textChannels
+        .map(ch => ({
+            channel: ch,
+            score: getMembersSidebarChannelScore(ch, guildId, ticketsCategoryId, bot.channelCache),
+        }))
+        .sort((a, b) => b.score - a.score);
+}
+
+function scheduleMembersSidebarSweep(
+    bot,
+    guildId,
+    ticketsCategoryId,
+    {
+        startDelayMs = 1200,
+        stepDelayMs = 900,
+        passes = 6,
+        channelsPerRequest = 2,
+    } = {}
+) {
+    for (let pass = 0; pass < passes; pass++) {
+        setTimeout(() => {
+            requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, pass * channelsPerRequest, channelsPerRequest);
+        }, startDelayMs + (pass * stepDelayMs));
+    }
+}
+
+async function hydrateMembersFromRest(bot, guildId, token, {
+    isBotToken = false,
+    ticketsCategoryId = '',
+} = {}) {
+    const seen = new Set(bot.guildMembersCache.keys());
+    let restLoaded = 0;
+    let searchLoaded = 0;
+
+    // Try privileged /members endpoint first (best quality if token has access).
+    try {
+        let after = null;
+        const pageLimit = isBotToken ? 20 : 2;
+        for (let page = 0; page < pageLimit; page++) {
+            const url = `https://discord.com/api/v9/guilds/${guildId}/members?limit=1000${after ? `&after=${after}` : ''}`;
+            const res = await bot.httpGet(url, { Authorization: token });
+            if (!res.ok) {
+                if (page === 0) bot.log(`ℹ️ REST /members unavailable (${res.status}), switching to search/op14`);
+                break;
+            }
+
+            const members = JSON.parse(res.body);
+            if (!Array.isArray(members) || members.length === 0) break;
+
+            let pageAdded = 0;
+            for (const member of members) {
+                if (upsertGuildMemberCache(bot, member)) {
+                    seen.add(String(member.user.id));
+                    pageAdded++;
+                    restLoaded++;
+                }
+            }
+
+            if (pageAdded > 0) scheduleMembersUpdate(bot);
+            if (members.length < 1000) break;
+            after = members[members.length - 1]?.user?.id || null;
+            if (!after) break;
+            await sleep(220);
+        }
+    } catch (e) {
+        bot.log(`⚠️ REST /members hydrate error: ${e.message}`);
+    }
+
+    // Search fallback/augment (works for user tokens). Gather wider set of queries in batches.
+    let okSearchResponses = 0;
+    let firstSearchErrorLogged = false;
+    let stagnantBatches = 0;
+    const batchSize = 4;
+    for (let i = 0; i < MEMBER_SEARCH_QUERY_CHARS.length; i += batchSize) {
+        const batch = MEMBER_SEARCH_QUERY_CHARS.slice(i, i + batchSize);
+        let batchAdded = 0;
+
+        await Promise.all(batch.map(async (query) => {
+            try {
+                const url = `https://discord.com/api/v9/guilds/${guildId}/members/search?query=${encodeURIComponent(query)}&limit=100`;
+                const res = await bot.httpGet(url, { Authorization: token });
+                if (!res.ok) {
+                    if (!firstSearchErrorLogged) {
+                        bot.log(`⚠️ Members search returned ${res.status} for query "${query}"`);
+                        firstSearchErrorLogged = true;
+                    }
+                    return;
+                }
+
+                okSearchResponses++;
+                const members = JSON.parse(res.body);
+                if (!Array.isArray(members) || members.length === 0) return;
+                for (const member of members) {
+                    if (!member?.user?.id) continue;
+                    if (upsertGuildMemberCache(bot, member)) {
+                        seen.add(String(member.user.id));
+                        batchAdded++;
+                        searchLoaded++;
+                    }
+                }
+            } catch { }
+        }));
+
+        if (batchAdded > 0) {
+            stagnantBatches = 0;
+            scheduleMembersUpdate(bot);
+        } else {
+            stagnantBatches++;
+        }
+
+        // Stop early when search no longer adds members.
+        if (stagnantBatches >= 5 && seen.size >= 250) break;
+        await sleep(180);
+    }
+
+    bot.log(`👥 Members hydrated: total=${seen.size}, rest=${restLoaded}, search=${searchLoaded}, search_ok=${okSearchResponses}`);
+
+    // If still tiny set, do a broader sidebar sweep across more channels.
+    if (!isBotToken && seen.size < 120) {
+        scheduleMembersSidebarSweep(bot, guildId, ticketsCategoryId, {
+            startDelayMs: 1500,
+            stepDelayMs: 850,
+            passes: 10,
+            channelsPerRequest: 2,
+        });
+    }
+
+    if (seen.size > 0) scheduleMembersUpdate(bot);
+}
+
 function emitDashboard(bot, event, payload = {}) {
     if (typeof bot.emitToDashboard === 'function') {
         bot.emitToDashboard(event, payload);
@@ -1041,12 +1191,12 @@ async function fetchAndScanChannels(bot) {
         subscribeToTicketChannels(bot);
         // For selfbot flow: explicitly request member sidebar data for dashboard members list
         if (!cfg.discordBotToken) {
-            setTimeout(() => {
-                requestDashboardMembersSidebar(bot, guildId, categoryId);
-            }, 1200);
-            setTimeout(() => {
-                requestDashboardMembersSidebar(bot, guildId, categoryId, 1);
-            }, 3400);
+            scheduleMembersSidebarSweep(bot, guildId, categoryId, {
+                startDelayMs: 1200,
+                stepDelayMs: 950,
+                passes: 6,
+                channelsPerRequest: 2,
+            });
         }
 
         // Background: fetch last message for each ticket to populate preview
@@ -1078,37 +1228,11 @@ async function fetchAndScanChannels(bot) {
         bot.log(`❌ REST channels error: ${e.message}`);
     }
 
-    // Fetch guild members — use search API (works for user tokens, /members requires bot privilege)
-    try {
-        const searches = ['a', 'e', 'i', 'o', 'u', 'n', 'm', 'd', 'с', 'а', 'е', 'и'];
-        const seen = new Set();
-        let okResponses = 0;
-        for (const q of searches) {
-            try {
-                const url = `https://discord.com/api/v9/guilds/${guildId}/members/search?query=${encodeURIComponent(q)}&limit=100`;
-                const res = await bot.httpGet(url, { Authorization: token });
-                if (res.ok) {
-                    okResponses++;
-                    const members = JSON.parse(res.body);
-                    for (const m of members) { if (m.user && !seen.has(m.user.id)) { seen.add(m.user.id); bot.guildMembersCache.set(m.user.id, m); } }
-                } else if (okResponses === 0) {
-                    bot.log(`⚠️ Members search returned ${res.status} for query "${q}"`);
-                }
-            } catch { }
-            await sleep(300); // rate limit safety
-        }
-        bot.log(`👥 Members search: ${seen.size} members loaded`);
-        if (seen.size > 0) scheduleMembersUpdate(bot);
-        if (seen.size === 0 && !cfg.discordBotToken) {
-            // Retry sidebar request once more if REST search returned nothing
-            setTimeout(() => {
-                requestDashboardMembersSidebar(bot, guildId, categoryId);
-            }, 2500);
-            setTimeout(() => {
-                requestDashboardMembersSidebar(bot, guildId, categoryId, 1);
-            }, 4300);
-        }
-    } catch (e) { bot.log(`❌ Members fetch error: ${e.message}`); }
+    // Fetch members in background so UI doesn't block on cold start.
+    hydrateMembersFromRest(bot, guildId, token, {
+        isBotToken: !!cfg.discordBotToken,
+        ticketsCategoryId: categoryId,
+    }).catch((e) => bot.log(`❌ Members fetch error: ${e.message}`));
 
     // Fetch guild roles
     try {
@@ -1140,30 +1264,28 @@ function sendLazyRequest(bot, guildId, channelIds) {
     } catch (e) { bot.log(`❌ Lazy Request error: ${e.message}`); }
 }
 
-function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, channelOffset = 0) {
+function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, channelOffset = 0, channelsPerRequest = 1) {
     if (!bot.ws || bot.ws.readyState !== 1) return false;
     if (!guildId) return false;
 
-    const textChannels = [...bot.channelCache.values()].filter(ch => ch.guild_id === guildId && ch.type === 0);
-    if (textChannels.length === 0) {
+    const rankedChannels = buildRankedSidebarChannels(bot, guildId, ticketsCategoryId);
+    if (rankedChannels.length === 0) {
         bot.log('⚠️ Members sidebar request skipped: no text channels in cache');
         return false;
     }
 
-    const rankedChannels = textChannels
-        .map(ch => ({
-            channel: ch,
-            score: getMembersSidebarChannelScore(ch, guildId, ticketsCategoryId, bot.channelCache),
-        }))
-        .sort((a, b) => b.score - a.score)
+    const safeOffset = Math.max(0, channelOffset);
+    const selected = rankedChannels
+        .slice(safeOffset, safeOffset + Math.max(1, channelsPerRequest))
         .map(entry => entry.channel);
+    if (selected.length === 0) selected.push(rankedChannels[0].channel);
 
-    const preferred = rankedChannels[channelOffset] || rankedChannels[0];
     const ranges = [];
     for (let i = 0; i < 2500; i += 100) ranges.push([i, i + 99]);
-    const channels = {
-        [preferred.id]: ranges
-    };
+    const channels = {};
+    for (const channel of selected) {
+        channels[channel.id] = ranges;
+    }
 
     try {
         bot.ws.send(JSON.stringify({
@@ -1177,8 +1299,13 @@ function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, channel
                 channels,
             }
         }));
-        const selectedScore = getMembersSidebarChannelScore(preferred, guildId, ticketsCategoryId, bot.channelCache);
-        bot.log(`👥 Requested member sidebar for dashboard (channel: ${preferred.id} #${preferred.name || 'unknown'}, ranges: ${ranges.length}, score: ${selectedScore.toFixed(1)})`);
+        const selectedInfo = selected
+            .map(ch => {
+                const score = getMembersSidebarChannelScore(ch, guildId, ticketsCategoryId, bot.channelCache);
+                return `${ch.id}#${ch.name || 'unknown'}(${score.toFixed(1)})`;
+            })
+            .join(', ');
+        bot.log(`👥 Requested member sidebar for dashboard (channels: ${selectedInfo}, ranges: ${ranges.length})`);
         return true;
     } catch (e) {
         bot.log(`❌ Members sidebar request error: ${e.message}`);

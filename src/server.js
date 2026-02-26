@@ -27,6 +27,9 @@ const DATA_DIR = process.env.DATA_DIR || (require('fs').existsSync('/data') ? '/
 try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { }
 
 const LOG = '[Server]';
+const APP_BUILD = String(process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_DEPLOYMENT_ID || process.env.SOURCE_COMMIT || 'local');
+const INDEX_NO_CACHE = 'no-store, no-cache, must-revalidate';
+const AUTH_ME_NO_CACHE = 'no-store';
 
 async function main() {
     console.log(`${LOG} ═══════════════════════════════════════`);
@@ -49,6 +52,14 @@ async function main() {
 
     app.use(cors());
     app.use(express.json());
+    app.use((req, res, next) => {
+        res.setHeader('X-App-Build', APP_BUILD);
+        next();
+    });
+    app.use('/api/auth/me', (req, res, next) => {
+        res.setHeader('Cache-Control', AUTH_ME_NO_CACHE);
+        next();
+    });
 
     // Read Telegram credentials for admin notifications
     let _cfg = {};
@@ -362,10 +373,22 @@ async function main() {
     // -- Serve Dashboard static files --
     const dashboardDist = path.join(__dirname, '..', 'dashboard', 'dist');
     if (fs.existsSync(dashboardDist)) {
-        app.use(express.static(dashboardDist));
+        app.use(express.static(dashboardDist, {
+            setHeaders: (res, filePath) => {
+                const normalized = String(filePath).replace(/\\/g, '/');
+                if (/\/assets\/.+\.(js|css)$/.test(normalized)) {
+                    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+                    return;
+                }
+                if (normalized.endsWith('/index.html') || normalized.endsWith('index.html')) {
+                    res.setHeader('Cache-Control', INDEX_NO_CACHE);
+                }
+            }
+        }));
         // SPA fallback — only for non-API routes
         app.get('*', (req, res) => {
             if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+            res.setHeader('Cache-Control', INDEX_NO_CACHE);
             res.sendFile(path.join(dashboardDist, 'index.html'));
         });
     }

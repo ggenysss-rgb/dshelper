@@ -5,7 +5,9 @@
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js",
-    "start:saas": "node src/server.js"
+    "start:saas": "node src/server.js",
+    "build:dashboard": "npm --prefix dashboard run build",
+    "start:saas:railway": "npm run build:dashboard && node src/server.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

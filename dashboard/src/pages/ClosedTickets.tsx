@@ -49,6 +49,9 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
         queryFn: () => fetchArchivedMessages(channelId),
         enabled: !!channelId,
     });
+    const inferredOpener = archive?.messages?.find(m => !m.author?.bot);
+    const openerId = archive?.openerId || inferredOpener?.author?.id || '';
+    const openerName = archive?.openerUsername || inferredOpener?.author?.global_name || inferredOpener?.author?.username || 'Игрок';
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -67,7 +70,7 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                         <div>
                             <h3 className="font-rajdhani font-bold text-lg">#{channelName}</h3>
                             <p className="text-xs text-muted-foreground">
-                                {archive ? `${archive.messages.length} сообщений • ${archive.openerUsername}` : 'Загрузка...'}
+                                {archive ? `${archive.messages.length} сообщений • ${openerName}` : 'Загрузка...'}
                             </p>
                         </div>
                     </div>
@@ -92,7 +95,7 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                     )}
                     {archive?.messages.map((msg) => {
                         const isBot = msg.author.bot;
-                        const isOpener = msg.author.id === archive.openerId;
+                        const isOpener = !!openerId && msg.author.id === openerId;
 
                         return (
                             <div key={msg.id} className={`flex gap-3 ${!isOpener ? 'flex-row-reverse' : ''}`}>
@@ -163,7 +166,7 @@ function ChatViewer({ channelId, channelName, onClose }: { channelId: string; ch
                                         </div>
                                     )}
 
-                                    {msg.attachments.length > 0 && (
+                                    {(msg.attachments?.length || 0) > 0 && (
                                         <div className="flex flex-wrap gap-1.5 mt-1.5">
                                             {msg.attachments.map(att => (
                                                 <a key={att.id} href={att.url} target="_blank" rel="noreferrer"

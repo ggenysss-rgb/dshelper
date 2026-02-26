@@ -371,7 +371,25 @@ async function main() {
         const channelId = req.params.id;
         const messages = bot.dbGetTicketMessages(channelId);
         if (messages.length === 0) return res.status(404).json({ error: 'Archive not found' });
-        res.json({ channelId, messages });
+        let ticketMeta = null;
+        try {
+            ticketMeta = bot.db.prepare(`
+                SELECT channel_name, opener_id, opener_username, created_at, closed_at
+                FROM closed_tickets
+                WHERE channel_id = ?
+                ORDER BY closed_at DESC
+                LIMIT 1
+            `).get(channelId);
+        } catch { }
+        res.json({
+            channelId,
+            channelName: ticketMeta?.channel_name || channelId,
+            openerId: ticketMeta?.opener_id || '',
+            openerUsername: ticketMeta?.opener_username || '',
+            createdAt: ticketMeta?.created_at || null,
+            archivedAt: ticketMeta?.closed_at || null,
+            messages
+        });
     });
 
     // ── Socket.IO Auth Middleware ────────────────────────

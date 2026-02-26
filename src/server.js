@@ -51,8 +51,10 @@ async function main() {
     app.use(express.json());
 
     // Read Telegram credentials for admin notifications
-    const ADMIN_TG_TOKEN = process.env.TG_TOKEN || require('../config.json').tgToken || '';
-    const ADMIN_TG_CHAT_ID = process.env.ADMIN_TG_CHAT_ID || require('../config.json').tgChatId || '';
+    let _cfg = {};
+    try { _cfg = require('../config.json'); } catch (_) { }
+    const ADMIN_TG_TOKEN = process.env.TG_TOKEN || _cfg.tgToken || '';
+    const ADMIN_TG_CHAT_ID = process.env.ADMIN_TG_CHAT_ID || _cfg.tgChatId || '';
 
     // -- Public Auth Routes --
     app.use('/api/auth', createAuthRoutes(db, ADMIN_TG_TOKEN, ADMIN_TG_CHAT_ID));

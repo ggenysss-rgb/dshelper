@@ -499,11 +499,10 @@ function handleDispatch(bot, event, d) {
 
                                 // Append current question
                                 if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
-                                    contents[contents.length - 1].parts[0].text += `\n[${author.username}]: ${question}`;
+                                    contents[contents.length - 1].parts[0].text += `\n${question}`;
                                 } else {
-                                    contents.push({ role: 'user', parts: [{ text: `[${author.username}]: ${question}` }] });
+                                    contents.push({ role: 'user', parts: [{ text: question }] });
                                 }
-
                                 const payload = {
                                     systemInstruction: { parts: [{ text: systemPrompt }] },
                                     contents,
@@ -1079,9 +1078,9 @@ function startAutoReplyPolling(bot) {
                                             }
                                         }
                                         if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
-                                            contents[contents.length - 1].parts[0].text += `\n[${msg.author.username}]: ${question}`;
+                                            contents[contents.length - 1].parts[0].text += `\n${question}`;
                                         } else {
-                                            contents.push({ role: 'user', parts: [{ text: `[${msg.author.username}]: ${question}` }] });
+                                            contents.push({ role: 'user', parts: [{ text: question }] });
                                         }
                                         const payload = {
                                             systemInstruction: { parts: [{ text: systemPrompt }] },

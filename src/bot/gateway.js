@@ -189,12 +189,17 @@ function getModerationCheckAutoReply(content) {
     const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
     if (!text) return null;
 
+    // Ignore recruitment/announcement templates that mention "проверка", but are not support requests.
+    const looksLikeAnnouncement = /(проходит набор|набор в|критери|pvp\s*0\/10|pve\s*0\/10|привилеги|имя\(настоящее\)|играли когда то с софтами|готовы ли пройти проверку)/.test(text);
+    if (looksLikeAnnouncement) return null;
+
     const hasCheckContext = /(проверк|проверяющ|прова|прове|прову|анидеск|anydesk|аник|ани деск)/.test(text);
     const hasModeratorWord = /(модер|модерат)/.test(text);
 
     const hasWaitOrIgnore = /(игнор|не отвечает|не кидает|не делают|не делает|жду|долго|нет ответа|молчит|пропал|не пишет|ничего не делает|вызвали на пров|вызвали на провер)/.test(text);
     const hasBanContext = /(бан|забан|откин|блок|разбан|розбан)/.test(text);
-    const hasSignal = hasWaitOrIgnore || hasHelpQuestionIntent(text);
+    const hasPersonalContext = /(^|\s)(я|меня|мне|мной|у меня|мой|моя|мои|мою|вызвали)(\s|$)/.test(text);
+    const hasSignal = hasWaitOrIgnore || (hasHelpQuestionIntent(text) && hasPersonalContext);
 
     // Guard against broad false positives like "как подать на модератора".
     // "модер/модератор" alone should not trigger this rule.

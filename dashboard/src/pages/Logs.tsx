@@ -78,7 +78,7 @@ export default function Logs() {
 
     const { data: logs, isLoading } = useQuery({
         queryKey: ['logs'],
-        queryFn: () => fetchLogs(200),
+        queryFn: () => fetchLogs(2000),
         refetchInterval: 30000,
     });
 
@@ -87,7 +87,7 @@ export default function Logs() {
         const handleNewLog = (entry: LogEntry) => {
             queryClient.setQueryData<LogEntry[]>(['logs'], (old) => {
                 if (!old) return [entry];
-                return [entry, ...old].slice(0, 200);
+                return [entry, ...old].slice(0, 5000);
             });
             const id = `${entry.ts}-${entry.type}`;
             setNewLogIds(prev => new Set(prev).add(id));

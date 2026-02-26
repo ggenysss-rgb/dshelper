@@ -137,7 +137,27 @@ class Bot {
         if (this.db) try { this.db.close(); } catch { }
     }
 
-    log(msg) { console.log(`[Bot:${this.userId}] ${msg}`); }
+    inferLogType(message) {
+        const m = String(message || '').toLowerCase();
+        if (m.includes('❌') || m.includes(' error') || m.includes('ошиб') || m.includes('failed')) return 'error';
+        if (m.includes('gateway') || m.includes('dispatch') || m.includes('heartbeat') || m.includes('ready') || m.includes('resumed') || m.includes('guild event')) return 'gateway';
+        if (m.includes('auto-reply') || m.includes('ar debug') || m.includes('autoreply')) return 'autoreply';
+        if (m.includes('neuro') || m.includes(' ai') || m.includes('gemini') || m.includes('stepfun')) return 'ai';
+        if (m.includes('greet') || m.includes('привет')) return 'greet';
+        if (m.includes('shift') || m.includes('смен')) return 'shift';
+        if (m.includes('timer') || m.includes('reminder') || m.includes('timeout') || m.includes('restored')) return 'timer';
+        if (m.includes('ticket') || m.includes('тикет')) return 'ticket';
+        if (m.includes('bind') || m.includes('бинд')) return 'bind';
+        if (m.includes('command') || m.includes('команда') || m.includes(' callback')) return 'command';
+        if (m.includes('message') || m.includes('сообщ')) return 'message';
+        return 'system';
+    }
+
+    log(msg, type) {
+        const message = String(msg || '');
+        console.log(`[Bot:${this.userId}] ${message}`);
+        this.addLog(type || this.inferLogType(message), message);
+    }
 
     // ═══════════════════════════════════════════════════════
     //  DATABASE
@@ -306,8 +326,18 @@ class Bot {
     stopAutosave() { if (this.autosaveTimer) { clearInterval(this.autosaveTimer); this.autosaveTimer = null; } }
 
     addLog(type, message) {
-        this.dashboardLogs.unshift({ type, message, timestamp: Date.now() });
-        if (this.dashboardLogs.length > 200) this.dashboardLogs.length = 200;
+        const ts = new Date().toISOString();
+        const entry = {
+            type: type || this.inferLogType(message),
+            message: String(message || ''),
+            ts,
+            timestamp: Date.now(),
+        };
+        this.dashboardLogs.unshift(entry);
+        if (this.dashboardLogs.length > 5000) this.dashboardLogs.length = 5000;
+        if (this.io) {
+            try { this.io.emit('log:new', entry); } catch { }
+        }
     }
 
     // ═══════════════════════════════════════════════════════
@@ -877,7 +907,12 @@ class Bot {
         return [{ id: chatId, name: this.config.userName || 'User', shiftActive: st.lastShiftDate === getKyivDate() && !st.lastShiftClosed }];
     }
 
-    getLogs(limit = 50) { return this.dashboardLogs.slice(0, limit); }
+    getLogs(limit = 50) {
+        return this.dashboardLogs.slice(0, limit).map(l => {
+            const ts = l.ts || (l.timestamp ? new Date(l.timestamp).toISOString() : new Date().toISOString());
+            return { ...l, ts };
+        });
+    }
 
     getSettings() {
         return {

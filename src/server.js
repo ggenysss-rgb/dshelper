@@ -196,7 +196,7 @@ async function main() {
     // ── Logs ─────────────────────────────────────────────
     app.get('/api/logs', authenticateToken, (req, res) => {
         const bot = getBot(req, res);
-        const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+        const limit = Math.min(parseInt(req.query.limit) || 200, 5000);
         if (!bot) return res.json([]);
         res.json(bot.getLogs(limit));
     });

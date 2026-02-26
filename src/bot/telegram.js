@@ -34,6 +34,7 @@ async function handleMessage(bot, msg) {
 
     // Reply to ticket message
     if (msg.reply_to_message && !text.startsWith('/')) {
+        bot.log(`⌨️ TG reply from ${chatId}: "${truncate(text, 120)}"`, 'command');
         const reply = await bot.handleReplyToTicket(msg.reply_to_message.message_id, text);
         await bot.tgSendMessage(chatId, reply);
         return;
@@ -43,6 +44,7 @@ async function handleMessage(bot, msg) {
     if (!text.startsWith('/')) {
         const uState = bot.getUserState(chatId);
         if (uState.activeTicketId) {
+            bot.log(`⌨️ TG message to active ticket ${uState.activeTicketId}: "${truncate(text, 120)}"`, 'command');
             const result = await bot.handleSendToTicket(text, chatId);
             await bot.tgSendMessage(chatId, result.text, result.markup);
         }
@@ -52,6 +54,7 @@ async function handleMessage(bot, msg) {
     const [rawCmd, ...argParts] = text.split(/\s+/);
     const cmd = rawCmd.toLowerCase().replace(/@\w+$/, '');
     const argsStr = text.slice(rawCmd.length).trim();
+    bot.log(`⌨️ TG command ${cmd} from ${chatId}${argsStr ? `: "${truncate(argsStr, 120)}"` : ''}`, 'command');
 
     switch (cmd) {
         case '/start': case '/help':
@@ -196,6 +199,7 @@ async function handleCallbackQuery(bot, cbq) {
     const chatId = String(cbq.message?.chat?.id);
     const messageId = cbq.message?.message_id;
     const cbqId = cbq.id;
+    bot.log(`🖱️ TG callback ${data} from ${chatId}`, 'command');
 
     if (data.startsWith('tsel_')) {
         const channelId = data.slice(5);

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchSettings, updateSettings } from '../api/stats';
-import { Settings as SettingsIcon, Save, Loader2, Check, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Loader2, Check, ToggleLeft, ToggleRight, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useTheme } from '../hooks/useTheme';
 
 type SettingsData = Record<string, any>;
 
@@ -47,6 +48,7 @@ function TextField({ value, onChange, label, desc }: { value: string; onChange: 
 
 export default function Settings() {
     const queryClient = useQueryClient();
+    const { cycleDesign, designLabel } = useTheme();
     const { data: settings, isLoading } = useQuery({ queryKey: ['settings'], queryFn: fetchSettings });
     const [local, setLocal] = useState<SettingsData | null>(null);
     const [saved, setSaved] = useState(false);
@@ -88,6 +90,24 @@ export default function Settings() {
                     {saved ? 'Сохранено!' : 'Сохранить'}
                 </button>
             </div>
+
+            {/* Design Switch */}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-border rounded-xl p-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-1">Внешний вид</h2>
+                        <p className="text-sm text-foreground">Один клик переключает дизайн панели целиком.</p>
+                        <p className="text-xs text-muted-foreground mt-1">Текущий пресет: <span className="text-primary font-semibold">{designLabel}</span></p>
+                    </div>
+                    <button
+                        onClick={cycleDesign}
+                        className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all text-sm font-medium"
+                    >
+                        <Sparkles className="w-4 h-4" />
+                        Поменять дизайн
+                    </button>
+                </div>
+            </motion.div>
 
             {/* Toggles Group */}
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-border rounded-xl p-6">

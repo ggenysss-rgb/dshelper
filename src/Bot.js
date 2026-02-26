@@ -685,10 +685,32 @@ class Bot {
     //  SHIFTS
     // ═══════════════════════════════════════════════════════
 
-    async handleSmena(chatId) {
+    getShiftMeta(chatId) {
         const today = getKyivDate();
         const shiftState = this.getUserState(chatId).shift;
-        if (shiftState.lastShiftDate === today) return '⚠️ Сегодня уже отмечено.';
+        const shiftMarkedToday = shiftState.lastShiftDate === today;
+        const shiftClosedToday = shiftMarkedToday && !!shiftState.lastShiftClosed;
+        const shiftStatus = shiftMarkedToday
+            ? (shiftClosedToday ? 'closed_today' : 'active')
+            : 'idle';
+        const canStartShift = shiftStatus !== 'active';
+        const canEndShift = shiftStatus === 'active';
+
+        return {
+            today,
+            shiftState,
+            shiftStatus,
+            shiftMarkedToday,
+            shiftClosedToday,
+            canStartShift,
+            canEndShift,
+        };
+    }
+
+    async handleSmena(chatId) {
+        const meta = this.getShiftMeta(chatId);
+        const { today, shiftState, shiftStatus } = meta;
+        if (shiftStatus === 'active') return '⚠️ Смена уже активна.';
         const dateStr = formatKyivDate();
         const content = `Начал\n1. ${dateStr}\n2. 12-0`;
         const chId = this.config.shiftChannelId;
@@ -701,6 +723,8 @@ class Bot {
             shiftState.lastShiftDate = today;
             shiftState.lastShiftClosed = false;
             shiftState.lastShiftContent = content;
+            shiftState.closeReminderSentDate = null;
+            this.markDirty();
             this.addLog('shift', `Смена начата (${dateStr})`);
             this.scheduleShiftReminder(); // arm close reminder
             return `✅ <b>Смена начата!</b>\n\n📅 ${escapeHtml(dateStr)}\n🕐 12-0`;
@@ -708,23 +732,28 @@ class Bot {
     }
 
     async handleSmenoff(chatId) {
-        const shiftState = this.getUserState(chatId).shift;
-        if (!shiftState.lastShiftMessageId) return '❌ Нет активной смены.';
-        if (shiftState.lastShiftClosed) return '⚠️ Смена уже закрыта.';
+        const meta = this.getShiftMeta(chatId);
+        const { shiftState, shiftStatus } = meta;
+        if (shiftStatus !== 'active') return '❌ Нет активной смены сегодня.';
         const chId = this.config.shiftChannelId;
         if (!chId) return '❌ Канал смены не настроен';
         try {
-            let oldContent = shiftState.lastShiftContent || `Начал\n1. ${formatKyivDate()}\n2. 12-0`;
-            const newContent = oldContent.replace(/^Начал/, 'Начал/ Закрыл');
-            const res = await this.editDiscordMessage(chId, shiftState.lastShiftMessageId, newContent);
-            if (!res.ok) {
-                // Message was deleted or inaccessible — close shift anyway
-                this.log(`⚠️ Shift message edit failed (${res.status}), closing shift anyway`);
+            if (shiftState.lastShiftMessageId) {
+                let oldContent = shiftState.lastShiftContent || `Начал\n1. ${formatKyivDate()}\n2. 12-0`;
+                const newContent = oldContent.replace(/^Начал/, 'Начал/ Закрыл');
+                const res = await this.editDiscordMessage(chId, shiftState.lastShiftMessageId, newContent);
+                if (!res.ok) {
+                    // Message was deleted or inaccessible — close shift anyway
+                    this.log(`⚠️ Shift message edit failed (${res.status}), closing shift anyway`);
+                }
+            } else {
+                this.log('⚠️ Shift close without message id, closing locally');
             }
         } catch (e) {
             this.log(`⚠️ Shift close edit error: ${e.message}, closing anyway`);
         }
         shiftState.lastShiftClosed = true;
+        this.markDirty();
         this.addLog('shift', 'Смена закрыта');
         return `✅ <b>Смена закрыта!</b>`;
     }
@@ -751,6 +780,7 @@ class Bot {
                 const ss = this.getUserState(chatId).shift;
                 if (ss.lastShiftDate !== getKyivDate() && ss.reminderSentDate !== getKyivDate()) {
                     ss.reminderSentDate = getKyivDate();
+                    this.markDirty();
                     const keyboard = { inline_keyboard: [[{ text: '✅ Отметиться', callback_data: 'shift_checkin' }, { text: '⏭ Пропустить', callback_data: 'shift_skip' }]] };
                     await this.tgSendMessage(chatId, '🕚 <b>Пора отмечаться на смену!</b>\n\nВремя 11:00.', keyboard);
                 }
@@ -763,6 +793,7 @@ class Bot {
                 const ss = this.getUserState(chatId).shift;
                 if (ss.lastShiftDate !== getKyivDate() && ss.lateReminderSentDate !== getKyivDate()) {
                     ss.lateReminderSentDate = getKyivDate();
+                    this.markDirty();
                     const keyboard = { inline_keyboard: [[{ text: '✅ Отметиться', callback_data: 'shift_checkin' }]] };
                     await this.tgSendMessage(chatId, '🚨 <b>Вы опаздываете на смену!</b>\n\nУже 12:00.', keyboard);
                 }
@@ -772,6 +803,7 @@ class Bot {
             // At 23:00+ send close reminder if shift is open
             if (shiftState.lastShiftDate === today && !shiftState.lastShiftClosed && shiftState.closeReminderSentDate !== today) {
                 shiftState.closeReminderSentDate = today;
+                this.markDirty();
                 const keyboard = { inline_keyboard: [[{ text: '🔒 Закрыть', callback_data: 'shift_close' }]] };
                 this.tgSendMessage(chatId, '🕐 <b>Не забудьте закрыть смену!</b>\n\n/smenoff', keyboard);
             }
@@ -799,6 +831,7 @@ class Bot {
         if (hour >= 23) {
             // Send immediately
             shiftState.closeReminderSentDate = today;
+            this.markDirty();
             const keyboard = { inline_keyboard: [[{ text: '🔒 Закрыть смену', callback_data: 'shift_close' }]] };
             this.tgSendMessage(chatId, '🕐 <b>Не забудьте закрыть смену!</b>\n\nУже 23:00. Закройте смену командой /smenoff.', keyboard);
             return;
@@ -811,6 +844,7 @@ class Bot {
             const todayNow = getKyivDate();
             if (ss.lastShiftDate === todayNow && !ss.lastShiftClosed && ss.closeReminderSentDate !== todayNow) {
                 ss.closeReminderSentDate = todayNow;
+                this.markDirty();
                 const keyboard = { inline_keyboard: [[{ text: '🔒 Закрыть смену', callback_data: 'shift_close' }]] };
                 this.tgSendMessage(chatId, '🕐 <b>Не забудьте закрыть смену!</b>\n\nУже 23:00. Закройте смену командой /smenoff.', keyboard);
             }
@@ -903,8 +937,20 @@ class Bot {
 
     getUsers() {
         const chatId = String(this.config.tgChatId);
-        const st = this.getUserState(chatId).shift;
-        return [{ id: chatId, name: this.config.userName || 'User', shiftActive: st.lastShiftDate === getKyivDate() && !st.lastShiftClosed }];
+        const meta = this.getShiftMeta(chatId);
+        const st = meta.shiftState;
+        return [{
+            id: chatId,
+            name: this.config.userName || 'User',
+            shiftActive: meta.shiftStatus === 'active',
+            shiftStatus: meta.shiftStatus,
+            canStartShift: meta.canStartShift,
+            canEndShift: meta.canEndShift,
+            shiftMarkedToday: meta.shiftMarkedToday,
+            shiftClosedToday: meta.shiftClosedToday,
+            lastShiftDate: st.lastShiftDate || null,
+            lastShiftClosed: !!st.lastShiftClosed,
+        }];
     }
 
     getLogs(limit = 50) {

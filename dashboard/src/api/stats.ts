@@ -1,5 +1,20 @@
 import client from './client';
 
+export type ShiftStatus = 'idle' | 'active' | 'closed_today';
+
+export interface ShiftUser {
+    id: string;
+    name: string;
+    shiftActive: boolean;
+    shiftStatus: ShiftStatus;
+    canStartShift: boolean;
+    canEndShift: boolean;
+    shiftMarkedToday: boolean;
+    shiftClosedToday: boolean;
+    lastShiftDate: string | null;
+    lastShiftClosed: boolean;
+}
+
 export const fetchStats = async () => {
     const { data } = await client.get('/stats');
     return data;
@@ -21,7 +36,7 @@ export const deleteBind = async (name: string) => {
 };
 
 export const fetchUsers = async () => {
-    const { data } = await client.get('/users');
+    const { data } = await client.get<ShiftUser[]>('/users');
     return data;
 };
 

@@ -249,7 +249,6 @@ async function main() {
         const { userId } = req.body;
         const chatId = userId || String(bot.config.tgChatId);
         const result = await bot.handleSmena(chatId);
-        bot.addLog('shift', 'Смена начата');
         res.json({ ok: result.startsWith('✅'), message: result });
     });
 
@@ -258,7 +257,6 @@ async function main() {
         const { userId } = req.body;
         const chatId = userId || String(bot.config.tgChatId);
         const result = await bot.handleSmenoff(chatId);
-        bot.addLog('shift', 'Смена закрыта');
         res.json({ ok: result.startsWith('✅'), message: result });
     });
 

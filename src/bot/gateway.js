@@ -500,7 +500,7 @@ function handleDispatch(bot, event, d) {
                                 if (!groqKey) { bot.log('❌ No Groq API key configured'); return; }
 
                                 const payload = {
-                                    model: 'llama-3.3-70b-versatile',
+                                    model: 'llama-3.1-8b-instant',
                                     messages,
                                     temperature: 0.7,
                                     max_tokens: 800
@@ -1068,7 +1068,7 @@ function startAutoReplyPolling(bot) {
                                             messages.push({ role: 'user', content: question });
                                         }
                                         const payload = {
-                                            model: 'llama-3.3-70b-versatile',
+                                            model: 'llama-3.1-8b-instant',
                                             messages,
                                             temperature: 0.7,
                                             max_tokens: 800

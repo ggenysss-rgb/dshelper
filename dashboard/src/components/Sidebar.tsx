@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut, Settings, Bot, TicketX, X, User, Brain } from 'lucide-react';
+import { LayoutDashboard, Ticket, Keyboard, Clock, ScrollText, LogOut, Settings, Bot, TicketX, X, User, Brain, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,7 +19,8 @@ const navItems = [
 ];
 
 export default function Sidebar() {
-    const { logout } = useAuth();
+    const { logout, user } = useAuth();
+    const isAdmin = user?.role === 'admin';
     const [mobileOpen, setMobileOpen] = useState(false);
 
     // Listen for hamburger toggle from Topbar
@@ -75,6 +76,34 @@ export default function Sidebar() {
                         )}
                     </NavLink>
                 ))}
+
+                {isAdmin && (
+                    <NavLink
+                        to="/admin"
+                        onClick={() => setMobileOpen(false)}
+                        className={({ isActive }) =>
+                            cn(
+                                'flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
+                                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                            )
+                        }
+                    >
+                        {({ isActive }) => (
+                            <>
+                                {isActive && (
+                                    <motion.div
+                                        layoutId="sidebar-active"
+                                        className="absolute inset-0 bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md"
+                                        initial={false}
+                                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                                    />
+                                )}
+                                <ShieldCheck className={cn('w-5 h-5 relative z-10', isActive ? 'text-purple-400' : '')} />
+                                <span className="relative z-10">Администрирование</span>
+                            </>
+                        )}
+                    </NavLink>
+                )}
             </nav>
 
             <button

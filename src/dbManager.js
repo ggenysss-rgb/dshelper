@@ -42,7 +42,9 @@ function initDb(dataDir) {
             
             polling_interval_sec INTEGER DEFAULT 3,
             rate_limit_ms INTEGER DEFAULT 1500,
-            max_message_length INTEGER DEFAULT 300
+            max_message_length INTEGER DEFAULT 300,
+            role TEXT DEFAULT 'pending',
+            created_at INTEGER DEFAULT (strftime('%s', 'now'))
         );
     `);
 
@@ -136,6 +138,35 @@ function initDb(dataDir) {
     } catch (e) {
         console.error("[DB] Migration error on users.gemini_api_keys:", e.message);
     }
+
+    // Migrate: add role column if missing
+    try {
+        const usersInfo = db.pragma('table_info(users)');
+        if (!usersInfo.some(col => col.name === 'role')) {
+            db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';");
+            // Set d1reevo as admin, all others as user (not pending)
+            db.exec("UPDATE users SET role = 'user' WHERE username != 'd1reevo';");
+            db.exec("UPDATE users SET role = 'admin' WHERE username = 'd1reevo';");
+            console.log('[DB] Migration: role column added, d1reevo set as admin, others set as user.');
+        }
+    } catch (e) { console.error('[DB] Migration error on users.role:', e.message); }
+
+    // Migrate: add admin_tg_chat_id column if missing
+    try {
+        const usersInfo = db.pragma('table_info(users)');
+        if (!usersInfo.some(col => col.name === 'admin_tg_chat_id')) {
+            db.exec("ALTER TABLE users ADD COLUMN admin_tg_chat_id TEXT DEFAULT NULL;");
+            console.log('[DB] Migration: admin_tg_chat_id column added.');
+        }
+    } catch (e) { console.error('[DB] Migration error on users.admin_tg_chat_id:', e.message); }
+
+    // Migrate: add created_at column if missing
+    try {
+        const usersInfo = db.pragma('table_info(users)');
+        if (!usersInfo.some(col => col.name === 'created_at')) {
+            db.exec("ALTER TABLE users ADD COLUMN created_at INTEGER DEFAULT (strftime('%s', 'now'));");
+        }
+    } catch (e) { console.error('[DB] Migration error on users.created_at:', e.message); }
 
     console.log("[DB] SQLite check/migration complete.");
     return db;

@@ -1,10 +1,37 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
+const https = require('https');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ticket-dashboard-secret-key-2026';
 
-function createAuthRoutes(db) {
+// Send a Telegram message to a specific chat
+function sendTelegramMessage(tgToken, chatId, text, replyMarkup) {
+    return new Promise((resolve, reject) => {
+        const body = JSON.stringify({
+            chat_id: chatId,
+            text,
+            parse_mode: 'HTML',
+            reply_markup: replyMarkup || undefined
+        });
+        const url = new URL(`https://api.telegram.org/bot${tgToken}/sendMessage`);
+        const req = https.request({
+            hostname: url.hostname,
+            path: url.pathname + url.search,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        }, res => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve(JSON.parse(data)));
+        });
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+    });
+}
+
+function createAuthRoutes(db, tgToken, adminChatId) {
     const router = express.Router();
 
     router.post('/register', async (req, res) => {
@@ -24,13 +51,33 @@ function createAuthRoutes(db) {
             const password_hash = await bcrypt.hash(password, saltRounds);
 
             const result = db.prepare(`
-                INSERT INTO users (username, password_hash)
-                VALUES (?, ?)
+                INSERT INTO users (username, password_hash, role)
+                VALUES (?, ?, 'pending')
             `).run(username, password_hash);
 
-            const token = jwt.sign({ userId: result.lastInsertRowid, username }, JWT_SECRET, { expiresIn: '7d' });
+            const newUserId = result.lastInsertRowid;
 
-            res.json({ token, user: { id: result.lastInsertRowid, username } });
+            // Notify admin via Telegram
+            if (tgToken && adminChatId) {
+                try {
+                    const timeStr = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+                    await sendTelegramMessage(
+                        tgToken,
+                        adminChatId,
+                        `🆕 <b>Новый пользователь хочет зарегистрироваться</b>\n\n👤 Логин: <code>${username}</code>\n🕐 Время: ${timeStr}`,
+                        {
+                            inline_keyboard: [[
+                                { text: '✅ Одобрить', callback_data: `approve_user:${newUserId}` },
+                                { text: '❌ Отклонить', callback_data: `reject_user:${newUserId}` }
+                            ]]
+                        }
+                    );
+                } catch (tgErr) {
+                    console.error('[Auth API] Failed to send Telegram notification:', tgErr.message);
+                }
+            }
+
+            res.json({ pending: true, message: 'Ожидайте подтверждения администратора' });
         } catch (error) {
             console.error('[Auth API] Register error:', error);
             res.status(500).json({ error: 'Internal server error' });
@@ -55,9 +102,16 @@ function createAuthRoutes(db) {
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
-            const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+            if (user.role === 'pending') {
+                return res.status(403).json({ error: 'Аккаунт ожидает подтверждения администратора' });
+            }
+            if (user.role === 'banned') {
+                return res.status(403).json({ error: 'Аккаунт заблокирован' });
+            }
 
-            res.json({ token, user: { id: user.id, username: user.username } });
+            const token = jwt.sign({ userId: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+
+            res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
         } catch (error) {
             console.error('[Auth API] Login error:', error);
             res.status(500).json({ error: 'Internal server error' });
@@ -66,8 +120,10 @@ function createAuthRoutes(db) {
 
     router.get('/me', authenticateToken, (req, res) => {
         try {
-            const user = db.prepare('SELECT id, username, discord_token, tg_token, tg_chat_id FROM users WHERE id = ?').get(req.user.userId);
+            const user = db.prepare('SELECT id, username, discord_token, tg_token, tg_chat_id, role FROM users WHERE id = ?').get(req.user.userId);
             if (!user) return res.status(404).json({ error: 'User not found' });
+            // Check banned again on /me
+            if (user.role === 'banned') return res.status(403).json({ error: 'Аккаунт заблокирован' });
             res.json({ user });
         } catch (error) {
             res.status(500).json({ error: 'Internal server error' });
@@ -90,4 +146,4 @@ function authenticateToken(req, res, next) {
     });
 }
 
-module.exports = { createAuthRoutes, authenticateToken, JWT_SECRET };
+module.exports = { createAuthRoutes, authenticateToken, JWT_SECRET, sendTelegramMessage };

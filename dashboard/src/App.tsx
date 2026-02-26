@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import AutoReplies from './pages/AutoReplies';
 import ClosedTickets from './pages/ClosedTickets';
 import ConversationLog from './pages/ConversationLog';
+import AdminPanel from './pages/AdminPanel';
 
 export default function App() {
     const { token, loading } = useAuth();
@@ -44,6 +45,7 @@ export default function App() {
                     <Route path="/autoreplies" element={<AutoReplies />} />
                     <Route path="/closed-tickets" element={<ClosedTickets />} />
                     <Route path="/ai-learning" element={<ConversationLog />} />
+                    <Route path="/admin" element={<AdminPanel />} />
                     <Route path="/profile" element={<Profile />} />
                     <Route path="*" element={<Navigate to="/tickets" replace />} />
                 </Route>

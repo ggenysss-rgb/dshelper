@@ -18,8 +18,9 @@ const { Server } = require('socket.io');
 
 const { initDb } = require('./dbManager');
 const BotManager = require('./BotManager');
-const { createAuthRoutes, authenticateToken, JWT_SECRET } = require('./api/auth');
+const { createAuthRoutes, authenticateToken, JWT_SECRET, sendTelegramMessage } = require('./api/auth');
 const { createProfileRoutes } = require('./api/profile');
+const { createAdminRoutes } = require('./api/admin');
 
 // Prefer Railway persistent volume (/data), then env var, then local ./data
 const DATA_DIR = process.env.DATA_DIR || (require('fs').existsSync('/data') ? '/data' : path.join(__dirname, '..', 'data'));
@@ -49,11 +50,18 @@ async function main() {
     app.use(cors());
     app.use(express.json());
 
+    // Read Telegram credentials for admin notifications
+    const ADMIN_TG_TOKEN = process.env.TG_TOKEN || require('../config.json').tgToken || '';
+    const ADMIN_TG_CHAT_ID = process.env.ADMIN_TG_CHAT_ID || require('../config.json').tgChatId || '';
+
     // -- Public Auth Routes --
-    app.use('/api/auth', createAuthRoutes(db));
+    app.use('/api/auth', createAuthRoutes(db, ADMIN_TG_TOKEN, ADMIN_TG_CHAT_ID));
 
     // -- Protected Routes (all require JWT) --
     app.use('/api/profile', createProfileRoutes(db, botManager));
+
+    // -- Admin Routes --
+    app.use('/api/admin', createAdminRoutes(db));
 
     // -- Helper: get bot for authenticated user --
     function getBot(req, res) {
@@ -368,6 +376,63 @@ async function main() {
 
     // 5. Start all user bots
     await botManager.startAll();
+
+    // 6. Telegram callback polling for approve/reject buttons
+    if (ADMIN_TG_TOKEN) {
+        let tgOffset = 0;
+        const pollTelegram = async () => {
+            try {
+                const url = `https://api.telegram.org/bot${ADMIN_TG_TOKEN}/getUpdates?offset=${tgOffset}&timeout=30&allowed_updates=["callback_query"]`;
+                const resp = await fetch(url);
+                const data = await resp.json();
+                if (!data.ok) return;
+                for (const update of (data.result || [])) {
+                    tgOffset = update.update_id + 1;
+                    const cq = update.callback_query;
+                    if (!cq) continue;
+                    const [action, userIdStr] = (cq.data || '').split(':');
+                    const userId = parseInt(userIdStr);
+                    if (!userId) continue;
+                    try {
+                        const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(userId);
+                        if (!user) {
+                            await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `⚠️ Пользователь #${userId} не найден.`);
+                            continue;
+                        }
+                        if (action === 'approve_user') {
+                            if (user.role !== 'pending') {
+                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `ℹ️ Пользователь <b>${user.username}</b> уже обработан (роль: ${user.role}).`);
+                            } else {
+                                db.prepare("UPDATE users SET role = 'user' WHERE id = ?").run(userId);
+                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `✅ Пользователь <b>${user.username}</b> одобрен и может войти в систему.`);
+                                console.log(`[TG Approval] Approved user ${user.username} (id=${userId})`);
+                            }
+                        } else if (action === 'reject_user') {
+                            if (user.role !== 'pending') {
+                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `ℹ️ Пользователь <b>${user.username}</b> уже обработан (роль: ${user.role}).`);
+                            } else {
+                                db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `❌ Регистрация пользователя <b>${user.username}</b> отклонена и аккаунт удалён.`);
+                                console.log(`[TG Approval] Rejected user ${user.username} (id=${userId})`);
+                            }
+                        }
+                        // Acknowledge callback
+                        fetch(`https://api.telegram.org/bot${ADMIN_TG_TOKEN}/answerCallbackQuery?callback_query_id=${cq.id}`).catch(() => { });
+                    } catch (err) {
+                        console.error('[TG Approval] Error processing callback:', err.message);
+                    }
+                }
+            } catch (err) {
+                if (!err.message?.includes('aborted')) {
+                    console.error('[TG Approval] Poll error:', err.message);
+                }
+            } finally {
+                setTimeout(pollTelegram, 1000);
+            }
+        };
+        pollTelegram();
+        console.log(`${LOG} ✅ Telegram approval polling started.`);
+    }
 
     // 6. Graceful shutdown
     const shutdown = () => {

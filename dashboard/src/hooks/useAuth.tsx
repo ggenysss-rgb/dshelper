@@ -4,8 +4,8 @@ import client from '../api/client';
 type AuthContextType = {
     token: string | null;
     user: any;
-    login: (username: string, password: string) => Promise<boolean>;
-    register: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    login: (username: string, password: string) => Promise<{ success: boolean; pending?: boolean; error?: string }>;
+    register: (username: string, password: string) => Promise<{ success: boolean; pending?: boolean; error?: string }>;
     logout: () => void;
     loading: boolean;
 };
@@ -35,21 +35,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const login = async (username: string, password: string) => {
         try {
             const { data } = await client.post('/auth/login', { username, password });
+            if (data.pending) {
+                return { success: false, pending: true };
+            }
             localStorage.setItem('dashboard_token', data.token);
             setToken(data.token);
             setUser(data.user);
-            return true;
-        } catch {
-            return false;
+            return { success: true };
+        } catch (err: any) {
+            const message = err.response?.data?.error || 'Login failed';
+            const isPending = message.includes('ожидает') || message.includes('pending');
+            return { success: false, pending: isPending, error: message };
         }
     };
 
     const register = async (username: string, password: string) => {
         try {
             const { data } = await client.post('/auth/register', { username, password });
-            localStorage.setItem('dashboard_token', data.token);
-            setToken(data.token);
-            setUser(data.user);
+            if (data.pending) {
+                return { success: true, pending: true };
+            }
+            // Legacy fallback if token is returned
+            if (data.token) {
+                localStorage.setItem('dashboard_token', data.token);
+                setToken(data.token);
+                setUser(data.user);
+            }
             return { success: true };
         } catch (err: any) {
             const message = err.response?.data?.error || 'Registration failed';

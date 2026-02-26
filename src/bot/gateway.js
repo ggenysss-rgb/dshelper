@@ -1045,7 +1045,7 @@ function startAutoReplyPolling(bot) {
                                 (async () => {
                                     try {
                                         const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                        if (!groqKey) { bot.log('❌ Poll: No DeepSeek API key configured'); return; }
+                                        if (!groqKey) { bot.log('❌ Poll: No OpenRouter API key configured'); return; }
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
                                         const messages = [{ role: 'system', content: systemPrompt }];
@@ -1072,23 +1072,27 @@ function startAutoReplyPolling(bot) {
                                             messages.push({ role: 'user', content: question });
                                         }
                                         const payload = {
-                                            model: 'deepseek-chat',
+                                            model: 'nousresearch/hermes-3-llama-3.1-405b:free',
                                             messages,
                                             temperature: 0.7,
                                             max_tokens: 800
                                         };
                                         const res = await bot.httpPostWithHeaders(
-                                            'https://api.deepseek.com/chat/completions',
+                                            'https://openrouter.ai/api/v1/chat/completions',
                                             payload,
-                                            { 'Authorization': `Bearer ${groqKey}` }
+                                            {
+                                                'Authorization': `Bearer ${groqKey}`,
+                                                'HTTP-Referer': 'https://github.com/d1reevo/selfbot',
+                                                'X-Title': 'd1reevo Selfbot'
+                                            }
                                         );
                                         const data = JSON.parse(res.body);
                                         let answerText = null;
                                         if (res.ok && data.choices && data.choices.length > 0) {
                                             answerText = data.choices[0].message.content;
-                                            bot.log(`🧠 Poll: DeepSeek AI Success`);
+                                            bot.log(`🧠 Poll: OpenRouter AI Success`);
                                         } else {
-                                            bot.log(`⚠️ Poll: DeepSeek Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                            bot.log(`⚠️ Poll: OpenRouter Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
                                         }
                                         if (answerText) {
                                             const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);

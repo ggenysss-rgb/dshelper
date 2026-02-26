@@ -420,7 +420,8 @@ function handleDispatch(bot, event, d) {
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            if (!isBot && author.id !== bot.selfUserId && !hasProfanity && cfg.n8nWebhookUrl && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
+            const hasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
+            if (!isBot && author.id !== bot.selfUserId && !hasProfanity && hasAiKeys && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                 // Check if user is replying to the bot's previous message
@@ -1033,10 +1034,10 @@ function startAutoReplyPolling(bot) {
 
                     // ── AI handler (poll-based) — forward @mentions and replies to n8n ──
                     const neuroExcludedPoll = ['1451246122755559555'];
-                    if (!msg.author.bot && msg.author.id !== bot.selfUserId && cfg.n8nWebhookUrl && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
+                    const pollHasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
+                    if (!msg.author.bot && msg.author.id !== bot.selfUserId && pollHasAiKeys && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
                         const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                        // Check if user is replying to the bot's message
                         const isReplyToMe = msg.referenced_message && msg.referenced_message.author && msg.referenced_message.author.id === bot.selfUserId;
 
                         if ((mentionsMe || isReplyToMe) && !_neuroProcessed.has(msg.id)) {
@@ -1056,55 +1057,91 @@ function startAutoReplyPolling(bot) {
                                         authorUsername: msg.author.username,
                                     });
                                 }
-                                // Mark channel as having a pending AI response
                                 if (!bot._aiPendingChannels) bot._aiPendingChannels = new Set();
                                 bot._aiPendingChannels.add(channelId);
                                 setTimeout(() => bot._aiPendingChannels?.delete(channelId), 30000);
-                                // Build context with previous bot reply
                                 const prevBotReply = isReplyToMe ? (msg.referenced_message.content || '').slice(0, 500) : '';
-                                // Send to n8n
-                                try {
-                                    const systemPrompt = loadSystemPrompt();
-                                    const convHistory = bot._convLogger
-                                        ? bot._convLogger.getChannelHistory(channelId, 10)
-                                            .map(e => `[${e.authorUsername || 'user'}]: ${e.question || e.answer || ''}`)
-                                            .join('\n')
-                                        : '';
-                                    // If replying to bot, prepend the bot's message
-                                    let fullHistory = convHistory;
-                                    if (prevBotReply && !convHistory.includes(prevBotReply.slice(0, 50))) {
-                                        fullHistory = `[d1reevo]: ${prevBotReply}\n${convHistory}`;
+                                // Direct Gemini API call (same as gateway path)
+                                (async () => {
+                                    try {
+                                        const keys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys : (cfg.geminiApiKeys ? [cfg.geminiApiKeys] : []);
+                                        if (keys.length === 0) { bot.log('❌ Poll: No Gemini API keys configured'); return; }
+                                        const systemPrompt = loadSystemPrompt();
+                                        const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
+                                        const contents = [];
+                                        for (const entry of channelHistory) {
+                                            const text = (entry.question || entry.answer || '').trim();
+                                            if (!text) continue;
+                                            const role = entry.type === 'ai_question' ? 'model' : 'user';
+                                            if (contents.length > 0 && contents[contents.length - 1].role === role) {
+                                                contents[contents.length - 1].parts[0].text += `\n[${entry.authorUsername || 'user'}]: ${text}`;
+                                            } else {
+                                                contents.push({ role, parts: [{ text: `[${entry.authorUsername || 'user'}]: ${text}` }] });
+                                            }
+                                        }
+                                        if (prevBotReply && !channelHistory.some(e => e.type === 'ai_question' && (e.question || e.answer || '').includes(prevBotReply.slice(0, 50)))) {
+                                            if (contents.length > 0 && contents[contents.length - 1].role === 'model') {
+                                                contents[contents.length - 1].parts[0].text += `\n${prevBotReply}`;
+                                            } else {
+                                                contents.push({ role: 'model', parts: [{ text: prevBotReply }] });
+                                            }
+                                        }
+                                        if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+                                            contents[contents.length - 1].parts[0].text += `\n[${msg.author.username}]: ${question}`;
+                                        } else {
+                                            contents.push({ role: 'user', parts: [{ text: `[${msg.author.username}]: ${question}` }] });
+                                        }
+                                        const payload = {
+                                            systemInstruction: { parts: [{ text: systemPrompt }] },
+                                            contents,
+                                            generationConfig: { temperature: 0.7, maxOutputTokens: 800 }
+                                        };
+                                        let success = false;
+                                        let answerText = null;
+                                        for (let i = 0; i < keys.length; i++) {
+                                            const key = keys[i];
+                                            try {
+                                                const fetch = require('node-fetch');
+                                                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify(payload)
+                                                });
+                                                const data = await res.json();
+                                                if (res.ok && data.candidates && data.candidates.length > 0) {
+                                                    answerText = data.candidates[0].content.parts[0].text;
+                                                    success = true;
+                                                    bot.log(`🧠 Poll: Gemini Success with key ${i + 1}/${keys.length}`);
+                                                    break;
+                                                } else {
+                                                    bot.log(`⚠️ Poll: Gemini Error (Key ${i + 1}/${keys.length}): ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                                    if (res.status !== 429 && res.status !== 503) break;
+                                                }
+                                            } catch (err) {
+                                                bot.log(`⚠️ Poll: Fetch Error (Key ${i + 1}/${keys.length}): ${err.message}`);
+                                            }
+                                        }
+                                        if (success && answerText) {
+                                            const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);
+                                            if (sentRes.ok) {
+                                                bot.log(`✅ Poll: Neuro response sent to #${channelId}`);
+                                                if (bot._convLogger) {
+                                                    bot._convLogger.logAIResponse({
+                                                        channelId,
+                                                        question: answerText,
+                                                        authorUsername: bot.user?.username || 'Neuro'
+                                                    });
+                                                }
+                                            } else {
+                                                bot.log(`❌ Poll: Failed to send Discord message: ${sentRes.status}`);
+                                            }
+                                        } else {
+                                            bot.log(`❌ Poll: Neuro API — all keys failed`);
+                                        }
+                                    } catch (e) {
+                                        bot.log(`❌ Poll: Neuro AI error: ${e.stack}`);
                                     }
-                                    const payload = JSON.stringify({
-                                        chatInput: question,
-                                        channelId,
-                                        messageId: msg.id,
-                                        authorId: msg.author.id,
-                                        authorUsername: msg.author.username,
-                                        guildId: guildId,
-                                        systemPrompt,
-                                        conversationHistory: fullHistory,
-                                    });
-                                    const url = new URL(cfg.n8nWebhookUrl);
-                                    const options = {
-                                        hostname: url.hostname,
-                                        port: url.port || (url.protocol === 'https:' ? 443 : 80),
-                                        path: url.pathname + url.search,
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
-                                    };
-                                    const http = url.protocol === 'https:' ? require('https') : require('http');
-                                    const req = http.request(options, (res) => {
-                                        let body = '';
-                                        res.on('data', chunk => body += chunk);
-                                        res.on('end', () => bot.log(`🧠 Poll: Neuro webhook response: ${res.statusCode}`));
-                                    });
-                                    req.on('error', e => bot.log(`❌ Poll: Neuro webhook error: ${e.message}`));
-                                    req.write(payload);
-                                    req.end();
-                                } catch (e) {
-                                    bot.log(`❌ Poll: Neuro AI error: ${e.message}`);
-                                }
+                                })();
                             }
                         }
                     }

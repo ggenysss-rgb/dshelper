@@ -325,6 +325,18 @@ class Bot {
         });
     }
 
+    httpPostWithHeaders(url, body, extraHeaders = {}) {
+        return new Promise((resolve, reject) => {
+            const u = new URL(url); const data = JSON.stringify(body);
+            const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), ...extraHeaders };
+            const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'POST', headers }, res => {
+                let chunks = ''; res.on('data', c => chunks += c);
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+            });
+            req.on('error', reject); req.write(data); req.end();
+        });
+    }
+
     httpGet(url, headers = {}) {
         return new Promise((resolve, reject) => {
             const u = new URL(url);

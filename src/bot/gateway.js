@@ -517,14 +517,9 @@ function handleDispatch(bot, event, d) {
                                 for (let i = 0; i < keys.length; i++) {
                                     const key = keys[i];
                                     try {
-                                        const fetch = require('node-fetch');
-                                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify(payload)
-                                        });
-
-                                        const data = await res.json();
+                                        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+                                        const res = await bot.httpPost(geminiUrl, payload);
+                                        const data = JSON.parse(res.body);
 
                                         if (res.ok && data.candidates && data.candidates.length > 0) {
                                             answerText = data.candidates[0].content.parts[0].text;
@@ -533,10 +528,7 @@ function handleDispatch(bot, event, d) {
                                             break;
                                         } else {
                                             bot.log(`⚠️ Gemini Error (Key ${i + 1}/${keys.length}): ${res.status} ${JSON.stringify(data?.error || data)}`);
-                                            if (res.status !== 429 && res.status !== 503) {
-                                                // If not rate limit or server error, don't try other keys (probably bad request)
-                                                break;
-                                            }
+                                            if (res.status !== 429 && res.status !== 503) break;
                                         }
                                     } catch (err) {
                                         bot.log(`⚠️ Fetch Error (Key ${i + 1}/${keys.length}): ${err.message}`);
@@ -1101,13 +1093,9 @@ function startAutoReplyPolling(bot) {
                                         for (let i = 0; i < keys.length; i++) {
                                             const key = keys[i];
                                             try {
-                                                const fetch = require('node-fetch');
-                                                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
-                                                    method: 'POST',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify(payload)
-                                                });
-                                                const data = await res.json();
+                                                const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+                                                const res = await bot.httpPost(geminiUrl, payload);
+                                                const data = JSON.parse(res.body);
                                                 if (res.ok && data.candidates && data.candidates.length > 0) {
                                                     answerText = data.candidates[0].content.parts[0].text;
                                                     success = true;

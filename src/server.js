@@ -116,6 +116,16 @@ async function main() {
         if (!record) return res.status(404).json({ error: 'Ticket not found' });
         try {
             const messages = await bot.fetchChannelMessages(channelId, 100);
+            const DEFAULT_STAFF_ROLES = ['1475932249017946133', '1475961602619478116'];
+            const cfgRoles = Array.isArray(bot.config.staffRoleIds) ? bot.config.staffRoleIds : [];
+            const staffRoleIds = (cfgRoles.length > 0 ? cfgRoles : DEFAULT_STAFF_ROLES).map(String);
+            const selfUserId = bot.selfUserId ? String(bot.selfUserId) : null;
+            const ownerAliases = new Set(
+                [req.user?.username, bot.config.userName]
+                    .map(v => String(v || '').trim().toLowerCase())
+                    .filter(Boolean)
+            );
+
             const mentionMap = {};
             for (const [id, r] of bot.guildRolesCache) mentionMap[`role:${id}`] = r.name || id;
             for (const [id, m] of bot.guildMembersCache) mentionMap[`user:${id}`] = m.user?.global_name || m.user?.username || m.nick || id;
@@ -153,7 +163,19 @@ async function main() {
                 if (bot.io) bot.io.emit('ticket:updated', { channelId });
             }
 
-            res.json({ messages: messages.reverse(), mentionMap });
+            const ordered = [...messages].reverse().map(msg => {
+                const authorId = String(msg.author?.id || '');
+                const authorUsername = String(msg.author?.username || '').trim().toLowerCase();
+                const authorGlobal = String(msg.author?.global_name || '').trim().toLowerCase();
+                const isSelf = !!selfUserId && authorId === selfUserId;
+                const isAliasOwner = ownerAliases.has(authorUsername) || ownerAliases.has(authorGlobal);
+                const hasStaffRole = Array.isArray(msg.member?.roles) && msg.member.roles.some(r => staffRoleIds.includes(String(r)));
+                const isMine = isSelf || isAliasOwner;
+                const isStaff = isMine || hasStaffRole;
+                return { ...msg, _isMine: isMine, _isStaff: isStaff };
+            });
+
+            res.json({ messages: ordered, mentionMap });
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 

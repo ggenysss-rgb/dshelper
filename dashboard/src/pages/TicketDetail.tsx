@@ -155,17 +155,25 @@ export default function TicketDetail() {
                     {(!messages || messages.length === 0) ? (
                         <div className="h-full flex flex-col justify-center items-center text-muted-foreground italic">Нет сообщений</div>
                     ) : messages.map((msg) => {
-                        const staff = !!(msg as any)._isStaff;
                         const isBotProxy = !!msg.author.bot && (msg.content || '').includes('[Саппорт]');
+                        const taggedMine = typeof msg._isMine === 'boolean' ? msg._isMine : null;
+                        const taggedStaff = typeof msg._isStaff === 'boolean' ? msg._isStaff : null;
+                        const isOpenerMessage = !!ticket?.openerId && msg.author?.id === ticket.openerId;
+                        const baseMine = taggedMine !== null
+                            ? taggedMine
+                            : (taggedStaff !== null
+                                ? taggedStaff
+                                : (!!ticket?.openerId && !isOpenerMessage));
+                        const isMine = baseMine || isBotProxy;
                         return (
                             <ChatMessage
                                 key={msg.id}
                                 message={msg}
-                                isStaff={staff || isBotProxy}
+                                isStaff={isMine}
                                 mentionMap={mentionMap}
                                 onReply={handleReply}
                                 onEdit={handleEdit}
-                                canEdit={staff || isBotProxy}
+                                canEdit={isMine || isBotProxy}
                             />
                         );
                     })}

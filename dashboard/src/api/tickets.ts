@@ -22,6 +22,8 @@ export type DiscordMessage = {
     type: number;
     content: string;
     channel_id: string;
+    _isMine?: boolean;
+    _isStaff?: boolean;
     author: {
         id: string;
         username: string;

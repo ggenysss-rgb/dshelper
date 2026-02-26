@@ -474,7 +474,25 @@ function handleDispatch(bot, event, d) {
                 bot.enqueue({ ...msg });
                 if (bot.io) bot.io.emit('ticket:new', { channelId: d.id, channelName: d.name });
             }
-            // Auto-greet: moved to MESSAGE_CREATE — triggers on role mention, not channel creation
+            // Auto-greet fallback for new tickets: some setups do not emit role-mention
+            // service messages, so greet directly on ticket channel creation.
+            if (cfg.autoGreetEnabled && cfg.autoGreetText) {
+                if (!bot._greetedChannels) bot._greetedChannels = new Set();
+                if (!bot._greetedChannels.has(d.id)) {
+                    bot._greetedChannels.add(d.id);
+                    const chId = d.id;
+                    setTimeout(async () => {
+                        try {
+                            await bot.sendDiscordMessage(chId, cfg.autoGreetText);
+                            bot.log(`👋 Auto-greet sent in #${d.name} (channel create fallback)`);
+                        } catch (e) {
+                            // Allow mention-based fallback to retry later on failure.
+                            bot._greetedChannels.delete(chId);
+                            bot.log(`❌ Auto-greet fallback error: ${e.message}`);
+                        }
+                    }, (cfg.autoGreetDelay || 3) * 1000);
+                }
+            }
             // Subscribe to new channel via op14 so we get MESSAGE_CREATE for it
             subscribeToSingleChannel(bot, guildId, d.id);
             break;

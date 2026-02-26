@@ -35,7 +35,7 @@ export default function MemberPanel() {
     const totalMembers = groups?.reduce((s, g) => s + g.members.length, 0) ?? 0;
 
     return (
-        <div className="w-64 shrink-0 bg-card border-l border-border h-full overflow-y-auto custom-scrollbar">
+        <div className="member-panel-shell w-64 shrink-0 bg-card border-l border-border h-full overflow-y-auto custom-scrollbar">
             {/* Header */}
             <div className="sticky top-0 bg-card/95 backdrop-blur-sm z-10 px-4 py-3 border-b border-border">
                 <div className="flex items-center gap-2 text-sm font-rajdhani font-bold uppercase tracking-wider text-muted-foreground">

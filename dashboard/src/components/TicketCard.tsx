@@ -16,7 +16,7 @@ export default function TicketCard({ ticket }: { ticket: Ticket }) {
             animate={{ opacity: 1, y: 0 }}
             whileHover={{ y: -2 }}
             className={cn(
-                "group relative bg-card rounded-xl border transition-all hover:shadow-lg overflow-hidden",
+                "ticket-card-shell group relative bg-card rounded-xl border transition-all hover:shadow-lg overflow-hidden",
                 isHighPriority ? "border-primary/50 hover:border-primary shadow-primary/5" : "border-border hover:border-muted-foreground/30"
             )}
         >

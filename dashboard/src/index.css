@@ -3,8 +3,6 @@
 @tailwind utilities;
 
 @layer base {
-
-  /* Dark theme (default) */
   :root,
   .dark {
     --background: 240 20% 6%;
@@ -32,7 +30,6 @@
     --card-shadow: 0 20px 48px -30px hsl(240 45% 2% / 0.75);
   }
 
-  /* Light theme */
   .light {
     --background: 210 33% 97%;
     --foreground: 236 18% 13%;
@@ -138,7 +135,7 @@
       radial-gradient(38rem 38rem at 96% -15%, hsl(var(--bg-glow-2) / 0.18), transparent 54%),
       linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
     background-attachment: fixed;
-    transition: background 400ms ease, color 250ms ease;
+    transition: background 450ms ease, color 250ms ease;
   }
 
   h1,
@@ -149,6 +146,47 @@
   h6 {
     @apply font-rajdhani font-bold tracking-tight;
   }
+
+  .dashboard-shell {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .dashboard-shell::before,
+  .dashboard-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition: background 320ms ease, opacity 320ms ease;
+  }
+
+  .dashboard-shell::before {
+    background:
+      radial-gradient(36rem 26rem at 12% 0%, hsl(var(--bg-glow-1) / 0.16), transparent 62%),
+      radial-gradient(34rem 22rem at 88% 0%, hsl(var(--bg-glow-2) / 0.14), transparent 62%);
+    opacity: 0.75;
+  }
+
+  .dashboard-shell::after {
+    background: linear-gradient(180deg, transparent 0%, hsl(var(--background) / 0.45) 100%);
+    opacity: 0.55;
+  }
+
+  .dashboard-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .dashboard-main {
+    position: relative;
+  }
+
+  .dashboard-main > * {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 @layer components {
@@ -157,9 +195,229 @@
     transition: background-color 250ms ease, border-color 250ms ease, box-shadow 300ms ease;
   }
 
+  .sidebar-shell,
+  .topbar-shell,
+  .member-panel-shell,
+  .ticket-card-shell,
+  .sidebar-link,
+  .sidebar-active-pill,
+  .sidebar-logout {
+    transition: background-color 250ms ease, border-color 250ms ease, box-shadow 300ms ease, transform 250ms ease;
+  }
+
+  .sidebar-shell {
+    background: linear-gradient(180deg, hsl(var(--card) / 0.98), hsl(var(--background) / 0.95));
+  }
+
+  .topbar-shell {
+    background: linear-gradient(180deg, hsl(var(--card) / 0.88), hsl(var(--background) / 0.82));
+  }
+
+  .member-panel-shell {
+    background: linear-gradient(180deg, hsl(var(--card) / 0.98), hsl(var(--background) / 0.94));
+  }
+
+  .sidebar-link {
+    border: 1px solid transparent;
+  }
+
+  .sidebar-link:hover {
+    border-color: hsl(var(--border) / 0.65);
+  }
+
+  .sidebar-active-pill {
+    backdrop-filter: blur(4px);
+  }
+
+  .sidebar-logout {
+    border: 1px solid transparent;
+  }
+
+  .sidebar-logout:hover {
+    border-color: hsl(var(--destructive) / 0.4);
+  }
+
+  .ticket-card-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.9), hsl(var(--accent) / 0.9), transparent);
+    opacity: 0;
+    transition: opacity 220ms ease;
+  }
+
+  .ticket-card-shell:hover {
+    transform: translateY(-4px);
+  }
+
+  .ticket-card-shell:hover::before {
+    opacity: 1;
+  }
+
+  .design-midnight body {
+    background-image:
+      radial-gradient(44rem 32rem at 6% -10%, hsl(349 92% 60% / 0.18), transparent 60%),
+      radial-gradient(42rem 28rem at 100% -12%, hsl(194 95% 57% / 0.15), transparent 62%),
+      linear-gradient(180deg, hsl(238 46% 6%), hsl(236 52% 4%));
+  }
+
+  .design-midnight .sidebar-shell {
+    background: linear-gradient(180deg, hsl(239 30% 12% / 0.96), hsl(239 40% 8% / 0.95));
+    box-shadow: inset -1px 0 0 hsl(194 95% 57% / 0.2), 0 24px 46px -30px hsl(238 55% 2% / 0.85);
+  }
+
+  .design-midnight .topbar-shell {
+    background: linear-gradient(90deg, hsl(239 30% 9% / 0.9), hsl(239 22% 11% / 0.76));
+  }
+
+  .design-midnight .sidebar-active-pill {
+    box-shadow: 0 0 0 1px hsl(194 95% 57% / 0.24), 0 12px 28px -20px hsl(194 95% 57% / 0.55);
+  }
+
+  .design-arctic body {
+    background-image:
+      radial-gradient(52rem 34rem at 4% -12%, hsl(199 94% 46% / 0.16), transparent 60%),
+      radial-gradient(44rem 28rem at 95% -16%, hsl(173 74% 43% / 0.14), transparent 62%),
+      linear-gradient(180deg, hsl(210 42% 97%), hsl(208 30% 94%));
+  }
+
+  .design-arctic .dashboard-shell::after {
+    background: linear-gradient(180deg, hsl(210 60% 100% / 0.2), hsl(206 45% 95% / 0.45));
+    opacity: 0.9;
+  }
+
+  .design-arctic .sidebar-shell,
+  .design-arctic .topbar-shell,
+  .design-arctic .member-panel-shell {
+    background: linear-gradient(180deg, hsl(0 0% 100% / 0.78), hsl(208 55% 95% / 0.72));
+    backdrop-filter: blur(12px) saturate(1.15);
+  }
+
+  .design-arctic .bg-card {
+    border-radius: 1.35rem;
+    box-shadow: 0 16px 38px -28px hsl(204 38% 46% / 0.36), 0 0 0 1px hsl(204 38% 78% / 0.75);
+  }
+
+  .design-arctic .sidebar-link {
+    border-radius: 0.9rem;
+  }
+
+  .design-arctic .sidebar-active-pill {
+    border-left-width: 0;
+    border: 1px solid hsl(199 94% 46% / 0.32);
+    background: hsl(199 94% 46% / 0.12);
+  }
+
+  .design-sunset body {
+    background-image:
+      radial-gradient(46rem 34rem at 8% -10%, hsl(17 92% 56% / 0.22), transparent 60%),
+      radial-gradient(42rem 26rem at 95% -12%, hsl(328 83% 58% / 0.2), transparent 64%),
+      linear-gradient(180deg, hsl(36 62% 95%), hsl(22 62% 90%));
+  }
+
+  .design-sunset .dashboard-shell::before {
+    background:
+      radial-gradient(40rem 30rem at 18% 2%, hsl(17 92% 56% / 0.2), transparent 62%),
+      radial-gradient(34rem 24rem at 88% 1%, hsl(328 83% 58% / 0.18), transparent 62%);
+    opacity: 0.82;
+  }
+
+  .design-sunset .sidebar-shell {
+    background: linear-gradient(180deg, hsl(24 90% 92% / 0.94), hsl(20 66% 86% / 0.92));
+    box-shadow: inset -1px 0 0 hsl(17 92% 56% / 0.3), 0 22px 42px -30px hsl(20 68% 38% / 0.45);
+  }
+
+  .design-sunset .topbar-shell,
+  .design-sunset .member-panel-shell {
+    background: linear-gradient(180deg, hsl(28 100% 95% / 0.92), hsl(20 80% 90% / 0.84));
+  }
+
+  .design-sunset .bg-card {
+    border-radius: 1.2rem;
+    box-shadow: 0 20px 38px -30px hsl(17 82% 41% / 0.45), 0 0 0 1px hsl(25 72% 69% / 0.7);
+  }
+
+  .design-sunset .ticket-card-shell::before {
+    height: 3px;
+    opacity: 0.9;
+  }
+
+  .design-sunset .sidebar-active-pill {
+    border-left-width: 0;
+    border: 1px solid hsl(17 92% 56% / 0.4);
+    background: linear-gradient(90deg, hsl(17 92% 56% / 0.18), hsl(328 83% 58% / 0.16));
+  }
+
+  .design-neon body {
+    background-image:
+      radial-gradient(46rem 32rem at 8% -12%, hsl(153 100% 54% / 0.22), transparent 62%),
+      radial-gradient(42rem 26rem at 96% -14%, hsl(191 100% 58% / 0.2), transparent 64%),
+      linear-gradient(180deg, hsl(218 50% 7%), hsl(218 56% 5%));
+  }
+
+  .design-neon .dashboard-main::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(180deg, hsl(214 45% 8% / 0.45), transparent 32%),
+      repeating-linear-gradient(0deg, hsl(190 100% 58% / 0.08) 0 1px, transparent 1px 22px),
+      repeating-linear-gradient(90deg, hsl(153 100% 54% / 0.08) 0 1px, transparent 1px 22px);
+    opacity: 0.7;
+  }
+
+  .design-neon .sidebar-shell {
+    background: linear-gradient(180deg, hsl(214 40% 10% / 0.95), hsl(214 46% 8% / 0.94));
+    box-shadow: inset -1px 0 0 hsl(153 100% 54% / 0.32), 0 0 0 1px hsl(153 100% 54% / 0.2);
+  }
+
+  .design-neon .topbar-shell {
+    background: linear-gradient(90deg, hsl(213 45% 9% / 0.92), hsl(214 42% 11% / 0.84));
+    box-shadow: inset 0 -1px 0 hsl(191 100% 58% / 0.24);
+  }
+
+  .design-neon .member-panel-shell {
+    background: linear-gradient(180deg, hsl(214 36% 11% / 0.95), hsl(214 45% 8% / 0.95));
+    box-shadow: inset 1px 0 0 hsl(191 100% 58% / 0.24);
+  }
+
   .design-neon .bg-card {
+    border-radius: 0.55rem;
+    border-color: hsl(191 100% 58% / 0.38);
+    box-shadow: 0 0 0 1px hsl(153 100% 54% / 0.2), 0 18px 36px -26px hsl(188 95% 9% / 0.85);
+  }
+
+  .design-neon .ticket-card-shell {
     backdrop-filter: blur(6px);
   }
+
+  .design-neon .ticket-card-shell:hover {
+    transform: translateY(-4px) scale(1.005);
+  }
+
+  .design-neon .sidebar-link {
+    border-radius: 0.5rem;
+    border-color: hsl(191 100% 58% / 0.12);
+  }
+
+  .design-neon .sidebar-active-pill {
+    border-left-width: 0;
+    border: 1px solid hsl(153 100% 54% / 0.45);
+    background: linear-gradient(90deg, hsl(153 100% 54% / 0.22), hsl(191 100% 58% / 0.16));
+    box-shadow: 0 0 18px -8px hsl(153 100% 54% / 0.8);
+  }
+
+  .design-neon h1,
+  .design-neon h2,
+  .design-neon h3 {
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
 }
 
 /* Custom scrollbar */

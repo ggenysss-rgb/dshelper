@@ -58,7 +58,7 @@ export default function Sidebar() {
                         onClick={() => setMobileOpen(false)}
                         className={({ isActive }) =>
                             cn(
-                                'flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
+                                'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
                                 isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
                             )
                         }
@@ -68,7 +68,7 @@ export default function Sidebar() {
                                 {isActive && (
                                     <motion.div
                                         layoutId="sidebar-active"
-                                        className="absolute inset-0 bg-primary/10 border-l-2 border-primary rounded-r-md"
+                                        className="sidebar-active-pill absolute inset-0 bg-primary/10 border-l-2 border-primary rounded-r-md"
                                         initial={false}
                                         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                                     />
@@ -86,7 +86,7 @@ export default function Sidebar() {
                         onClick={() => setMobileOpen(false)}
                         className={({ isActive }) =>
                             cn(
-                                'flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
+                                'sidebar-link flex items-center gap-3 px-3 py-3 rounded-md transition-colors relative group font-medium',
                                 isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
                             )
                         }
@@ -96,7 +96,7 @@ export default function Sidebar() {
                                 {isActive && (
                                     <motion.div
                                         layoutId="sidebar-active"
-                                        className="absolute inset-0 bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md"
+                                        className="sidebar-active-pill absolute inset-0 bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md"
                                         initial={false}
                                         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                                     />
@@ -111,7 +111,7 @@ export default function Sidebar() {
 
             <button
                 onClick={logout}
-                className="flex items-center gap-3 px-3 py-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors font-medium mt-auto"
+                className="sidebar-logout flex items-center gap-3 px-3 py-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors font-medium mt-auto"
             >
                 <LogOut className="w-5 h-5" />
                 <span>Выйти</span>
@@ -122,7 +122,7 @@ export default function Sidebar() {
     return (
         <>
             {/* Desktop sidebar */}
-            <aside className="hidden md:flex w-64 h-screen bg-card border-r border-border flex-col p-4 fixed left-0 top-0 z-50">
+            <aside className="sidebar-shell hidden md:flex w-64 h-screen bg-card border-r border-border flex-col p-4 fixed left-0 top-0 z-50">
                 {sidebarContent}
             </aside>
 
@@ -142,7 +142,7 @@ export default function Sidebar() {
                             animate={{ x: 0 }}
                             exit={{ x: -280 }}
                             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                            className="md:hidden fixed left-0 top-0 w-72 h-screen bg-card border-r border-border flex flex-col p-4 z-[70]"
+                            className="sidebar-shell md:hidden fixed left-0 top-0 w-72 h-screen bg-card border-r border-border flex flex-col p-4 z-[70]"
                         >
                             {sidebarContent}
                         </motion.aside>

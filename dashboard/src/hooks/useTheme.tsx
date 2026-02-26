@@ -37,7 +37,8 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     const [design, setDesign] = useState<Design>(() => {
         const savedDesign = localStorage.getItem('dashboard_design');
         if (isDesign(savedDesign)) return savedDesign;
-        return DESIGN_SCENES[0].id;
+        const savedTheme = localStorage.getItem('dashboard_theme');
+        return savedTheme === 'light' ? 'arctic' : DESIGN_SCENES[0].id;
     });
 
     useEffect(() => {

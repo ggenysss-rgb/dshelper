@@ -99,7 +99,7 @@ export default function Topbar() {
 
     return (
         <>
-            <header className="h-16 bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-40 px-4 md:px-6 flex items-center justify-between">
+            <header className="topbar-shell h-16 bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-40 px-4 md:px-6 flex items-center justify-between">
                 <div className="flex items-center gap-4 md:gap-6">
                     {/* Mobile hamburger */}
                     <button

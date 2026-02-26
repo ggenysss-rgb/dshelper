@@ -497,28 +497,32 @@ function handleDispatch(bot, event, d) {
                                 }
 
                                 const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                if (!groqKey) { bot.log('❌ No DeepSeek API key configured'); return; }
+                                if (!groqKey) { bot.log('❌ No OpenRouter API key configured'); return; }
 
                                 const payload = {
-                                    model: 'deepseek-chat',
+                                    model: 'nousresearch/hermes-3-llama-3.1-405b:free',
                                     messages,
                                     temperature: 0.7,
                                     max_tokens: 800
                                 };
 
                                 const res = await bot.httpPostWithHeaders(
-                                    'https://api.deepseek.com/chat/completions',
+                                    'https://openrouter.ai/api/v1/chat/completions',
                                     payload,
-                                    { 'Authorization': `Bearer ${groqKey}` }
+                                    {
+                                        'Authorization': `Bearer ${groqKey}`,
+                                        'HTTP-Referer': 'https://github.com/d1reevo/selfbot', // Optional
+                                        'X-Title': 'd1reevo Selfbot' // Optional
+                                    }
                                 );
                                 const data = JSON.parse(res.body);
 
                                 let answerText = null;
                                 if (res.ok && data.choices && data.choices.length > 0) {
                                     answerText = data.choices[0].message.content;
-                                    bot.log(`🧠 DeepSeek AI Success`);
+                                    bot.log(`🧠 OpenRouter AI Success`);
                                 } else {
-                                    bot.log(`⚠️ DeepSeek Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                    bot.log(`⚠️ OpenRouter Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
                                 }
 
                                 if (answerText) {

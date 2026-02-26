@@ -517,7 +517,7 @@ function handleDispatch(bot, event, d) {
                                 for (let i = 0; i < keys.length; i++) {
                                     const key = keys[i];
                                     try {
-                                        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+                                        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
                                         const res = await bot.httpPost(geminiUrl, payload);
                                         const data = JSON.parse(res.body);
 
@@ -1093,7 +1093,7 @@ function startAutoReplyPolling(bot) {
                                         for (let i = 0; i < keys.length; i++) {
                                             const key = keys[i];
                                             try {
-                                                const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+                                                const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
                                                 const res = await bot.httpPost(geminiUrl, payload);
                                                 const data = JSON.parse(res.body);
                                                 if (res.ok && data.candidates && data.candidates.length > 0) {

@@ -19,8 +19,8 @@ const navItems = [
 ];
 
 const ADMIN_ALIASES = new Set(['d1reevo', 'd1reevof']);
-const ACTIVE_PILL_TRANSITION = { type: 'tween', duration: 0.2, ease: 'easeOut' as const };
-const MOBILE_SIDEBAR_TRANSITION = { type: 'tween', duration: 0.22, ease: 'easeOut' as const };
+const ACTIVE_PILL_TRANSITION = { type: 'spring', stiffness: 170, damping: 24, mass: 0.75 };
+const MOBILE_SIDEBAR_TRANSITION = { type: 'spring', stiffness: 220, damping: 28, mass: 0.8 };
 
 export default function Sidebar() {
     const { logout, user } = useAuth();

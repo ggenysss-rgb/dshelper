@@ -249,6 +249,34 @@ function enqueueNeuroTelegramNotification(bot, { channelId, authorUsername, ques
     });
 }
 
+function emitDashboard(bot, event, payload = {}) {
+    if (typeof bot.emitToDashboard === 'function') {
+        bot.emitToDashboard(event, payload);
+        return;
+    }
+    if (!bot.io) return;
+    try { bot.io.emit(event, payload); } catch { }
+}
+
+function scheduleMembersUpdate(bot) {
+    const now = Date.now();
+    const throttleMs = 1500;
+    const lastAt = bot._membersEmitAt || 0;
+    const emit = () => {
+        bot._membersEmitAt = Date.now();
+        bot._membersEmitTimer = null;
+        emitDashboard(bot, 'members:updated', { ts: bot._membersEmitAt });
+    };
+
+    if (bot._membersEmitTimer) return;
+    const wait = Math.max(0, throttleMs - (now - lastAt));
+    if (wait === 0) {
+        emit();
+        return;
+    }
+    bot._membersEmitTimer = setTimeout(emit, wait);
+}
+
 
 function connectGateway(bot) {
     if (bot.destroyed) return;
@@ -384,6 +412,7 @@ function handleDispatch(bot, event, d) {
             if (d.members) for (const m of d.members) { if (m.user) bot.guildMembersCache.set(m.user.id, m); }
             // Cache presences
             if (d.presences) for (const p of d.presences) { if (p.user) bot.guildPresenceCache.set(p.user.id, p.status); }
+            if ((d.members && d.members.length) || (d.presences && d.presences.length)) scheduleMembersUpdate(bot);
             // Scan channels if we got them (bot token sends them here)
             if (d.channels?.length > 0 && !bot.guildCreateHandled) {
                 bot.guildCreateHandled = true;
@@ -412,7 +441,7 @@ function handleDispatch(bot, event, d) {
             if (!bot.botPaused) {
                 const msg = buildTicketCreatedMessage(d, { name: '' }, cfg);
                 bot.enqueue({ ...msg });
-                if (bot.io) bot.io.emit('ticket:new', { channelId: d.id, channelName: d.name });
+                emitDashboard(bot, 'ticket:new', { channelId: d.id, channelName: d.name });
             }
             // Subscribe to new channel via op14 so we get MESSAGE_CREATE for it
             subscribeToSingleChannel(bot, guildId, d.id);
@@ -433,7 +462,7 @@ function handleDispatch(bot, event, d) {
             if (!bot.botPaused) bot.enqueue(buildTicketClosedMessage(record, bot.ps));
             bot.dbInsertClosedTicket(record);
             bot.archiveTicketMessages(d.id, record);
-            if (bot.io) bot.io.emit('ticket:closed', { channelId: d.id });
+            emitDashboard(bot, 'ticket:closed', { channelId: d.id });
             break;
         }
 
@@ -445,6 +474,7 @@ function handleDispatch(bot, event, d) {
             // Cache member from message for members panel (only for the configured guild)
             if (d.member && author && d.guild_id === guildId) {
                 bot.guildMembersCache.set(author.id, { ...d.member, user: author });
+                scheduleMembersUpdate(bot);
             }
 
             // Auto-reply check — runs on ALL guilds, rule.guildId does filtering
@@ -701,7 +731,7 @@ function handleDispatch(bot, event, d) {
             if (!record) break;
             if (bot.sentByBot.has(d.id)) {
                 // Still emit to dashboard so self-sent messages update in real-time
-                if (bot.io) bot.io.emit('ticket:message', { channelId: d.channel_id, content: d.content });
+                emitDashboard(bot, 'ticket:message', { channelId: d.channel_id, content: d.content });
                 return;
             }
 
@@ -764,13 +794,14 @@ function handleDispatch(bot, event, d) {
                 }
             }
             // Emit to dashboard for ALL messages (staff, bot, player) — real-time updates
-            if (bot.io) bot.io.emit('ticket:message', { channelId: d.channel_id, content: d.content });
+            emitDashboard(bot, 'ticket:message', { channelId: d.channel_id, content: d.content });
             break;
         }
 
         case 'GUILD_MEMBER_ADD': {
             if (d.guild_id !== guildId) break;
             if (d.user) bot.guildMembersCache.set(d.user.id, d);
+            scheduleMembersUpdate(bot);
             break;
         }
 
@@ -779,6 +810,7 @@ function handleDispatch(bot, event, d) {
             if (d.user) {
                 const existing = bot.guildMembersCache.get(d.user.id) || {};
                 bot.guildMembersCache.set(d.user.id, { ...existing, ...d });
+                scheduleMembersUpdate(bot);
             }
             break;
         }
@@ -786,12 +818,14 @@ function handleDispatch(bot, event, d) {
         case 'GUILD_MEMBER_REMOVE': {
             if (d.guild_id !== guildId) break;
             if (d.user) bot.guildMembersCache.delete(d.user.id);
+            scheduleMembersUpdate(bot);
             break;
         }
 
         case 'PRESENCE_UPDATE': {
             if (d.guild_id !== guildId) break;
             if (d.user?.id) bot.guildPresenceCache.set(d.user.id, d.status);
+            scheduleMembersUpdate(bot);
             break;
         }
 
@@ -821,6 +855,7 @@ function handleDispatch(bot, event, d) {
                     }
                 }
                 if (added > 0) bot.log(`👥 Member list update: ${added} members cached (total: ${bot.guildMembersCache.size})`);
+                if (added > 0) scheduleMembersUpdate(bot);
             }
             break;
         }
@@ -948,7 +983,7 @@ async function fetchAndScanChannels(bot) {
                 await sleep(500);
             }
             bot.markDirty();
-            if (bot.io) bot.io.emit('ticket:updated', {});
+            emitDashboard(bot, 'ticket:updated', {});
             bot.log(`📝 Ticket previews loaded`);
         })();
     } catch (e) {
@@ -972,6 +1007,7 @@ async function fetchAndScanChannels(bot) {
             await sleep(300); // rate limit safety
         }
         bot.log(`👥 Members search: ${seen.size} members loaded`);
+        if (seen.size > 0) scheduleMembersUpdate(bot);
     } catch (e) { bot.log(`❌ Members fetch error: ${e.message}`); }
 
     // Fetch guild roles

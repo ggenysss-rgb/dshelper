@@ -160,7 +160,9 @@ async function main() {
                     }
                 }
                 bot.markDirty();
-                if (bot.io) bot.io.emit('ticket:updated', { channelId });
+                if (typeof bot.emitToDashboard === 'function') {
+                    bot.emitToDashboard('ticket:updated', { channelId });
+                }
             }
 
             const ordered = [...messages].reverse().map(msg => {
@@ -417,13 +419,22 @@ async function main() {
     io.use((socket, next) => {
         const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
         if (!token) return next(new Error('Authentication error'));
-        try { jwt.verify(token, JWT_SECRET); next(); }
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            const userId = Number(decoded?.userId);
+            if (!userId) return next(new Error('Authentication error'));
+            socket.data.userId = userId;
+            next();
+        }
         catch (err) { next(new Error('Authentication error')); }
     });
 
     io.on('connection', (socket) => {
-        console.log(`${LOG} 🌐 Dashboard client connected: ${socket.id}`);
-        socket.on('disconnect', () => console.log(`${LOG} 🌐 Dashboard client disconnected: ${socket.id}`));
+        const userId = socket.data.userId;
+        const room = `user:${userId}`;
+        socket.join(room);
+        console.log(`${LOG} 🌐 Dashboard client connected: ${socket.id} (user ${userId})`);
+        socket.on('disconnect', () => console.log(`${LOG} 🌐 Dashboard client disconnected: ${socket.id} (user ${userId})`));
     });
 
     // Store io reference in botManager so bots can emit events

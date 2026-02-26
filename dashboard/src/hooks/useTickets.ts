@@ -6,6 +6,9 @@ export const useTickets = () => {
         queryKey: ['tickets'],
         queryFn: fetchTickets,
         refetchInterval: 10000,
+        refetchIntervalInBackground: true,
+        staleTime: 5000,
+        placeholderData: prev => prev ?? [],
     });
 };
 

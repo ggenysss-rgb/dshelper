@@ -337,9 +337,15 @@ class Bot {
         if (details && typeof details === 'object') entry.details = details;
         this.dashboardLogs.unshift(entry);
         if (this.dashboardLogs.length > 5000) this.dashboardLogs.length = 5000;
-        if (this.io) {
-            try { this.io.emit('log:new', entry); } catch { }
-        }
+        this.emitToDashboard('log:new', entry);
+    }
+
+    emitToDashboard(event, payload = {}) {
+        if (!this.io) return;
+        try {
+            const room = `user:${this.userId}`;
+            this.io.to(room).emit(event, payload);
+        } catch { }
     }
 
     // ═══════════════════════════════════════════════════════
@@ -1026,6 +1032,11 @@ class Bot {
     }
 
     getMembers() {
+        const now = Date.now();
+        if (this._membersCache && (now - (this._membersCacheAt || 0)) < 2000) {
+            return this._membersCache;
+        }
+
         const roleMap = {};
         for (const [id, r] of this.guildRolesCache) roleMap[id] = { id: r.id, name: r.name, color: r.color, position: r.position, hoist: r.hoist };
         const groups = {};
@@ -1039,7 +1050,10 @@ class Bot {
             const id = member.user?.id || uid;
             groups[bestRole.id].members.push({ id, username: member.user?.username, displayName: member.nick || member.user?.global_name || member.user?.username, avatar: avatarHash ? `https://cdn.discordapp.com/avatars/${id}/${avatarHash}.png?size=64` : `https://cdn.discordapp.com/embed/avatars/0.png`, status: this.guildPresenceCache.get(id) || 'offline' });
         }
-        return Object.values(groups).sort((a, b) => b.position - a.position).map(g => ({ ...g, members: g.members.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '')) }));
+        const result = Object.values(groups).sort((a, b) => b.position - a.position).map(g => ({ ...g, members: g.members.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '')) }));
+        this._membersCache = result;
+        this._membersCacheAt = now;
+        return result;
     }
 }
 

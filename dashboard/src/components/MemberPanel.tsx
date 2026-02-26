@@ -1,8 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMembers } from '../api/stats';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, ChevronDown, ChevronRight, PanelRightClose } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSocket } from '../hooks/useSocket';
 
 type Member = {
     id: string;
@@ -37,16 +38,55 @@ const normalizeStatus = (status: string | undefined) => {
 };
 
 export default function MemberPanel({ onClose }: MemberPanelProps) {
+    const queryClient = useQueryClient();
+    const socket = useSocket();
     const { data: groups, isLoading } = useQuery<RoleGroup[]>({
         queryKey: ['members'],
         queryFn: fetchMembers,
-        refetchInterval: 60000,
+        refetchInterval: 15000,
+        refetchIntervalInBackground: true,
+        staleTime: 5000,
+        placeholderData: prev => prev,
     });
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const [autoCollapsedApplied, setAutoCollapsedApplied] = useState(false);
+
+    const preparedGroups = useMemo(() => {
+        if (!groups) return [];
+        return groups.map(group => ({
+            ...group,
+            members: [...group.members].sort((a, b) => {
+                const statusDiff = STATUS_ORDER[normalizeStatus(a.status)] - STATUS_ORDER[normalizeStatus(b.status)];
+                if (statusDiff !== 0) return statusDiff;
+                return (a.displayName || '').localeCompare(b.displayName || '', 'ru');
+            })
+        }));
+    }, [groups]);
 
     const toggle = (roleId: string) => {
         setCollapsed(prev => ({ ...prev, [roleId]: !prev[roleId] }));
     };
+
+    useEffect(() => {
+        if (!socket) return;
+        const handleMembersUpdated = () => {
+            queryClient.invalidateQueries({ queryKey: ['members'] });
+        };
+        socket.on('members:updated', handleMembersUpdated);
+        return () => {
+            socket.off('members:updated', handleMembersUpdated);
+        };
+    }, [socket, queryClient]);
+
+    useEffect(() => {
+        if (!preparedGroups.length || autoCollapsedApplied || Object.keys(collapsed).length > 0) return;
+        const initialCollapsed: Record<string, boolean> = {};
+        preparedGroups.forEach(group => {
+            initialCollapsed[group.roleId] = group.members.length > 12;
+        });
+        setCollapsed(initialCollapsed);
+        setAutoCollapsedApplied(true);
+    }, [preparedGroups, autoCollapsedApplied, collapsed]);
 
     const totalMembers = groups?.reduce((s, g) => s + g.members.length, 0) ?? 0;
 
@@ -82,13 +122,13 @@ export default function MemberPanel({ onClose }: MemberPanelProps) {
                         </div>
                     ))}
                 </div>
-            ) : !groups || groups.length === 0 ? (
+            ) : preparedGroups.length === 0 ? (
                 <div className="p-4 text-sm text-muted-foreground">
                     Участники пока не загружены.
                 </div>
             ) : (
                 <div className="py-2">
-                    {groups.map((group) => (
+                    {preparedGroups.map((group) => (
                         <div key={group.roleId}>
                             {/* Role Header */}
                             <button
@@ -115,13 +155,7 @@ export default function MemberPanel({ onClose }: MemberPanelProps) {
                                         transition={{ duration: 0.2, ease: 'easeInOut' }}
                                         className="overflow-hidden"
                                     >
-                                        {[...group.members]
-                                            .sort((a, b) => {
-                                                const statusDiff = STATUS_ORDER[normalizeStatus(a.status)] - STATUS_ORDER[normalizeStatus(b.status)];
-                                                if (statusDiff !== 0) return statusDiff;
-                                                return (a.displayName || '').localeCompare(b.displayName || '', 'ru');
-                                            })
-                                            .map(member => {
+                                        {group.members.map(member => {
                                                 const status = normalizeStatus(member.status);
                                                 const statusColor = status === 'online'
                                                     ? 'bg-green-500'

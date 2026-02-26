@@ -497,32 +497,28 @@ function handleDispatch(bot, event, d) {
                                 }
 
                                 const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                if (!groqKey) { bot.log('❌ No OpenRouter API key configured'); return; }
+                                if (!groqKey) { bot.log('❌ No Gemini API key configured'); return; }
 
                                 const payload = {
-                                    model: 'nousresearch/hermes-3-llama-3.1-405b:free',
+                                    model: 'gemini-1.5-flash',
                                     messages,
                                     temperature: 0.7,
                                     max_tokens: 800
                                 };
 
                                 const res = await bot.httpPostWithHeaders(
-                                    'https://openrouter.ai/api/v1/chat/completions',
+                                    'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
                                     payload,
-                                    {
-                                        'Authorization': `Bearer ${groqKey}`,
-                                        'HTTP-Referer': 'https://github.com/d1reevo/selfbot', // Optional
-                                        'X-Title': 'd1reevo Selfbot' // Optional
-                                    }
+                                    { 'Authorization': `Bearer ${groqKey}` }
                                 );
                                 const data = JSON.parse(res.body);
 
                                 let answerText = null;
                                 if (res.ok && data.choices && data.choices.length > 0) {
                                     answerText = data.choices[0].message.content;
-                                    bot.log(`🧠 OpenRouter AI Success`);
+                                    bot.log(`🧠 Gemini AI Success`);
                                 } else {
-                                    bot.log(`⚠️ OpenRouter Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                    bot.log(`⚠️ Gemini Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
                                 }
 
                                 if (answerText) {
@@ -540,7 +536,7 @@ function handleDispatch(bot, event, d) {
                                         bot.log(`❌ Failed to send Discord message: ${sentRes.status} ${sentRes.body}`);
                                     }
                                 } else {
-                                    bot.log(`❌ Neuro API: Groq failed or no response generated.`);
+                                    bot.log(`❌ Neuro API: Gemini failed or no response generated.`);
                                 }
                             } catch (e) {
                                 bot.log(`❌ Neuro AI error: ${e.stack}`);
@@ -711,7 +707,7 @@ function scanChannelsList(bot, channels, guildId, guildName, prefixes, categoryI
     // Debug: show what filter criteria we're using
     bot.log(`🔍 Scan filter: prefixes=[${prefixes.join(', ')}], categoryId=${categoryId || 'ANY'}`);
 
-    // Debug: show text channels with their parent_ids to help diagnose
+    // Debug: show text channels with their parent_id's to help diagnose
     const textChannels = channels.filter(ch => ch.type === 0 || ch.type === 5); // type 0=text, 5=announcement
     const categories = channels.filter(ch => ch.type === 4); // type 4=category
     bot.log(`🔍 Found ${textChannels.length} text channels, ${categories.length} categories`);
@@ -1045,7 +1041,7 @@ function startAutoReplyPolling(bot) {
                                 (async () => {
                                     try {
                                         const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                        if (!groqKey) { bot.log('❌ Poll: No OpenRouter API key configured'); return; }
+                                        if (!groqKey) { bot.log('❌ Poll: No Gemini API key configured'); return; }
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
                                         const messages = [{ role: 'system', content: systemPrompt }];
@@ -1072,27 +1068,23 @@ function startAutoReplyPolling(bot) {
                                             messages.push({ role: 'user', content: question });
                                         }
                                         const payload = {
-                                            model: 'nousresearch/hermes-3-llama-3.1-405b:free',
+                                            model: 'gemini-1.5-flash',
                                             messages,
                                             temperature: 0.7,
                                             max_tokens: 800
                                         };
                                         const res = await bot.httpPostWithHeaders(
-                                            'https://openrouter.ai/api/v1/chat/completions',
+                                            'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
                                             payload,
-                                            {
-                                                'Authorization': `Bearer ${groqKey}`,
-                                                'HTTP-Referer': 'https://github.com/d1reevo/selfbot',
-                                                'X-Title': 'd1reevo Selfbot'
-                                            }
+                                            { 'Authorization': `Bearer ${groqKey}` }
                                         );
                                         const data = JSON.parse(res.body);
                                         let answerText = null;
                                         if (res.ok && data.choices && data.choices.length > 0) {
                                             answerText = data.choices[0].message.content;
-                                            bot.log(`🧠 Poll: OpenRouter AI Success`);
+                                            bot.log(`🧠 Poll: Gemini AI Success`);
                                         } else {
-                                            bot.log(`⚠️ Poll: OpenRouter Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
+                                            bot.log(`⚠️ Poll: Gemini Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
                                         }
                                         if (answerText) {
                                             const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);

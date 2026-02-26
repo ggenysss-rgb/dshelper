@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchStats } from '../api/stats';
-import { Bell, User, Sun, Moon, BellRing, Volume2, VolumeX } from 'lucide-react';
+import { Bell, User, Sun, Moon, BellRing, Volume2, VolumeX, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useSocket } from '../hooks/useSocket';
 import { motion, AnimatePresence } from 'framer-motion';
 import ProfileModal, { useProfile } from './ProfileModal';
+
+type TopbarProps = {
+    membersVisible?: boolean;
+    onToggleMembers?: () => void;
+};
 
 function playNotificationSound(type: 'ticket' | 'message' = 'ticket') {
     try {
@@ -42,7 +47,7 @@ function playNotificationSound(type: 'ticket' | 'message' = 'ticket') {
     } catch { }
 }
 
-export default function Topbar() {
+export default function Topbar({ membersVisible = true, onToggleMembers }: TopbarProps) {
     const { data: stats } = useQuery({ queryKey: ['stats'], queryFn: fetchStats, refetchInterval: 10000 });
     useAuth();
     const { theme, toggleTheme } = useTheme();
@@ -126,10 +131,21 @@ export default function Topbar() {
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-3">
+                    {onToggleMembers && (
+                        <button
+                            onClick={onToggleMembers}
+                            className="hidden lg:flex w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary items-center justify-center text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary/80"
+                            title={membersVisible ? 'Скрыть участников' : 'Показать участников'}
+                            aria-label={membersVisible ? 'Скрыть участников' : 'Показать участников'}
+                        >
+                            {membersVisible ? <PanelRightClose className="w-4 h-4 md:w-5 md:h-5" /> : <PanelRightOpen className="w-4 h-4 md:w-5 md:h-5" />}
+                        </button>
+                    )}
+
                     {/* Theme toggle */}
                     <button
                         onClick={toggleTheme}
-                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-all hover:bg-secondary/80"
+                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary/80"
                         title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
                     >
                         <motion.div
@@ -145,7 +161,7 @@ export default function Topbar() {
                     {/* Sound toggle */}
                     <button
                         onClick={() => setSoundEnabled(v => !v)}
-                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-all hover:bg-secondary/80"
+                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary/80"
                         title={soundEnabled ? 'Выключить звук' : 'Включить звук'}
                     >
                         {soundEnabled ? <Volume2 className="w-4 h-4 md:w-5 md:h-5" /> : <VolumeX className="w-4 h-4 md:w-5 md:h-5 opacity-50" />}

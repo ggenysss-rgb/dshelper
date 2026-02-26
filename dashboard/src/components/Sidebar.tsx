@@ -19,6 +19,8 @@ const navItems = [
 ];
 
 const ADMIN_ALIASES = new Set(['d1reevo', 'd1reevof']);
+const ACTIVE_PILL_TRANSITION = { type: 'tween', duration: 0.2, ease: 'easeOut' as const };
+const MOBILE_SIDEBAR_TRANSITION = { type: 'tween', duration: 0.22, ease: 'easeOut' as const };
 
 export default function Sidebar() {
     const { logout, user } = useAuth();
@@ -70,7 +72,7 @@ export default function Sidebar() {
                                         layoutId="sidebar-active"
                                         className="sidebar-active-pill absolute inset-0 bg-primary/10 border-l-2 border-primary rounded-r-md"
                                         initial={false}
-                                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                                        transition={ACTIVE_PILL_TRANSITION}
                                     />
                                 )}
                                 <item.icon className={cn('w-5 h-5 relative z-10', isActive && 'text-primary')} />
@@ -98,7 +100,7 @@ export default function Sidebar() {
                                         layoutId="sidebar-active"
                                         className="sidebar-active-pill absolute inset-0 bg-purple-500/10 border-l-2 border-purple-500 rounded-r-md"
                                         initial={false}
-                                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                                        transition={ACTIVE_PILL_TRANSITION}
                                     />
                                 )}
                                 <ShieldCheck className={cn('w-5 h-5 relative z-10', isActive ? 'text-purple-400' : '')} />
@@ -141,7 +143,7 @@ export default function Sidebar() {
                             initial={{ x: -280 }}
                             animate={{ x: 0 }}
                             exit={{ x: -280 }}
-                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                            transition={MOBILE_SIDEBAR_TRANSITION}
                             className="sidebar-shell md:hidden fixed left-0 top-0 w-72 h-screen bg-card border-r border-border flex flex-col p-4 z-[70]"
                         >
                             {sidebarContent}

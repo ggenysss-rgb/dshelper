@@ -17,12 +17,13 @@ function analyzeModerationCheck(content) {
     const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
     if (!text) return { matched: false, reason: 'empty', keywords: [], confidence: 0 };
 
-    const looksLikeAnnouncement = /(проходит набор|набор в|критери|pvp\s*0\/10|pve\s*0\/10|привилеги|имя\(настоящее\)|играли когда то с софтами|готовы ли пройти проверку)/.test(text);
+    const looksLikeAnnouncement = /(проходит набор|набор в|критери|pvp\s*0\/10|pve\s*0\/10|привилеги|имя\(настоящее\)|играли когда то с софтами|готовы ли пройти проверку|вступлени[ея] в клан|ищ[ую]\s+тим|поиск тим|ищу клан|ищем в клан|в клан|наш клан|тимейт|тиммейт|пве\s*\d+\/10|пвп\s*\d+\/10)/.test(text);
     if (looksLikeAnnouncement) {
         return { matched: false, reason: 'announcement_template', keywords: [], confidence: 0 };
     }
 
-    const hasCheckContext = /(проверк|проверяющ|прова|прове|прову|анидеск|anydesk|аник|ани деск)/.test(text);
+    // Keep this strict: broad fragments like "прове" were matching words like "проведем".
+    const hasCheckContext = /(проверк|проверяющ|проверяющий|анидеск|anydesk|аник|ани деск|чекер|ftchecker|вызвали на провер)/.test(text);
     const hasModeratorWord = /(модер|модерат)/.test(text);
     const hasWaitOrIgnore = /(игнор|не отвечает|не кидает|не делают|не делает|жду|долго|нет ответа|молчит|пропал|не пишет|ничего не делает|вызвали на пров|вызвали на провер)/.test(text);
     const hasBanContext = /(бан|забан|откин|блок|разбан|розбан)/.test(text);

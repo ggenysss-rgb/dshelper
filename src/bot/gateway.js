@@ -11,6 +11,7 @@ const ConversationLogger = require('./conversationLogger');
 const { evaluateAutoReplyDecision } = require('./autoReplyEngine');
 const { buildRagContextMessage, sanitizeResponseLinks } = require('./ragEngine');
 const funtimeServerRules = require('./funtimeServerRules');
+const defaultBinds = require('./defaultBinds');
 
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const RESUMABLE_CODES = [4000, 4001, 4002, 4003, 4005, 4007, 4009];
@@ -266,6 +267,21 @@ function getBuiltInNeuroReply(question) {
     const normalized = normalizeNeuroInput(question);
     if (!normalized) return '';
 
+    const greeting = /(привет|здравствуй|здравствуйте|хай|ку|добрый день|добрый вечер|салам)/i.test(String(question || ''));
+    if (greeting) {
+        return '**Здравствуйте!** Чем можем Вам помочь?';
+    }
+
+    const asksFarm = /(заработ|фарм|как заработать|способ(ы)? заработк)/i.test(String(question || ''));
+    if (asksFarm) {
+        return '**Основные способы заработка:** 1. Лаваход + шалкеровый ящик. 2. З5 алмазного сета с перепродажей. 3. Зачарование/объединение эффектов на незеритовом мече. 4. Прибыльные кирки (бульдозер, автоплавка, магнит). 5. Автошахта. 6. Перепродажа обсидиана и алмазов. 7. PvP-зона для лута. 8. Ивенты. 9. Перепродажа сфер и талисманов.';
+    }
+
+    const asksUnbanPurchase = /(разбан|розбан)/i.test(String(question || '')) && /(куп|покуп|бан навсегда|навсегд|4\.2|4,2|4\.3\.1|4,3,1|autobuy|9\.1|9,1|3\.1|3,1|1\.3|1,3)/i.test(String(question || ''));
+    if (asksUnbanPurchase) {
+        return defaultBinds?.['отклонили']?.message || '';
+    }
+
     const ruleId = extractRuleIdFromQuestion(question);
     if (ruleId && _ruleById.has(ruleId)) {
         return _ruleById.get(ruleId) || '';
@@ -344,7 +360,41 @@ function enforceNeuroAnswerQuality({ question = '', answerText = '', cfg = {}, c
         };
     }
 
+    const ragLeak = /(in the rag|let'?s use|rag context|assistant:|system:)/i.test(text);
+    if (questionMostlyRu && ragLeak) {
+        const direct = getDirectNeuroDecision({ question, cfg, channelId, guildId });
+        return {
+            text: direct?.response || 'Уточни вопрос, ответ выше вышел не по теме.',
+            replaced: true,
+            reason: 'rag_leak_guard',
+        };
+    }
+
     return { text, replaced: false, reason: '' };
+}
+
+function isLikelyTruncatedAnswer(text) {
+    const raw = String(text || '').trim();
+    if (!raw || raw.length < 120) return false;
+    if (/[.!?)]$/.test(raw)) return false;
+    if (/(:\s*$|\(\s*$|,\s*$|;\s*$|-\s*$|\*\*[^*]*$|`[^`]*$)/.test(raw)) return true;
+    if (/\b\d+\.\s+[^.]{2,80}$/.test(raw)) return true;
+    return true;
+}
+
+async function tryCompleteTruncatedAnswer(bot, cfg, messages, answerText, logPrefix = '') {
+    if (!isLikelyTruncatedAnswer(answerText)) return answerText;
+    const base = String(answerText || '').trim();
+    if (!base) return base;
+
+    const followUp = [...messages, { role: 'assistant', content: base }, { role: 'user', content: 'Продолжи ответ с места обрыва. Без повторов, тем же стилем.' }];
+    const continuation = await requestAiAnswer(bot, cfg, followUp, { logPrefix });
+    if (!continuation.ok || !continuation.answerText) return base;
+
+    const extra = String(continuation.answerText || '').trim();
+    if (!extra) return base;
+    const merged = `${base}\n${extra}`.trim();
+    return merged;
 }
 
 const DEFAULT_OPENROUTER_MODELS = [
@@ -1560,6 +1610,7 @@ function handleDispatch(bot, event, d) {
                                 if (aiResult.ok) bot.log(`🧠 AI success (${aiResult.provider}/${aiResult.model})`);
 
                                 if (answerText) {
+                                    answerText = await tryCompleteTruncatedAnswer(bot, cfg, messages, answerText);
                                     const guarded = sanitizeResponseLinks(answerText);
                                     answerText = guarded.text;
                                     if (guarded.replacedCount > 0) {
@@ -2217,6 +2268,7 @@ function startAutoReplyPolling(bot) {
                                         let answerText = aiResult.ok ? aiResult.answerText : '';
                                         if (aiResult.ok) bot.log(`🧠 Poll: AI success (${aiResult.provider}/${aiResult.model})`);
                                         if (answerText) {
+                                            answerText = await tryCompleteTruncatedAnswer(bot, cfg, messages, answerText, 'Poll: ');
                                             const guarded = sanitizeResponseLinks(answerText);
                                             answerText = guarded.text;
                                             if (guarded.replacedCount > 0) {

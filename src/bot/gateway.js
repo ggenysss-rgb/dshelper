@@ -2668,5 +2668,27 @@ function startAutoReplyPolling(bot) {
         }
     }, 5000);
 }
+async function generateTicketSummary(bot, channelId, messages) {
+    const cfg = require(path.join(__dirname, '..', '..', 'config.json'));
+    const systemPrompt = "Ты — AI-помощник модератора. Твоя задача — сделать очень краткое саммари этого тикета. Выдели главную проблему/вопрос клиента и текущий статус (в процессе, ждет ответа, решено). Пиши по существу, максимум 3 предложения. Язык: русский.";
 
-module.exports = { connectGateway, cleanupGateway, loadSystemPrompt, invalidateSystemPromptCache, getAiUsageStats, resetAiUsageStats };
+    // limit to last 50 messages to save tokens
+    const recentMsgs = messages.slice(-50);
+    const formatted = [{ role: 'system', content: systemPrompt }];
+
+    for (const msg of recentMsgs) {
+        const text = msg.content || (msg.embeds ? msg.embeds.map(e => e.description || e.title).join(' ') : '');
+        if (!text) continue;
+        const role = !!msg.author?.bot ? 'assistant' : 'user';
+        const name = msg.author?.username || 'User';
+        formatted.push({ role, content: `${name}: ${text}` });
+    }
+
+    const { ok, answerText, error } = await requestAiAnswer(bot, cfg, formatted, { logPrefix: 'Summary: ' });
+    if (!ok) {
+        throw new Error(error || 'Failed to generate summary');
+    }
+    return answerText;
+}
+
+module.exports = { connectGateway, cleanupGateway, loadSystemPrompt, invalidateSystemPromptCache, getAiUsageStats, resetAiUsageStats, generateTicketSummary };

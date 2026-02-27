@@ -105,7 +105,7 @@ export default function ChatMessage({ message, isStaff, mentionMap, onReply, onE
                             {onReply && (
                                 <button
                                     onClick={() => onReply(message)}
-                                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                                    className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                                     title="Ответить"
                                 >
                                     <Reply className="w-3.5 h-3.5" />
@@ -114,7 +114,7 @@ export default function ChatMessage({ message, isStaff, mentionMap, onReply, onE
                             {canEdit && onEdit && (
                                 <button
                                     onClick={() => onEdit(message)}
-                                    className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                                    className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                                     title="Редактировать"
                                 >
                                     <Pencil className="w-3.5 h-3.5" />

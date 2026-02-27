@@ -74,7 +74,7 @@ export default function Analytics() {
             </div>
 
             {/* Additional stats */}
-            <div className="grid grid-cols-2 gap-3 md:gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
                     className="bg-card border border-border rounded-xl p-4 md:p-6 flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">

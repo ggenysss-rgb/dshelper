@@ -1,5 +1,6 @@
 const express = require('express');
 const { authenticateToken } = require('./auth');
+const { generateTicketSummary } = require('../bot/gateway');
 
 function createTicketRoutes(db, botManager) {
     const router = express.Router();
@@ -125,6 +126,87 @@ function createTicketRoutes(db, botManager) {
 
             bot.addLog('message', `Сообщение отредактировано в тикете ${channelId}`);
             res.json({ ok: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Generate AI Summary for a ticket
+    router.post('/:id/summary', async (req, res) => {
+        const userId = req.user.userId;
+        const channelId = req.params.id;
+        const bot = botManager.bots.get(userId);
+
+        if (!bot) return res.status(400).json({ error: 'Bot is not running' });
+
+        const record = bot.activeTickets.get(channelId);
+        if (!record) return res.status(404).json({ error: 'Ticket not found' });
+
+        try {
+            if (record.summary) {
+                return res.json({ summary: record.summary });
+            }
+
+            const rawMessages = await bot.fetchChannelMessages(channelId, 50);
+            const messages = rawMessages.reverse();
+
+            const summaryText = await generateTicketSummary(bot, channelId, messages);
+            record.summary = summaryText;
+
+            res.json({ summary: summaryText });
+        } catch (err) {
+            bot.log(`❌ AI Summary Error for ${channelId}: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get CRM Profile for a specific user (openerId)
+    router.get('/user/:openerId', (req, res) => {
+        const userId = req.user.userId;
+        const openerId = req.params.openerId;
+        const bot = botManager.bots.get(userId);
+
+        if (!bot) return res.status(400).json({ error: 'Bot is not running' });
+
+        try {
+            const allClosed = bot.getClosedTickets ? bot.getClosedTickets() : [];
+            const allActive = Array.from(bot.activeTickets.values());
+
+            const userClosed = allClosed.filter(t => t.openerId === openerId);
+            const userActive = allActive.filter(t => t.openerId === openerId);
+
+            const totalCreated = userClosed.length + userActive.length;
+            const isBanned = bot.config.bannedUsers && bot.config.bannedUsers.includes(openerId);
+
+            const history = userClosed.map(t => ({
+                id: t.channelId,
+                name: t.channelName || 'Ticket',
+                createdAt: t.createdAt,
+                closedAt: t.closedAt
+            })).sort((a, b) => b.createdAt - a.createdAt);
+
+            const active = userActive.map(t => ({
+                id: t.channelId,
+                name: t.channelName || 'Ticket',
+                createdAt: t.createdAt
+            }));
+
+            // Calculate some basic stats
+            const highPriorityCount = userClosed.filter(t => t.priority === 'high').length +
+                userActive.filter(t => t.priority === 'high').length;
+
+            res.json({
+                openerId,
+                isBanned,
+                stats: {
+                    totalCreated,
+                    closed: userClosed.length,
+                    active: userActive.length,
+                    highPriority: highPriorityCount
+                },
+                activeTickets: active,
+                historyTickets: history.slice(0, 10) // Send top 10 most recent
+            });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

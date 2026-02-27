@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import { useTicketMessages, useSendTicketMessage, useTickets, useEditTicketMessage } from '../hooks/useTickets';
-import { fetchBinds } from '../api/stats';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { useTicketMessages, useSendTicketMessage, useTickets, useEditTicketMessage, useUserProfile, useTicketSummary } from '../hooks/useTickets';
+import { fetchBinds, fetchSettings } from '../api/stats';
 import { useSocket } from '../hooks/useSocket';
 import ChatMessage from '../components/ChatMessage';
+import Skeleton from '../components/Skeleton';
 import type { DiscordMessage } from '../api/tickets';
-import { ArrowLeft, Send, AlertCircle, X, Reply, Pencil } from 'lucide-react';
+import { ArrowLeft, Send, AlertCircle, X, Reply, Pencil, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
@@ -19,6 +20,7 @@ export default function TicketDetail() {
     const { data: tickets } = useTickets();
     const { mutateAsync: sendMessage, isPending } = useSendTicketMessage();
     const { mutateAsync: editMessage, isPending: isEditing } = useEditTicketMessage();
+    const { mutateAsync: getSummary, isPending: isSummarizing } = useTicketSummary();
     const socket = useSocket();
     const queryClient = useQueryClient();
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -32,6 +34,8 @@ export default function TicketDetail() {
     // Reply & Edit state
     const [replyTo, setReplyTo] = useState<DiscordMessage | null>(null);
     const [editingMsg, setEditingMsg] = useState<DiscordMessage | null>(null);
+
+    const [summary, setSummary] = useState<string | null>(null);
 
     const ticket = tickets?.find(t => t.channelId === id);
 
@@ -128,7 +132,56 @@ export default function TicketDetail() {
         setContent('');
     };
 
-    if (isLoading) return <div className="h-full flex items-center justify-center"><span className="animate-pulse">Загрузка истории...</span></div>;
+    const handleGenerateSummary = async () => {
+        if (!id) return;
+        try {
+            const data = await getSummary({ ticketId: id });
+            setSummary(data.summary);
+        } catch (e) {
+            console.error('Failed to generate summary', e);
+        }
+    };
+
+    const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: fetchSettings });
+    const useSkeletons = settings?.useSkeletons ?? true;
+
+    if (isLoading) {
+        return useSkeletons ? (
+            <div className="h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-4 md:gap-6 max-w-7xl mx-auto">
+                <div className="flex-1 flex flex-col bg-card border border-border rounded-xl overflow-hidden p-6 gap-6">
+                    <div className="flex items-center gap-4 border-b border-border pb-4">
+                        <Skeleton className="w-10 h-10 rounded-lg" />
+                        <div>
+                            <Skeleton className="w-32 h-6" />
+                            <Skeleton className="w-20 h-4 mt-2" />
+                        </div>
+                    </div>
+                    <div className="flex-1 flex flex-col gap-6">
+                        <div className="flex gap-4">
+                            <Skeleton className="w-10 h-10 rounded-full shrink-0" />
+                            <div className="flex-1">
+                                <Skeleton className="w-24 h-4 mb-2" />
+                                <Skeleton className="w-[80%] h-24 rounded-2xl rounded-tl-sm" />
+                            </div>
+                        </div>
+                        <div className="flex gap-4 flex-row-reverse">
+                            <Skeleton className="w-10 h-10 rounded-full shrink-0" />
+                            <div className="flex-1 flex flex-col items-end">
+                                <Skeleton className="w-24 h-4 mb-2" />
+                                <Skeleton className="w-[60%] h-16 rounded-2xl rounded-tr-sm bg-primary/20" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div className="hidden lg:flex w-80 shrink-0 flex-col gap-6">
+                    <Skeleton className="w-full h-64 rounded-xl" />
+                    <Skeleton className="w-full h-48 rounded-xl" />
+                </div>
+            </div>
+        ) : (
+            <div className="h-full flex items-center justify-center"><span className="animate-pulse">Загрузка истории...</span></div>
+        );
+    }
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-4 md:gap-6 max-w-7xl mx-auto">
@@ -136,22 +189,65 @@ export default function TicketDetail() {
             <div className="flex-1 flex flex-col bg-card border border-border rounded-xl overflow-hidden shadow-sm relative">
                 <div className="h-14 md:h-16 px-4 md:px-6 border-b border-border bg-card/50 backdrop-blur flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-3 md:gap-4">
-                        <Link to="/tickets" className="p-2 hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground">
+                        <Link to="/tickets" className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground">
                             <ArrowLeft className="w-5 h-5" />
                         </Link>
                         <div>
-                            <h2 className="font-rajdhani font-bold text-base md:text-lg leading-tight">#{ticket?.channelName || 'Ticket'}</h2>
+                            <h2 className="font-rajdhani font-bold text-base md:text-lg leading-tight flex items-center gap-2">
+                                #{ticket?.channelName || 'Ticket'}
+                                {ticket?.priority === 'high' && (
+                                    <span className="px-1.5 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded text-[10px] font-semibold flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" /> ПРИОРИТЕТ
+                                    </span>
+                                )}
+                            </h2>
                             <p className="text-xs text-muted-foreground truncate max-w-[150px] md:max-w-xs">{ticket?.openerUsername}</p>
                         </div>
                     </div>
-                    {ticket?.priority === 'high' && (
-                        <div className="px-2 md:px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded text-[10px] md:text-xs font-semibold flex items-center gap-1.5">
-                            <AlertCircle className="w-3.5 h-3.5" /> ПРИОРИТЕТ
-                        </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleGenerateSummary}
+                            disabled={isSummarizing || !messages || messages.length < 2}
+                            className="bg-purple-500/10 text-purple-500 hover:bg-purple-500/20 border border-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-semibold px-3 min-h-[44px] flex items-center justify-center rounded-lg gap-1.5 transition-colors"
+                        >
+                            {isSummarizing ? (
+                                <span className="animate-pulse">Анализ...</span>
+                            ) : (
+                                <>
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>AI Саммари</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </div>
 
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar scroll-smooth">
+                <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar scroll-smooth relative">
+                    <AnimatePresence>
+                        {summary && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="mb-4 bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 relative"
+                            >
+                                <button
+                                    onClick={() => setSummary(null)}
+                                    className="absolute top-2 right-2 p-1 min-h-[44px] min-w-[44px] flex items-center justify-center text-purple-500/70 hover:text-purple-500 hover:bg-purple-500/10 rounded-md transition-colors"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                                <h4 className="flex items-center gap-2 text-purple-500 font-bold mb-2 text-sm uppercase string-wide">
+                                    <Sparkles className="w-4 h-4" />
+                                    Краткое содержание от AI
+                                </h4>
+                                <p className="text-sm text-foreground/90 leading-relaxed">
+                                    {summary}
+                                </p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
                     {(!messages || messages.length === 0) ? (
                         <div className="h-full flex flex-col justify-center items-center text-muted-foreground italic">Нет сообщений</div>
                     ) : messages.map((msg) => {
@@ -210,7 +306,7 @@ export default function TicketDetail() {
                                             </span>
                                         </>
                                     ) : null}
-                                    <button onClick={cancelAction} className="p-1 hover:bg-secondary rounded text-muted-foreground hover:text-foreground transition-colors shrink-0">
+                                    <button onClick={cancelAction} className="p-1 min-h-[44px] min-w-[44px] flex items-center justify-center hover:bg-secondary rounded text-muted-foreground hover:text-foreground transition-colors shrink-0">
                                         <X className="w-3.5 h-3.5" />
                                     </button>
                                 </div>
@@ -225,7 +321,7 @@ export default function TicketDetail() {
                                 <div className="p-1.5">
                                     {filteredBinds.map((b, idx) => (
                                         <button key={b.name} type="button" onClick={() => selectBind(b)}
-                                            className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-3 group ${idx === slashIndex ? 'bg-primary/15 text-foreground' : 'hover:bg-secondary/70 text-muted-foreground hover:text-foreground'}`}>
+                                            className={`w-full text-left px-3 min-h-[44px] flex items-center gap-3 group rounded-lg transition-colors ${idx === slashIndex ? 'bg-primary/15 text-foreground' : 'hover:bg-secondary/70 text-muted-foreground hover:text-foreground'}`}>
                                             <span className="font-mono text-primary text-sm font-bold shrink-0">/{b.name}</span>
                                             <span className="text-xs truncate opacity-60 group-hover:opacity-90">{b.message.slice(0, 80)}{b.message.length > 80 ? '…' : ''}</span>
                                         </button>
@@ -252,7 +348,7 @@ export default function TicketDetail() {
                                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(e as any); }
                             }} />
                         <div className="absolute right-2 top-2">
-                            <button type="submit" disabled={(isPending || isEditing) || !content.trim()} className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50">
+                            <button type="submit" disabled={(isPending || isEditing) || !content.trim()} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50">
                                 {editingMsg ? <Pencil className="w-4 h-4 md:w-5 md:h-5" /> : <Send className="w-4 h-4 md:w-5 md:h-5" />}
                             </button>
                         </div>
@@ -261,7 +357,7 @@ export default function TicketDetail() {
             </div>
 
             {/* Info Sidebar — hidden on mobile */}
-            <div className="hidden md:flex w-80 shrink-0 flex-col gap-4">
+            <div className="hidden lg:flex w-80 shrink-0 flex-col gap-4 overflow-y-auto custom-scrollbar">
                 <TicketInfoSidebar ticket={ticket} />
             </div>
         </div>
@@ -270,6 +366,9 @@ export default function TicketDetail() {
 
 function TicketInfoSidebar({ ticket }: { ticket: any }) {
     const [now, setNow] = useState(Date.now());
+    const { data: userProfile, isLoading: isProfileLoading } = useUserProfile(ticket?.openerId);
+    const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: fetchSettings });
+    const useSkeletons = settings?.useSkeletons ?? true;
 
     useEffect(() => {
         const timer = setInterval(() => setNow(Date.now()), 30000);
@@ -365,7 +464,77 @@ function TicketInfoSidebar({ ticket }: { ticket: any }) {
                     )}
                 </div>
             </div>
+
+            {/* CRM Profile Section */}
+            {ticket?.openerId && (
+                <div className="mt-6 pt-6 border-t border-border">
+                    <h3 className="font-rajdhani font-bold text-lg mb-4 text-foreground uppercase tracking-wide flex items-center gap-2">
+                        <span className="bg-primary/10 text-primary p-1 rounded"><AlertCircle className="w-4 h-4" /></span>
+                        Профиль Клиента
+                    </h3>
+
+                    {isProfileLoading ? (
+                        useSkeletons ? (
+                            <div className="space-y-4">
+                                <Skeleton className="w-full h-8" />
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Skeleton className="h-16 w-full" />
+                                    <Skeleton className="h-16 w-full" />
+                                </div>
+                                <Skeleton className="w-full h-24" />
+                            </div>
+                        ) : (
+                            <div className="space-y-3 animate-pulse">
+                                <div className="h-4 bg-secondary/50 rounded w-3/4"></div>
+                                <div className="h-4 bg-secondary/50 rounded w-1/2"></div>
+                                <div className="h-4 bg-secondary/50 rounded w-full"></div>
+                            </div>
+                        )
+                    ) : userProfile ? (
+                        <div className="space-y-4">
+                            {userProfile.isBanned && (
+                                <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-xs px-3 py-2 rounded-lg font-medium flex items-center justify-center">
+                                    Пользователь ЗАБЛОКИРОВАН
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-2 text-center">
+                                <div className="bg-secondary/30 rounded-lg p-2 border border-border/50">
+                                    <div className="text-[10px] text-muted-foreground uppercase font-bold">Всего тикетов</div>
+                                    <div className="text-lg font-rajdhani font-bold text-foreground">{userProfile.stats.totalCreated}</div>
+                                </div>
+                                <div className="bg-secondary/30 rounded-lg p-2 border border-border/50">
+                                    <div className="text-[10px] text-muted-foreground uppercase font-bold">Закрытых</div>
+                                    <div className="text-lg font-rajdhani font-bold text-foreground">{userProfile.stats.closed}</div>
+                                </div>
+                            </div>
+
+                            {userProfile.stats.highPriority > 0 && (
+                                <div className="text-xs text-muted-foreground flex items-center gap-1.5 bg-yellow-500/10 text-yellow-500/90 rounded px-2 py-1">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    Использовал высокий приоритет: {userProfile.stats.highPriority} раз
+                                </div>
+                            )}
+
+                            {userProfile.historyTickets && userProfile.historyTickets.length > 0 && (
+                                <div className="pt-2">
+                                    <div className="text-xs text-muted-foreground mb-2 uppercase font-semibold">История обращений</div>
+                                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                        {userProfile.historyTickets.map((t: any) => (
+                                            <div key={t.id} className="text-xs bg-secondary/20 border border-border/50 rounded p-2 flex justify-between items-center group hover:bg-secondary/40 transition-colors">
+                                                <div className="truncate pr-2 text-muted-foreground group-hover:text-foreground transition-colors">#{t.name}</div>
+                                                <div className="shrink-0 opacity-60 text-[10px]">{format(new Date(t.createdAt), 'dd.MM.yy', { locale: ru })}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="text-sm text-muted-foreground italic">Профиль не найден</div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
-

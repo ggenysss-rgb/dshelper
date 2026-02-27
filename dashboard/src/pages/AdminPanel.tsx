@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchSettings } from '../api/stats';
 import { motion, AnimatePresence } from 'framer-motion';
+import Skeleton from '../components/Skeleton';
 import { Shield, User, Clock, Ban, CheckCircle, Trash2, UserCheck, Search, RefreshCw, Brain, Zap, Globe, Gem, RotateCcw, ArrowUp, ArrowDown, Settings } from 'lucide-react';
 import client from '../api/client';
 
@@ -112,6 +115,8 @@ function RateLimitCard({ name, rl }: { name: string; rl: RateLimit }) {
 }
 
 export default function AdminPanel() {
+    const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: fetchSettings });
+    const useSkeletons = settings?.useSkeletons ?? true;
     const [tab, setTab] = useState(TAB_USERS);
     const [users, setUsers] = useState<DashUser[]>([]);
     const [loading, setLoading] = useState(true);
@@ -181,7 +186,26 @@ export default function AdminPanel() {
                         <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 px-5 py-3 border-b border-border text-xs text-muted-foreground uppercase tracking-wider font-semibold">
                             <span>#</span><span>Пользователь</span><span>Роль</span><span className="text-right pr-2">Дата</span><span className="text-right">Действия</span>
                         </div>
-                        {loading ? <div className="flex items-center justify-center py-16 text-muted-foreground"><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Загрузка...</div>
+                        {loading ? (
+                            useSkeletons ? (
+                                <div className="divide-y divide-border/50">
+                                    {[...Array(6)].map((_, i) => (
+                                        <div key={i} className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 items-center px-5 py-4">
+                                            <Skeleton className="w-6 h-4" />
+                                            <div className="flex items-center gap-2">
+                                                <Skeleton className="w-8 h-8 rounded-full" />
+                                                <Skeleton className="w-32 h-4" />
+                                            </div>
+                                            <Skeleton className="w-20 h-5 rounded-full" />
+                                            <Skeleton className="w-24 h-4 justify-self-end" />
+                                            <Skeleton className="w-16 h-8 justify-self-end" />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-center py-16 text-muted-foreground"><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Загрузка...</div>
+                            )
+                        )
                             : filtered.length === 0 ? <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2"><User className="w-8 h-8 opacity-40" /><p className="text-sm">Не найдены</p></div>
                                 : <AnimatePresence>{filtered.map((u, i) => {
                                     const badge = roleBadge[u.role] ?? roleBadge.user;

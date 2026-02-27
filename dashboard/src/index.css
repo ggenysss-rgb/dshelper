@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 @layer base {
+
   :root,
   .dark {
     --background: 240 20% 6%;
@@ -188,6 +189,8 @@
       linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
     background-attachment: fixed;
     transition: background 450ms ease, color 250ms ease;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .design-classic body {
@@ -232,7 +235,7 @@
     opacity: 0.55;
   }
 
-  .dashboard-shell > * {
+  .dashboard-shell>* {
     position: relative;
     z-index: 1;
   }
@@ -247,7 +250,7 @@
     position: relative;
   }
 
-  .dashboard-main > * {
+  .dashboard-main>* {
     position: relative;
     z-index: 1;
   }

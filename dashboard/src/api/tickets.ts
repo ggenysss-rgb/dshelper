@@ -83,3 +83,26 @@ export const sendTicketMessage = async (id: string, content: string, replyTo?: s
 export const editTicketMessage = async (id: string, msgId: string, content: string): Promise<void> => {
     await client.patch(`/tickets/${id}/messages/${msgId}`, { content });
 };
+
+export const generateTicketSummary = async (id: string): Promise<{ summary: string }> => {
+    const { data } = await client.post(`/tickets/${id}/summary`);
+    return data;
+};
+
+export type UserProfileResponse = {
+    openerId: string;
+    isBanned: boolean;
+    stats: {
+        totalCreated: number;
+        closed: number;
+        active: number;
+        highPriority: number;
+    };
+    activeTickets: { id: string; name: string; createdAt: number }[];
+    historyTickets: { id: string; name: string; createdAt: number; closedAt: number }[];
+};
+
+export const fetchUserProfile = async (openerId: string): Promise<UserProfileResponse> => {
+    const { data } = await client.get(`/tickets/user/${openerId}`);
+    return data;
+};

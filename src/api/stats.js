@@ -189,6 +189,7 @@ function createStatsRoutes(db, botManager) {
             ticketsCategoryId: bot.config.ticketsCategoryId || '',
             shiftChannelId: bot.config.shiftChannelId || '',
             geminiApiKeys: bot.config.geminiApiKeys || [],
+            useSkeletons: bot.config.useSkeletons ?? true,
         });
     });
 
@@ -204,7 +205,7 @@ function createStatsRoutes(db, botManager) {
             'ticketPrefix', 'pollingIntervalSec', 'rateLimitMs',
             'maxMessageLength', 'forumMode', 'priorityKeywords',
             'staffRoleIds', 'ticketsCategoryId', 'shiftChannelId',
-            'geminiApiKeys',
+            'geminiApiKeys', 'useSkeletons',
         ];
         const body = req.body;
         let changed = 0;

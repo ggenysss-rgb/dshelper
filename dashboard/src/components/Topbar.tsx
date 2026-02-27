@@ -108,7 +108,7 @@ export default function Topbar({ membersVisible = true, onToggleMembers }: Topba
                 <div className="flex items-center gap-4 md:gap-6">
                     {/* Mobile hamburger */}
                     <button
-                        className="md:hidden p-2 hover:bg-secondary rounded-lg transition-colors text-muted-foreground"
+                        className="md:hidden p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-secondary rounded-lg transition-colors text-muted-foreground"
                         onClick={() => window.dispatchEvent(new CustomEvent('toggle-sidebar'))}
                     >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -145,7 +145,7 @@ export default function Topbar({ membersVisible = true, onToggleMembers }: Topba
                     {/* Theme toggle */}
                     <button
                         onClick={toggleTheme}
-                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary/80"
+                        className="w-11 h-11 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary/80"
                         title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
                     >
                         <motion.div
@@ -161,7 +161,7 @@ export default function Topbar({ membersVisible = true, onToggleMembers }: Topba
                     {/* Sound toggle */}
                     <button
                         onClick={() => setSoundEnabled(v => !v)}
-                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary/80"
+                        className="w-11 h-11 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors hover:bg-secondary/80"
                         title={soundEnabled ? 'Выключить звук' : 'Включить звук'}
                     >
                         {soundEnabled ? <Volume2 className="w-4 h-4 md:w-5 md:h-5" /> : <VolumeX className="w-4 h-4 md:w-5 md:h-5 opacity-50" />}
@@ -170,7 +170,7 @@ export default function Topbar({ membersVisible = true, onToggleMembers }: Topba
                     {/* Notifications bell */}
                     <button
                         onClick={notifEnabled ? () => setUnreadCount(0) : requestNotifPermission}
-                        className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors relative"
+                        className="w-11 h-11 md:w-10 md:h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors relative"
                         title={notifEnabled ? 'Уведомления включены' : 'Включить уведомления'}
                     >
                         <AnimatePresence mode="wait">
@@ -199,7 +199,7 @@ export default function Topbar({ membersVisible = true, onToggleMembers }: Topba
                     {/* Profile */}
                     <button
                         onClick={() => setProfileModalOpen(true)}
-                        className="flex items-center gap-2 md:gap-3 pl-3 md:pl-4 border-l border-border hover:bg-secondary/30 rounded-r-lg pr-2 md:pr-3 py-1.5 transition-colors cursor-pointer"
+                        className="flex items-center gap-2 md:gap-3 pl-3 md:pl-4 border-l border-border hover:bg-secondary/30 rounded-r-lg pr-2 md:pr-3 py-1.5 min-h-[44px] transition-colors cursor-pointer"
                     >
                         <div className="text-right hidden sm:flex flex-col justify-center">
                             <span className="text-sm font-medium leading-none">{profile.displayName}</span>

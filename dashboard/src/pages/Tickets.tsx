@@ -1,13 +1,17 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTickets } from '../hooks/useTickets';
 import { useSocket } from '../hooks/useSocket';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { fetchSettings } from '../api/stats';
 import TicketCard from '../components/TicketCard';
-import { Search, Filter } from 'lucide-react';
+import Skeleton from '../components/Skeleton';
+import { Search, Filter, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Tickets() {
     const { data: tickets, isLoading } = useTickets();
+    const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: fetchSettings });
+    const useSkeletons = settings?.useSkeletons ?? true;
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'high' | 'waiting'>('all');
 
@@ -87,11 +91,17 @@ export default function Tickets() {
 
             <div className="flex-1 overflow-y-auto pr-2 pb-6 custom-scrollbar">
                 {isLoading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        {[...Array(6)].map((_, i) => (
-                            <div key={i} className="h-40 bg-secondary/50 rounded-xl animate-pulse"></div>
-                        ))}
-                    </div>
+                    useSkeletons ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            {[...Array(6)].map((_, i) => (
+                                <Skeleton key={i} className="h-40 w-full" delay={i * 0.05} />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center h-64 text-muted-foreground">
+                            <RefreshCw className="w-8 h-8 animate-spin" />
+                        </div>
+                    )
                 ) : filteredTickets.length === 0 ? (
                     <div className="h-64 flex flex-col items-center justify-center text-muted-foreground border-2 border-dashed border-border rounded-xl">
                         <Filter className="w-12 h-12 mb-4 opacity-50" />

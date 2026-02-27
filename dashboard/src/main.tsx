@@ -6,6 +6,9 @@ import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import App from './App';
 import './index.css';
+import { registerSW } from 'virtual:pwa-register';
+
+registerSW({ immediate: true });
 
 const queryClient = new QueryClient({
     defaultOptions: {

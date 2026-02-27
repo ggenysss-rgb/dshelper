@@ -543,21 +543,22 @@ function connectGateway(bot) {
         cleanupGateway(bot);
         if (bot.destroyed) return;
         if (code === 4004) {
-            // Auto-fallback: DISCORD_TOKEN may contain a bot token by mistake.
+            // Optional fallback is disabled by default; selfbot setups should stay in user mode.
+            const allowModeFallback = process.env.DISCORD_MODE_FALLBACK === '1';
             const canTryAlternateMode = !bot.config.discordBotToken && !!bot.config.discordToken;
-            if (canTryAlternateMode && authMode === 'user' && !bot._gatewayAltModeTried) {
+            if (allowModeFallback && canTryAlternateMode && authMode === 'user' && !bot._gatewayAltModeTried) {
                 bot._gatewayAuthMode = 'bot';
                 bot._gatewayAltModeTried = true;
                 bot.log('⚠️ Gateway 4004 in user mode; retrying DISCORD_TOKEN as bot mode...');
                 setTimeout(() => connectGateway(bot), 1000);
                 return;
             }
-            if (canTryAlternateMode && authMode === 'bot' && bot._gatewayAltModeTried) {
+            if (allowModeFallback && canTryAlternateMode && authMode === 'bot' && bot._gatewayAltModeTried) {
                 bot.log('❌ Gateway 4004 in both user+bot modes. DISCORD_TOKEN is invalid/revoked.');
             } else if (bot.config.discordBotToken) {
                 bot.log('❌ Gateway 4004 for DISCORD_BOT_TOKEN. Token invalid/revoked.');
             } else {
-                bot.log('❌ Gateway 4004 for DISCORD_TOKEN. Token invalid/revoked.');
+                bot.log('❌ Gateway 4004 for DISCORD_TOKEN (selfbot mode). Token invalid/revoked.');
             }
         }
         const canResume = RESUMABLE_CODES.includes(code);

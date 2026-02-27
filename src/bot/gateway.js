@@ -272,7 +272,7 @@ function getBuiltInNeuroReply(question) {
         return '**Здравствуйте!** Чем можем Вам помочь?';
     }
 
-    const asksFarm = /(заработ|фарм|как заработать|способ(ы)? заработк)/i.test(String(question || ''));
+    const asksFarm = /(заработ|заробот|фарм|как заработать|как зароботать|способ(ы)? заработк|способ(ы)? зароботк)/i.test(String(question || ''));
     if (asksFarm) {
         return '**Основные способы заработка:** 1. Лаваход + шалкеровый ящик. 2. З5 алмазного сета с перепродажей. 3. Зачарование/объединение эффектов на незеритовом мече. 4. Прибыльные кирки (бульдозер, автоплавка, магнит). 5. Автошахта. 6. Перепродажа обсидиана и алмазов. 7. PvP-зона для лута. 8. Ивенты. 9. Перепродажа сфер и талисманов.';
     }
@@ -367,6 +367,32 @@ function enforceNeuroAnswerQuality({ question = '', answerText = '', cfg = {}, c
             text: direct?.response || 'Уточни вопрос, ответ выше вышел не по теме.',
             replaced: true,
             reason: 'rag_leak_guard',
+        };
+    }
+
+    const qRaw = String(question || '').toLowerCase();
+    const asksFarm = /(заработ|заробот|фарм|как заработать|как зароботать|способ(ы)? заработк|способ(ы)? зароботк)/i.test(qRaw);
+    if (asksFarm) {
+        const itemMatches = text.match(/\b\d+\./g) || [];
+        if (itemMatches.length < 8) {
+            const direct = getDirectNeuroDecision({ question, cfg, channelId, guildId });
+            if (direct?.response) {
+                return {
+                    text: direct.response,
+                    replaced: true,
+                    reason: 'farm_incomplete_guard',
+                };
+            }
+        }
+    }
+
+    const greeting = /(привет|здравствуй|здравствуйте|хай|ку|добрый день|добрый вечер|салам)/i.test(qRaw);
+    const greetingJunk = /let'?s use|in the rag|assistant:|system:|["'`]{2,}|^\W{1,3}$|^\s*ю["'`]/i.test(text);
+    if (greeting && greetingJunk) {
+        return {
+            text: '**Здравствуйте!** Чем можем Вам помочь?',
+            replaced: true,
+            reason: 'greeting_junk_guard',
         };
     }
 

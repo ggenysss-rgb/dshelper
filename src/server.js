@@ -238,6 +238,54 @@ async function main() {
         }
     });
 
+    // Get CRM Profile for a specific user (openerId)
+    app.get('/api/tickets/user/:openerId', authenticateToken, (req, res) => {
+        const bot = getBot(req, res); if (!bot) return res.status(400).json({ error: 'Bot not running' });
+        const openerId = req.params.openerId;
+
+        try {
+            const allClosed = bot.getClosedTickets ? bot.getClosedTickets() : [];
+            const allActive = Array.from(bot.activeTickets.values());
+
+            const userClosed = allClosed.filter(t => t.openerId === openerId);
+            const userActive = allActive.filter(t => t.openerId === openerId);
+
+            const totalCreated = userClosed.length + userActive.length;
+            const isBanned = bot.config.bannedUsers && bot.config.bannedUsers.includes(openerId);
+
+            const history = userClosed.map(t => ({
+                id: t.channelId,
+                name: t.channelName || 'Ticket',
+                createdAt: t.createdAt,
+                closedAt: t.closedAt
+            })).sort((a, b) => b.createdAt - a.createdAt);
+
+            const active = userActive.map(t => ({
+                id: t.channelId,
+                name: t.channelName || 'Ticket',
+                createdAt: t.createdAt
+            }));
+
+            const highPriorityCount = userClosed.filter(t => t.priority === 'high').length +
+                userActive.filter(t => t.priority === 'high').length;
+
+            res.json({
+                openerId,
+                isBanned,
+                stats: {
+                    totalCreated,
+                    closed: userClosed.length,
+                    active: userActive.length,
+                    highPriority: highPriorityCount
+                },
+                activeTickets: active,
+                historyTickets: history.slice(0, 10)
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // ── Stats ────────────────────────────────────────────
     app.get('/api/stats', authenticateToken, (req, res) => {
         const bot = getBot(req, res);

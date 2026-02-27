@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const funtimeServerRules = require('./funtimeServerRules');
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const MAX_SNIPPET_CHARS = 420;
@@ -179,6 +180,18 @@ function buildDocs(dataDir, config) {
         }));
     }
 
+    const staticRules = Array.isArray(funtimeServerRules) ? funtimeServerRules : [];
+    for (let i = 0; i < staticRules.length; i++) {
+        const rule = staticRules[i];
+        if (!rule || !rule.text) continue;
+        docs.push(createDoc({
+            source: `static_rule:${rule.id || `rule_${i + 1}`}`,
+            text: String(rule.text),
+            weight: 1.15,
+            hints: Array.isArray(rule.hints) ? rule.hints : [],
+        }));
+    }
+
     const knowledgePath = path.join(dataDir, 'learned_knowledge.json');
     const knowledge = safeReadJson(knowledgePath);
     if (Array.isArray(knowledge)) {
@@ -219,7 +232,8 @@ function getKnowledgeCacheKey(dataDir, config) {
 
     const bindsHash = simpleHash(JSON.stringify(config?.binds || {}));
     const autoRepliesHash = simpleHash(JSON.stringify(config?.autoReplies || []));
-    return `${knowledgeMtime}:${bindsHash}:${autoRepliesHash}`;
+    const staticRulesHash = simpleHash(JSON.stringify(funtimeServerRules || []));
+    return `${knowledgeMtime}:${bindsHash}:${autoRepliesHash}:${staticRulesHash}`;
 }
 
 function getKnowledgeDocs(dataDir, config) {

@@ -140,95 +140,274 @@ const DEFAULT_OPENROUTER_MODELS = [
     'qwen/qwen3-32b:free',
     'meta-llama/llama-3.3-70b-instruct:free',
 ];
+const DEFAULT_GROQ_MODELS = [
+    'llama-3.1-8b-instant',
+    'llama-3.3-70b-versatile',
+];
+const DEFAULT_GEMINI_MODELS = [
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
+];
 
-function getOpenRouterKeys(cfg) {
-    const raw = Array.isArray(cfg?.geminiApiKeys)
-        ? cfg.geminiApiKeys
-        : (cfg?.geminiApiKeys ? [cfg.geminiApiKeys] : []);
-    return raw
-        .map(v => String(v || '').trim())
-        .filter(Boolean);
-}
-
-function getOpenRouterModels() {
-    const fromEnv = String(process.env.OPENROUTER_MODELS || '')
-        .split(',')
+function splitKeyList(raw) {
+    return String(raw || '')
+        .split(/[\n,]/g)
         .map(v => v.trim())
         .filter(Boolean);
-    return fromEnv.length > 0 ? fromEnv : DEFAULT_OPENROUTER_MODELS;
 }
 
-function parseOpenRouterBody(body) {
-    try { return JSON.parse(body || '{}'); } catch { return {}; }
+function normalizeAiProviderName(provider) {
+    const p = String(provider || '').trim().toLowerCase();
+    if (!p) return '';
+    if (p === 'or' || p === 'openrouter') return 'openrouter';
+    if (p === 'groq' || p === 'qroq') return 'groq';
+    if (p === 'gemini' || p === 'google' || p === 'googleai') return 'gemini';
+    return '';
 }
 
-function getOpenRouterAnswer(data) {
-    const text = data?.choices?.[0]?.message?.content;
-    return typeof text === 'string' ? text.trim() : '';
+function detectAiProviderByKey(key) {
+    const k = String(key || '').trim();
+    if (!k) return '';
+    if (k.startsWith('sk-or-')) return 'openrouter';
+    if (k.startsWith('gsk_')) return 'groq';
+    if (/^AIza[0-9A-Za-z\-_]{20,}/.test(k)) return 'gemini';
+    return 'openrouter';
 }
 
-function stringifyOpenRouterError(status, data) {
-    const err = data?.error || data?.message || data;
-    const base = typeof err === 'string' ? err : JSON.stringify(err || {});
-    return `${status} ${String(base || '').slice(0, 280)}`.trim();
-}
+function parseAiCredential(input, forcedProvider = '') {
+    const raw = String(input || '').trim();
+    if (!raw) return null;
 
-function isOpenRouterRetryable(status) {
-    return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
-}
-
-function isOpenRouterKeyRejected(status) {
-    return status === 401 || status === 403;
-}
-
-async function requestOpenRouterAnswer(bot, cfg, messages, opts = {}) {
-    const logPrefix = opts.logPrefix || '';
-    const keys = getOpenRouterKeys(cfg);
-    if (keys.length === 0) return { ok: false, answerText: '', model: '', error: 'no OpenRouter key', keyIndex: -1 };
-
-    const models = getOpenRouterModels();
-    let lastError = 'no response';
-
-    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
-        const apiKey = keys[keyIndex];
-        for (const model of models) {
-            const payload = {
-                model,
-                messages,
-                temperature: 0.7,
-                max_tokens: 800,
-            };
-
-            let res;
-            try {
-                res = await bot.httpPostWithHeaders(
-                    'https://openrouter.ai/api/v1/chat/completions',
-                    payload,
-                    { Authorization: `Bearer ${apiKey}` }
-                );
-            } catch (e) {
-                lastError = `network ${e.message}`;
-                bot.log(`⚠️ ${logPrefix}OpenRouter network error [${model}]: ${e.message}`);
-                await sleep(350);
-                continue;
-            }
-
-            const data = parseOpenRouterBody(res.body);
-            const answerText = getOpenRouterAnswer(data);
-            if (res.ok && answerText) return { ok: true, answerText, model, error: '', keyIndex };
-
-            const err = stringifyOpenRouterError(res.status, data);
-            lastError = err;
-            bot.log(`⚠️ ${logPrefix}OpenRouter error [${model}${keyIndex > 0 ? `, key#${keyIndex + 1}` : ''}]: ${err}`);
-
-            if (isOpenRouterKeyRejected(res.status)) break;
-            if (isOpenRouterRetryable(res.status)) {
-                await sleep(350);
-            }
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+        try {
+            const obj = JSON.parse(raw);
+            const provider = normalizeAiProviderName(obj.provider || forcedProvider || '');
+            const key = String(obj.key || obj.apiKey || obj.token || '').trim();
+            if (!provider || !key) return null;
+            return { provider, key };
+        } catch {
+            return null;
         }
     }
 
-    return { ok: false, answerText: '', model: '', error: lastError, keyIndex: -1 };
+    const prefixed = raw.match(/^([a-zA-Z0-9_-]+)\s*:\s*(.+)$/);
+    if (prefixed) {
+        const provider = normalizeAiProviderName(prefixed[1]);
+        const key = String(prefixed[2] || '').trim();
+        if (provider && key) return { provider, key };
+    }
+
+    const provider = normalizeAiProviderName(forcedProvider) || detectAiProviderByKey(raw);
+    if (!provider) return null;
+    return { provider, key: raw };
+}
+
+function getAiCredentials(cfg) {
+    const configuredRaw = Array.isArray(cfg?.geminiApiKeys)
+        ? cfg.geminiApiKeys
+        : (typeof cfg?.geminiApiKeys === 'string' ? splitKeyList(cfg.geminiApiKeys) : (cfg?.geminiApiKeys ? [cfg.geminiApiKeys] : []));
+
+    const entries = [];
+    const pushCred = (cred) => {
+        if (!cred || !cred.provider || !cred.key) return;
+        entries.push(cred);
+    };
+
+    for (const item of configuredRaw) {
+        const cred = parseAiCredential(item);
+        pushCred(cred);
+    }
+
+    for (const k of splitKeyList(process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || '')) {
+        pushCred(parseAiCredential(k, 'openrouter'));
+    }
+    for (const k of splitKeyList(process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '')) {
+        pushCred(parseAiCredential(k, 'groq'));
+    }
+    for (const k of splitKeyList(process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '')) {
+        pushCred(parseAiCredential(k, 'gemini'));
+    }
+
+    const uniq = [];
+    const seen = new Set();
+    for (const cred of entries) {
+        const sig = `${cred.provider}:${cred.key}`;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        uniq.push(cred);
+    }
+    return uniq;
+}
+
+function getProviderModels(envName, fallback) {
+    const fromEnv = splitKeyList(process.env[envName] || '');
+    return fromEnv.length > 0 ? fromEnv : fallback;
+}
+
+function parseProviderBody(body) {
+    try { return JSON.parse(body || '{}'); } catch { return {}; }
+}
+
+function getOpenAiStyleAnswer(data) {
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content === 'string') return content.trim();
+    if (Array.isArray(content)) {
+        return content.map(part => (typeof part === 'string' ? part : part?.text || '')).join('\n').trim();
+    }
+    return '';
+}
+
+function getGeminiAnswer(data) {
+    const parts = data?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return '';
+    return parts.map(p => String(p?.text || '')).join('\n').trim();
+}
+
+function stringifyProviderError(status, data) {
+    const err = data?.error || data?.message || data;
+    const base = typeof err === 'string' ? err : JSON.stringify(err || {});
+    return `${status} ${String(base || '').slice(0, 300)}`.trim();
+}
+
+function isProviderRetryable(status) {
+    return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function isProviderKeyRejected(status) {
+    return status === 401 || status === 403;
+}
+
+async function requestOpenAiCompatibleAnswer(bot, provider, endpoint, apiKey, models, messages, logPrefix = '', keyIndex = 0) {
+    let lastError = 'no response';
+    for (const model of models) {
+        const payload = {
+            model,
+            messages,
+            temperature: 0.7,
+            max_tokens: 800,
+        };
+
+        let res;
+        try {
+            res = await bot.httpPostWithHeaders(endpoint, payload, { Authorization: `Bearer ${apiKey}` });
+        } catch (e) {
+            lastError = `network ${e.message}`;
+            bot.log(`⚠️ ${logPrefix}${provider} network error [${model}]: ${e.message}`);
+            await sleep(350);
+            continue;
+        }
+
+        const data = parseProviderBody(res.body);
+        const answerText = getOpenAiStyleAnswer(data);
+        if (res.ok && answerText) return { ok: true, answerText, model, provider, error: '' };
+
+        const err = stringifyProviderError(res.status, data);
+        lastError = err;
+        bot.log(`⚠️ ${logPrefix}${provider} error [${model}${keyIndex > 0 ? `, key#${keyIndex + 1}` : ''}]: ${err}`);
+
+        if (isProviderKeyRejected(res.status)) break;
+        if (isProviderRetryable(res.status)) await sleep(350);
+    }
+    return { ok: false, answerText: '', model: '', provider, error: lastError };
+}
+
+function buildGeminiPrompt(messages) {
+    return messages
+        .map(m => `${String(m.role || 'user').toUpperCase()}:\n${String(m.content || '').trim()}`)
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+async function requestGeminiAnswer(bot, apiKey, models, messages, logPrefix = '', keyIndex = 0) {
+    let lastError = 'no response';
+    const prompt = buildGeminiPrompt(messages);
+    if (!prompt) return { ok: false, answerText: '', model: '', provider: 'gemini', error: 'empty prompt' };
+
+    for (const model of models) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const payload = {
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 800,
+            },
+        };
+
+        let res;
+        try {
+            res = await bot.httpPost(url, payload);
+        } catch (e) {
+            lastError = `network ${e.message}`;
+            bot.log(`⚠️ ${logPrefix}gemini network error [${model}]: ${e.message}`);
+            await sleep(350);
+            continue;
+        }
+
+        const data = parseProviderBody(res.body);
+        const answerText = getGeminiAnswer(data);
+        if (res.ok && answerText) return { ok: true, answerText, model, provider: 'gemini', error: '' };
+
+        const err = stringifyProviderError(res.status, data);
+        lastError = err;
+        bot.log(`⚠️ ${logPrefix}gemini error [${model}${keyIndex > 0 ? `, key#${keyIndex + 1}` : ''}]: ${err}`);
+        if (isProviderKeyRejected(res.status)) break;
+        if (isProviderRetryable(res.status)) await sleep(350);
+    }
+
+    return { ok: false, answerText: '', model: '', provider: 'gemini', error: lastError };
+}
+
+async function requestAiAnswer(bot, cfg, messages, opts = {}) {
+    const logPrefix = opts.logPrefix || '';
+    const creds = getAiCredentials(cfg);
+    if (creds.length === 0) {
+        return { ok: false, answerText: '', model: '', provider: '', error: 'no AI keys configured', keyIndex: -1 };
+    }
+
+    let lastError = 'no response';
+    for (let keyIndex = 0; keyIndex < creds.length; keyIndex++) {
+        const cred = creds[keyIndex];
+        let result = null;
+        if (cred.provider === 'openrouter') {
+            result = await requestOpenAiCompatibleAnswer(
+                bot,
+                'openrouter',
+                'https://openrouter.ai/api/v1/chat/completions',
+                cred.key,
+                getProviderModels('OPENROUTER_MODELS', DEFAULT_OPENROUTER_MODELS),
+                messages,
+                logPrefix,
+                keyIndex
+            );
+        } else if (cred.provider === 'groq') {
+            result = await requestOpenAiCompatibleAnswer(
+                bot,
+                'groq',
+                'https://api.groq.com/openai/v1/chat/completions',
+                cred.key,
+                getProviderModels('GROQ_MODELS', DEFAULT_GROQ_MODELS),
+                messages,
+                logPrefix,
+                keyIndex
+            );
+        } else if (cred.provider === 'gemini') {
+            result = await requestGeminiAnswer(
+                bot,
+                cred.key,
+                getProviderModels('GEMINI_MODELS', DEFAULT_GEMINI_MODELS),
+                messages,
+                logPrefix,
+                keyIndex
+            );
+        } else {
+            continue;
+        }
+
+        if (result?.ok) return { ...result, keyIndex };
+        if (result?.error) lastError = `${cred.provider}: ${result.error}`;
+    }
+
+    return { ok: false, answerText: '', model: '', provider: '', error: lastError, keyIndex: -1 };
 }
 
 function pushChatMessage(messages, role, content) {
@@ -965,7 +1144,7 @@ function handleDispatch(bot, event, d) {
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            const hasAiKeys = getOpenRouterKeys(cfg).length > 0;
+            const hasAiKeys = getAiCredentials(cfg).length > 0;
             if (!isBot && !hasProfanity && hasAiKeys && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
@@ -1033,9 +1212,9 @@ function handleDispatch(bot, event, d) {
                                 }
 
                                 pushChatMessage(messages, 'user', question);
-                                const aiResult = await requestOpenRouterAnswer(bot, cfg, messages);
+                                const aiResult = await requestAiAnswer(bot, cfg, messages);
                                 let answerText = aiResult.ok ? aiResult.answerText : '';
-                                if (aiResult.ok) bot.log(`🧠 OpenRouter success (${aiResult.model})`);
+                                if (aiResult.ok) bot.log(`🧠 AI success (${aiResult.provider}/${aiResult.model})`);
 
                                 if (answerText) {
                                     const guarded = sanitizeResponseLinks(answerText);
@@ -1066,7 +1245,7 @@ function handleDispatch(bot, event, d) {
                                         bot.log(`❌ Failed to send Discord message: ${sentRes.status} ${sentRes.body}`);
                                     }
                                 } else {
-                                    bot.log(`❌ Neuro API: OpenRouter failed or no response generated${aiResult.error ? ` (${aiResult.error})` : ''}.`);
+                                    bot.log(`❌ Neuro API: failed or no response generated${aiResult.error ? ` (${aiResult.error})` : ''}.`);
                                 }
                             } catch (e) {
                                 bot.log(`❌ Neuro AI error: ${e.stack}`);
@@ -1578,7 +1757,7 @@ function startAutoReplyPolling(bot) {
 
                     // ── AI handler (poll-based) — reply to Neuro or @mention ──
                     const neuroExcludedPoll = ['1451246122755559555'];
-                    const pollHasAiKeys = getOpenRouterKeys(cfg).length > 0;
+                    const pollHasAiKeys = getAiCredentials(cfg).length > 0;
                     if (!msg.author.bot && pollHasAiKeys && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
                         const mentionFollowupWindowMs = 45000;
@@ -1648,9 +1827,9 @@ function startAutoReplyPolling(bot) {
                                             }
                                         }
                                         pushChatMessage(messages, 'user', question);
-                                        const aiResult = await requestOpenRouterAnswer(bot, cfg, messages, { logPrefix: 'Poll: ' });
+                                        const aiResult = await requestAiAnswer(bot, cfg, messages, { logPrefix: 'Poll: ' });
                                         let answerText = aiResult.ok ? aiResult.answerText : '';
-                                        if (aiResult.ok) bot.log(`🧠 Poll: OpenRouter success (${aiResult.model})`);
+                                        if (aiResult.ok) bot.log(`🧠 Poll: AI success (${aiResult.provider}/${aiResult.model})`);
                                         if (answerText) {
                                             const guarded = sanitizeResponseLinks(answerText);
                                             answerText = guarded.text;

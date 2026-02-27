@@ -151,16 +151,20 @@ export default function Settings() {
 
             {/* AI Settings Group */}
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-card border border-border rounded-xl p-6">
-                <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-4">Настройки ИИ (OpenRouter)</h2>
+                <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-4">Настройки ИИ (multi-provider)</h2>
                 <div className="py-3 border-b border-border/30 last:border-0">
-                    <span className="text-sm font-medium text-foreground">API Ключ OpenRouter</span>
-                    <p className="text-xs text-muted-foreground mt-0.5 mb-2">Введите ключ OpenRouter (sk-or-...). Модель: stepfun/step-3.5-flash:free</p>
+                    <span className="text-sm font-medium text-foreground">AI API Keys</span>
+                    <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                        По одному ключу на строку. Поддержка: <code>openrouter:</code>, <code>groq:</code>, <code>gemini:</code>.
+                        Примеры: <code>openrouter:sk-or-...</code>, <code>groq:gsk_...</code>, <code>gemini:AIza...</code>.
+                        Без префикса тоже работает (авто-детект).
+                    </p>
                     <textarea
                         value={typeof s.geminiApiKeys === 'string' ? s.geminiApiKeys : (Array.isArray(s.geminiApiKeys) ? s.geminiApiKeys.join('\n') : '')}
                         onChange={e => update('geminiApiKeys', e.target.value)}
                         rows={4}
                         className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary mt-1 font-mono resize-y"
-                        placeholder={"sk-or-v1-..."}
+                        placeholder={"openrouter:sk-or-v1-...\ngroq:gsk_...\ngemini:AIza..."}
                     />
                 </div>
             </motion.div>

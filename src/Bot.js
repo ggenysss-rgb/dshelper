@@ -66,7 +66,10 @@ class Bot {
         this.sessionId = null;
         this.resumeUrl = null;
         this.seq = null;
-        this._gatewayAuthMode = this.config.discordBotToken ? 'bot' : 'user';
+        // Prefer user gateway when both tokens exist; bot token is used per-guild for sends.
+        this._gatewayAuthMode = this.config.discordToken
+            ? 'user'
+            : (this.config.discordBotToken ? 'bot' : 'user');
         this._gatewayAltModeTried = false;
         this.heartbeatTimer = null;
         this.receivedAck = true;
@@ -118,11 +121,12 @@ class Bot {
     }
 
     getDiscordGatewayToken() {
-        return this.config.discordBotToken || this.config.discordToken || '';
+        const mode = this._gatewayAuthMode === 'bot' ? 'bot' : 'user';
+        if (mode === 'bot') return this.config.discordBotToken || this.config.discordToken || '';
+        return this.config.discordToken || this.config.discordBotToken || '';
     }
 
     isDiscordBotAuthMode() {
-        if (this.config.discordBotToken) return true;
         return this._gatewayAuthMode === 'bot';
     }
 
@@ -323,10 +327,13 @@ class Bot {
     updateConfig(newConfig) {
         const prevToken = this.getDiscordGatewayToken();
         Object.assign(this.config, newConfig);
+        const preferredMode = this.config.discordToken
+            ? 'user'
+            : (this.config.discordBotToken ? 'bot' : 'user');
+        this._gatewayAuthMode = preferredMode;
         const nextToken = this.getDiscordGatewayToken();
         if (prevToken !== nextToken) {
             this._gatewayAltModeTried = false;
-            this._gatewayAuthMode = this.config.discordBotToken ? 'bot' : 'user';
         }
     }
 

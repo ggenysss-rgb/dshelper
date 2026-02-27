@@ -1010,9 +1010,12 @@ function buildRankedSidebarChannels(bot, guildId, ticketsCategoryId) {
 }
 
 function isOp14Enabled(bot) {
-    // OP14 is stable in bot-token mode. For selfbot keep it off by default:
-    // Discord often closes selfbot sessions with 4002/4003 after OP14 payloads.
-    if (bot?.config?.discordBotToken) return true;
+    // OP14 is a client/selfbot-oriented opcode and can destabilize bot-auth sessions.
+    // Keep it disabled unless explicitly enabled for selfbot mode.
+    const mode = (bot?._gatewayAuthMode === 'bot' || bot?._gatewayAuthMode === 'user')
+        ? bot._gatewayAuthMode
+        : (bot?.config?.discordToken ? 'user' : (bot?.config?.discordBotToken ? 'bot' : 'user'));
+    if (mode === 'bot') return false;
     return process.env.ENABLE_SELFBOT_OP14 === '1';
 }
 
@@ -1168,8 +1171,15 @@ function scheduleMembersUpdate(bot) {
 }
 
 function resolveGatewayAuthMode(bot) {
-    if (bot.config.discordBotToken) return 'bot';
     if (bot._gatewayAuthMode === 'bot' || bot._gatewayAuthMode === 'user') return bot._gatewayAuthMode;
+    if (bot.config.discordToken) {
+        bot._gatewayAuthMode = 'user';
+        return bot._gatewayAuthMode;
+    }
+    if (bot.config.discordBotToken) {
+        bot._gatewayAuthMode = 'bot';
+        return bot._gatewayAuthMode;
+    }
     bot._gatewayAuthMode = 'user';
     return bot._gatewayAuthMode;
 }
@@ -1217,16 +1227,19 @@ function connectGateway(bot) {
         if (code === 4004) {
             // Optional fallback is disabled by default; selfbot setups should stay in user mode.
             const allowModeFallback = process.env.DISCORD_MODE_FALLBACK === '1';
-            const canTryAlternateMode = !bot.config.discordBotToken && !!bot.config.discordToken;
-            if (allowModeFallback && canTryAlternateMode && authMode === 'user' && !bot._gatewayAltModeTried) {
-                bot._gatewayAuthMode = 'bot';
+            const hasUserToken = !!bot.config.discordToken;
+            const hasBotToken = !!bot.config.discordBotToken;
+            const canSwitchToBot = authMode === 'user' && hasBotToken;
+            const canSwitchToUser = authMode === 'bot' && hasUserToken;
+            if (allowModeFallback && !bot._gatewayAltModeTried && (canSwitchToBot || canSwitchToUser)) {
+                bot._gatewayAuthMode = canSwitchToBot ? 'bot' : 'user';
                 bot._gatewayAltModeTried = true;
-                bot.log('⚠️ Gateway 4004 in user mode; retrying DISCORD_TOKEN as bot mode...');
+                bot.log(`⚠️ Gateway 4004 in ${authMode} mode; retrying with ${bot._gatewayAuthMode} mode...`);
                 setTimeout(() => connectGateway(bot), 1000);
                 return;
             }
-            if (allowModeFallback && canTryAlternateMode && authMode === 'bot' && bot._gatewayAltModeTried) {
-                bot.log('❌ Gateway 4004 in both user+bot modes. DISCORD_TOKEN is invalid/revoked.');
+            if (allowModeFallback && bot._gatewayAltModeTried && hasUserToken && hasBotToken) {
+                bot.log('❌ Gateway 4004 in both user+bot modes. Tokens invalid/revoked.');
             } else if (bot.config.discordBotToken) {
                 bot.log('❌ Gateway 4004 for DISCORD_BOT_TOKEN. Token invalid/revoked.');
             } else {
@@ -1322,8 +1335,11 @@ function handleDispatch(bot, event, d) {
             bot.sessionId = d.session_id;
             bot.resumeUrl = d.resume_gateway_url;
             if (d.user?.id) bot.selfUserId = d.user.id;
-            if (bot.config.discordBotToken) bot._gatewayAuthMode = 'bot';
-            else if (bot._gatewayAuthMode !== 'bot') bot._gatewayAuthMode = 'user';
+            if (typeof d.user?.bot === 'boolean') {
+                bot._gatewayAuthMode = d.user.bot ? 'bot' : 'user';
+            } else if (bot._gatewayAuthMode !== 'bot') {
+                bot._gatewayAuthMode = 'user';
+            }
             bot.log(`✅ Gateway READY (session: ${d.session_id}, user: ${d.user?.username || '?'} / ${d.user?.id || '?'})`);
             // For selfbot: GUILD_CREATE might not include channels.
             // Use REST API to fetch channels after a small delay
@@ -1921,13 +1937,15 @@ async function fetchAndScanChannels(bot) {
         scanChannelsList(bot, channels, guildId, '', prefixes, categoryId);
         bot.restoreActivityTimers();
         // Subscribe to ticket channels via OP14 only when enabled for this auth mode.
+        const gatewayMode = resolveGatewayAuthMode(bot);
+        const isBotToken = gatewayMode === 'bot';
         if (isOp14Enabled(bot)) {
             subscribeToTicketChannels(bot);
         } else {
-            bot.log('ℹ️ OP14 disabled for selfbot (stable mode).');
+            bot.log(`ℹ️ OP14 disabled for ${isBotToken ? 'bot' : 'selfbot'} mode.`);
         }
         // For selfbot flow: optionally request member sidebar data for dashboard members list
-        if (!cfg.discordBotToken && isOp14Enabled(bot)) {
+        if (!isBotToken && isOp14Enabled(bot)) {
             scheduleMembersSidebarSweep(bot, guildId, categoryId, {
                 startDelayMs: 1200,
                 stepDelayMs: 950,
@@ -1967,7 +1985,7 @@ async function fetchAndScanChannels(bot) {
 
     // Fetch members in background so UI doesn't block on cold start.
     hydrateMembersFromRest(bot, guildId, authHeader, {
-        isBotToken: !!cfg.discordBotToken,
+        isBotToken: resolveGatewayAuthMode(bot) === 'bot',
         ticketsCategoryId: categoryId,
     }).catch((e) => bot.log(`❌ Members fetch error: ${e.message}`));
 

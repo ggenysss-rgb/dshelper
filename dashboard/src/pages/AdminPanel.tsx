@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, User, Clock, Ban, CheckCircle, Trash2, UserCheck, Search, RefreshCw, Brain, Zap, Globe, Gem, RotateCcw, ArrowUp, ArrowDown } from 'lucide-react';
+import { Shield, User, Clock, Ban, CheckCircle, Trash2, UserCheck, Search, RefreshCw, Brain, Zap, Globe, Gem, RotateCcw, ArrowUp, ArrowDown, Settings } from 'lucide-react';
 import client from '../api/client';
 
 type DashUser = { id: number; username: string; role: 'admin' | 'user' | 'pending' | 'banned'; created_at: number };
@@ -120,6 +120,9 @@ export default function AdminPanel() {
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [aiStats, setAiStats] = useState<AiStats | null>(null);
     const [aiLoading, setAiLoading] = useState(false);
+    const [tokenLimit, setTokenLimit] = useState(() => { const s = localStorage.getItem('ai_token_limit'); return s ? parseInt(s) : 1_000_000; });
+    const [showLimitEdit, setShowLimitEdit] = useState(false);
+    const [limitInput, setLimitInput] = useState('');
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchUsers = async () => { setLoading(true); try { const { data } = await client.get('/admin/users'); setUsers(data); } catch (e: any) { showToast(e.response?.data?.error || 'Ошибка', 'error'); } finally { setLoading(false); } };
@@ -222,29 +225,48 @@ export default function AdminPanel() {
                         <div className="flex items-center justify-center py-16 text-muted-foreground"><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Загрузка...</div>
                     ) : aiStats ? (
                         <>
-                            {/* ── Total Usage Banner ── */}
-                            <div className="bg-card border border-border rounded-xl p-5 mb-6">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Всего потрачено токенов</div>
-                                        <div className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">{fmt(aiStats.totalTokens)}</div>
+                            {/* ── Total Usage Banner + Progress ── */}
+                            {(() => {
+                                const pct = tokenLimit > 0 ? Math.min((aiStats.totalTokens / tokenLimit) * 100, 100) : 0;
+                                const barColor = pct >= 90 ? 'from-red-500 to-red-400' : pct >= 70 ? 'from-orange-500 to-yellow-400' : 'from-emerald-500 to-emerald-400';
+                                const remaining = Math.max(0, tokenLimit - aiStats.totalTokens);
+                                return (
+                                    <div className="bg-card border border-border rounded-xl p-5 mb-6">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div>
+                                                <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Потрачено токенов</div>
+                                                <div className="flex items-baseline gap-2">
+                                                    <span className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">{fmt(aiStats.totalTokens)}</span>
+                                                    <span className="text-lg text-muted-foreground">/ {fmtShort(tokenLimit)}</span>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-6 text-center">
+                                                <div><div className="text-lg font-bold text-foreground">{fmt(aiStats.totalRequests)}</div><div className="text-[10px] text-muted-foreground">запросов</div></div>
+                                                <div><div className={`text-lg font-bold ${aiStats.totalErrors > 0 ? 'text-red-400' : 'text-green-400'}`}>{fmt(aiStats.totalErrors)}</div><div className="text-[10px] text-muted-foreground">ошибок</div></div>
+                                                <div><div className="text-sm font-medium text-foreground">{fmtDate(aiStats.lastRequestAt)}</div><div className="text-[10px] text-muted-foreground">последний</div></div>
+                                            </div>
+                                        </div>
+                                        {/* Progress bar */}
+                                        <div className="relative h-5 bg-secondary/40 rounded-full overflow-hidden border border-border/50 mb-2">
+                                            <motion.div className={`absolute inset-y-0 left-0 bg-gradient-to-r ${barColor} rounded-full`} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, ease: 'easeOut' }} />
+                                            <div className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-white drop-shadow-sm">{pct.toFixed(1)}%</div>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-muted-foreground">Осталось: <span className="text-foreground font-medium">{fmt(remaining)}</span> токенов</span>
+                                            <button onClick={() => { setLimitInput(String(tokenLimit)); setShowLimitEdit(true); }} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"><Settings className="w-3 h-3" /> Лимит</button>
+                                        </div>
+                                        <AnimatePresence>
+                                            {showLimitEdit && (
+                                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 flex items-center gap-2 flex-wrap">
+                                                    <input type="text" value={limitInput} onChange={e => setLimitInput(e.target.value)} placeholder="1000000" className="bg-secondary/40 border border-border text-foreground px-3 py-1.5 rounded-lg text-sm w-32 focus:outline-none focus:ring-2 focus:ring-purple-500/50" onKeyDown={e => { if (e.key === 'Enter') { const v = parseInt(limitInput.replace(/\s/g, '')); if (v > 0) { setTokenLimit(v); localStorage.setItem('ai_token_limit', String(v)); } setShowLimitEdit(false); } }} autoFocus />
+                                                    <button onClick={() => { const v = parseInt(limitInput.replace(/\s/g, '')); if (v > 0) { setTokenLimit(v); localStorage.setItem('ai_token_limit', String(v)); } setShowLimitEdit(false); }} className="px-3 py-1.5 text-sm bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-lg hover:bg-purple-500/30 transition-colors">OK</button>
+                                                    {[100_000, 500_000, 1_000_000, 5_000_000, 10_000_000].map(v => <button key={v} onClick={() => setLimitInput(String(v))} className="px-2 py-1 text-xs bg-secondary/50 text-muted-foreground hover:text-foreground border border-border rounded-md transition-colors">{fmtShort(v)}</button>)}
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-6 text-center">
-                                        <div>
-                                            <div className="text-lg font-bold text-foreground">{fmt(aiStats.totalRequests)}</div>
-                                            <div className="text-[10px] text-muted-foreground">запросов</div>
-                                        </div>
-                                        <div>
-                                            <div className={`text-lg font-bold ${aiStats.totalErrors > 0 ? 'text-red-400' : 'text-green-400'}`}>{fmt(aiStats.totalErrors)}</div>
-                                            <div className="text-[10px] text-muted-foreground">ошибок</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-sm font-medium text-foreground">{fmtDate(aiStats.lastRequestAt)}</div>
-                                            <div className="text-[10px] text-muted-foreground">последний</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                                );
+                            })()}
 
                             {/* ── Rate Limits Section ── */}
                             {aiStats.rateLimits && Object.keys(aiStats.rateLimits).length > 0 && (

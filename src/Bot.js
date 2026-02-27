@@ -518,6 +518,9 @@ class Bot {
         const cachedGuildId = this.channelCache.get(String(channelId || ''))?.guild_id || '';
         const effectiveGuildId = String(guildId || cachedGuildId || '').trim();
         const forcedBotRoute = this.shouldUseBotForGuild(effectiveGuildId, channelId);
+        if (forcedBotRoute) {
+            this.log(`🧭 Bot-only route selected for guild ${effectiveGuildId || '?'} channel ${channelId}`);
+        }
         const primaryAuthHeader = this.getDiscordAuthorizationHeaderForGuild(effectiveGuildId, channelId);
         const fallbackAuthHeader = this.getDiscordAuthorizationHeader();
         const url = `https://discord.com/api/v9/channels/${channelId}/messages`;

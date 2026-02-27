@@ -282,6 +282,12 @@ function getBuiltInNeuroReply(question) {
         return defaultBinds?.['отклонили']?.message || '';
     }
 
+    // Ban/appeal topics should not depend on AI quota.
+    const asksBanAppeal = /(забан|бан|блок|апелляц|разбан)/i.test(String(question || ''));
+    if (asksBanAppeal) {
+        return defaultBinds?.['апелляция']?.message || '';
+    }
+
     const ruleId = extractRuleIdFromQuestion(question);
     if (ruleId && _ruleById.has(ruleId)) {
         return _ruleById.get(ruleId) || '';

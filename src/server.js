@@ -21,6 +21,7 @@ const BotManager = require('./BotManager');
 const { createAuthRoutes, authenticateToken, JWT_SECRET, sendTelegramMessage } = require('./api/auth');
 const { createProfileRoutes } = require('./api/profile');
 const { createAdminRoutes } = require('./api/admin');
+const { invalidateSystemPromptCache } = require('./bot/gateway');
 
 // Prefer Railway persistent volume (/data), then env var, then local ./data
 const DATA_DIR = process.env.DATA_DIR || (require('fs').existsSync('/data') ? '/data' : path.join(__dirname, '..', 'data'));
@@ -30,6 +31,7 @@ const LOG = '[Server]';
 const APP_BUILD = String(process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_DEPLOYMENT_ID || process.env.SOURCE_COMMIT || 'local');
 const INDEX_NO_CACHE = 'no-store, no-cache, must-revalidate';
 const AUTH_ME_NO_CACHE = 'no-store';
+const SYSTEM_PROMPT_FILE = path.join(__dirname, '..', 'neuro_style_prompt.txt');
 
 async function main() {
     console.log(`${LOG} ═══════════════════════════════════════`);
@@ -51,7 +53,7 @@ async function main() {
     });
 
     app.use(cors());
-    app.use(express.json());
+    app.use(express.json({ limit: '2mb' }));
     app.use((req, res, next) => {
         res.setHeader('X-App-Build', APP_BUILD);
         next();
@@ -340,6 +342,43 @@ async function main() {
         bot.updateSettings(req.body);
         bot.saveConfigToDb();
         res.json({ ok: true });
+    });
+
+    // ── Prompt Editor ────────────────────────────────────
+    app.get('/api/prompt', authenticateToken, (_req, res) => {
+        try {
+            if (!fs.existsSync(SYSTEM_PROMPT_FILE)) {
+                return res.status(404).json({ error: 'Prompt file not found' });
+            }
+            const prompt = fs.readFileSync(SYSTEM_PROMPT_FILE, 'utf8');
+            const stat = fs.statSync(SYSTEM_PROMPT_FILE);
+            res.json({
+                prompt,
+                bytes: Buffer.byteLength(prompt, 'utf8'),
+                updatedAt: stat.mtime.toISOString(),
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.post('/api/prompt', authenticateToken, (req, res) => {
+        try {
+            const prompt = String(req.body?.prompt ?? '');
+            if (Buffer.byteLength(prompt, 'utf8') > 1024 * 1024) {
+                return res.status(400).json({ error: 'Prompt too large (max 1MB)' });
+            }
+            fs.writeFileSync(SYSTEM_PROMPT_FILE, prompt, 'utf8');
+            invalidateSystemPromptCache();
+            const stat = fs.statSync(SYSTEM_PROMPT_FILE);
+            res.json({
+                ok: true,
+                bytes: Buffer.byteLength(prompt, 'utf8'),
+                updatedAt: stat.mtime.toISOString(),
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
     });
 
     // ── Auto-Replies ─────────────────────────────────────

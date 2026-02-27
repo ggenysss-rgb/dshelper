@@ -23,16 +23,24 @@ const _profanityCooldown = new Map();
 // Cache for loaded system prompt
 let _cachedSystemPrompt = null;
 let _promptLoadedAt = 0;
+let _cachedPromptMtimeMs = 0;
 // Resolve persistent data dir (Railway volume or local)
 const _dataDir = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : path.join(__dirname, '..', '..', 'data'));
+const _systemPromptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
 
 function loadSystemPrompt() {
-    // Reload prompt every 5 minutes to pick up changes
-    if (_cachedSystemPrompt && Date.now() - _promptLoadedAt < 300000) return _cachedSystemPrompt;
+    // Reload prompt when file changed or every 5 minutes as safety fallback.
+    const now = Date.now();
+    let promptMtimeMs = 0;
+    try {
+        promptMtimeMs = fs.statSync(_systemPromptPath).mtimeMs || 0;
+    } catch (_) { }
+    const isFreshCache = _cachedSystemPrompt && (now - _promptLoadedAt < 300000);
+    const isSameFileVersion = promptMtimeMs > 0 && promptMtimeMs === _cachedPromptMtimeMs;
+    if (isFreshCache && isSameFileVersion) return _cachedSystemPrompt;
     try {
         // Base prompt from repo
-        const promptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
-        let prompt = fs.readFileSync(promptPath, 'utf8');
+        let prompt = fs.readFileSync(_systemPromptPath, 'utf8');
 
         // Large knowledge is injected via retrieval (RAG) at request-time, not appended entirely.
         const knowledgePath = path.join(_dataDir, 'learned_knowledge.json');
@@ -68,12 +76,20 @@ function loadSystemPrompt() {
         }
 
         _cachedSystemPrompt = prompt;
-        _promptLoadedAt = Date.now();
+        _promptLoadedAt = now;
+        _cachedPromptMtimeMs = promptMtimeMs || _cachedPromptMtimeMs;
     } catch (e) {
         console.log(`[Neuro] Failed to load prompt: ${e.message}`);
         _cachedSystemPrompt = '';
+        _cachedPromptMtimeMs = 0;
     }
     return _cachedSystemPrompt;
+}
+
+function invalidateSystemPromptCache() {
+    _cachedSystemPrompt = null;
+    _promptLoadedAt = 0;
+    _cachedPromptMtimeMs = 0;
 }
 
 // Save a learning entry to learned_knowledge.json
@@ -2160,4 +2176,4 @@ function startAutoReplyPolling(bot) {
     }, 5000);
 }
 
-module.exports = { connectGateway, cleanupGateway };
+module.exports = { connectGateway, cleanupGateway, loadSystemPrompt, invalidateSystemPromptCache };

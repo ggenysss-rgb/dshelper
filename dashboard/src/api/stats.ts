@@ -108,3 +108,20 @@ export const fetchConversationLog = async (limit = 100, type = 'all') => {
     const { data } = await client.get(`/conversation-log?limit=${limit}&type=${type}`);
     return data;
 };
+
+// ── Prompt Editor ─────────────────────────────────────────────
+export interface PromptPayload {
+    prompt: string;
+    bytes: number;
+    updatedAt: string;
+}
+
+export const fetchPrompt = async () => {
+    const { data } = await client.get<PromptPayload>('/prompt');
+    return data;
+};
+
+export const updatePrompt = async (prompt: string) => {
+    const { data } = await client.post<PromptPayload & { ok: boolean }>('/prompt', { prompt });
+    return data;
+};

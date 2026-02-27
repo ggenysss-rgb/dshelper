@@ -345,6 +345,13 @@ function buildRankedSidebarChannels(bot, guildId, ticketsCategoryId) {
         .sort((a, b) => b.score - a.score);
 }
 
+function isOp14Enabled(bot) {
+    // OP14 is stable in bot-token mode. For selfbot keep it off by default:
+    // Discord often closes selfbot sessions with 4002/4003 after OP14 payloads.
+    if (bot?.config?.discordBotToken) return true;
+    return process.env.ENABLE_SELFBOT_OP14 === '1';
+}
+
 function scheduleMembersSidebarSweep(
     bot,
     guildId,
@@ -356,6 +363,7 @@ function scheduleMembersSidebarSweep(
         channelsPerRequest = 2,
     } = {}
 ) {
+    if (!isOp14Enabled(bot)) return;
     for (let pass = 0; pass < passes; pass++) {
         setTimeout(() => {
             requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, pass * channelsPerRequest, channelsPerRequest);
@@ -455,7 +463,7 @@ async function hydrateMembersFromRest(bot, guildId, token, {
     bot.log(`👥 Members hydrated: total=${seen.size}, rest=${restLoaded}, search=${searchLoaded}, search_ok=${okSearchResponses}`);
 
     // If still tiny set, do a broader sidebar sweep across more channels.
-    if (!isBotToken && seen.size < 120) {
+    if (!isBotToken && seen.size < 120 && isOp14Enabled(bot)) {
         scheduleMembersSidebarSweep(bot, guildId, ticketsCategoryId, {
             startDelayMs: 1500,
             stepDelayMs: 850,
@@ -1235,10 +1243,14 @@ async function fetchAndScanChannels(bot) {
         bot.guildCreateHandled = true;
         scanChannelsList(bot, channels, guildId, '', prefixes, categoryId);
         bot.restoreActivityTimers();
-        // Subscribe to ALL ticket channels via op14
-        subscribeToTicketChannels(bot);
-        // For selfbot flow: explicitly request member sidebar data for dashboard members list
-        if (!cfg.discordBotToken) {
+        // Subscribe to ticket channels via OP14 only when enabled for this auth mode.
+        if (isOp14Enabled(bot)) {
+            subscribeToTicketChannels(bot);
+        } else {
+            bot.log('ℹ️ OP14 disabled for selfbot (stable mode).');
+        }
+        // For selfbot flow: optionally request member sidebar data for dashboard members list
+        if (!cfg.discordBotToken && isOp14Enabled(bot)) {
             scheduleMembersSidebarSweep(bot, guildId, categoryId, {
                 startDelayMs: 1200,
                 stepDelayMs: 950,
@@ -1299,6 +1311,7 @@ async function fetchAndScanChannels(bot) {
 // ── Op14 Lazy Request: subscribe to ticket channels ──────────
 
 function sendLazyRequest(bot, guildId, channelIds) {
+    if (!isOp14Enabled(bot)) return;
     if (!bot.ws || bot.ws.readyState !== 1) return; // OPEN = 1
     if (!channelIds || channelIds.length === 0) return;
     const channels = {};
@@ -1313,6 +1326,7 @@ function sendLazyRequest(bot, guildId, channelIds) {
 }
 
 function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, channelOffset = 0, channelsPerRequest = 1) {
+    if (!isOp14Enabled(bot)) return false;
     if (!bot.ws || bot.ws.readyState !== 1) return false;
     if (!guildId) return false;
 
@@ -1362,6 +1376,7 @@ function requestDashboardMembersSidebar(bot, guildId, ticketsCategoryId, channel
 }
 
 function subscribeToTicketChannels(bot) {
+    if (!isOp14Enabled(bot)) return;
     const guildId = bot.config.guildId;
     if (!guildId) return;
     const ids = [...bot.activeTickets.keys()];

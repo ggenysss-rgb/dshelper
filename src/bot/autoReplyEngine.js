@@ -1,7 +1,10 @@
 const { analyzeAutoReplyRule } = require('./helpers');
+const defaultBinds = require('./defaultBinds');
 
 const APPEAL_RESPONSE = 'Если Вы считаете блокировку ошибочной, подайте апелляцию:\nhttps://forum.funtime.su/index.php?forums/appeals/\n\nПеред подачей обязательно ознакомьтесь с FAQ:\nhttps://forum.funtime.su/faq_appeals';
 const SUPPORT_RESPONSE = 'Обратитесь в поддержку: https://vk.com/funtime';
+const APPEAL_REJECTED_RESPONSE = defaultBinds?.['отклонили']?.message
+    || '*Если отклонили апелляцию* — повторные апелляции рассматриваться не будут. Решение окончательное.\n\n• Если бан *не навсегда* — разбан можно купить на сайте.\n\n• Если бан *навсегда* и он *не* по пунктам **4.2**, **4.3.1 (AutoBuy)**, **9.1**, **3.1**, **1.3** — можно обратиться в поддержку для покупки разбана за **5000₽**:\nhttps://vk.com/funtime';
 
 function hasHelpQuestionIntent(text) {
     const t = String(text || '');
@@ -58,6 +61,32 @@ function analyzeModerationCheck(content) {
     };
 }
 
+function analyzeAppealRejectedIntent(content) {
+    const text = String(content || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!text) return { matched: false, reason: 'empty', keywords: [], confidence: 0 };
+
+    const hasAppealContext = /(апелляц|appeal|форум|faq_appeals)/.test(text);
+    const hasRejectSignal = /(отклонил|отклонена|отклонено|отказали|отказано|бан выдали правильно|выдали правильно|решение окончательное)/.test(text);
+    const hasBanContext = /(бан|забан|блок|блокировк)/.test(text);
+
+    if (!(hasRejectSignal && (hasAppealContext || hasBanContext))) {
+        return { matched: false, reason: 'no_rejected_intent', keywords: [], confidence: 0 };
+    }
+
+    const keywords = [];
+    if (hasAppealContext) keywords.push('апелляция/форум');
+    if (hasRejectSignal) keywords.push('отклонено/отказ');
+    if (hasBanContext) keywords.push('бан/блокировка');
+
+    return {
+        matched: true,
+        reason: 'appeal_rejected_intent',
+        keywords,
+        confidence: 0.95,
+        response: APPEAL_REJECTED_RESPONSE,
+    };
+}
+
 function getBanAppealOverrideResponse(rule, content) {
     const ruleName = String(rule?.name || '').toLowerCase();
     if (!ruleName.includes('ошибоч') || !ruleName.includes('бан')) return null;
@@ -68,6 +97,10 @@ function getBanAppealOverrideResponse(rule, content) {
     const hasUnban = /(разбан|розбан)/.test(text);
     const hasPurchase = /(куп|покуп|оплат|донат|стоим|цена|4[.,]13|5000|5к)/.test(text);
     if (hasUnban && hasPurchase) return SUPPORT_RESPONSE;
+
+    const rejectedIntent = analyzeAppealRejectedIntent(text);
+    if (rejectedIntent.matched) return APPEAL_REJECTED_RESPONSE;
+
     return null;
 }
 
@@ -89,6 +122,21 @@ function shouldSkipBanAppealAutoReply(rule, content) {
 }
 
 function evaluateAutoReplyDecision({ rules = [], content = '', channelId = '', guildId = '', source = 'gateway' }) {
+    const rejectedIntent = analyzeAppealRejectedIntent(content);
+    if (rejectedIntent.matched) {
+        return {
+            action: 'send',
+            source,
+            ruleId: 'appeal_rejected_intent',
+            ruleName: 'апелляцию отклонили',
+            response: rejectedIntent.response,
+            reason: rejectedIntent.reason,
+            keywords: rejectedIntent.keywords,
+            confidence: rejectedIntent.confidence,
+            checkedRules: 0,
+        };
+    }
+
     const moderation = analyzeModerationCheck(content);
     if (moderation.matched) {
         return {
@@ -158,7 +206,9 @@ function evaluateAutoReplyDecision({ rules = [], content = '', channelId = '', g
 
 module.exports = {
     APPEAL_RESPONSE,
+    APPEAL_REJECTED_RESPONSE,
     SUPPORT_RESPONSE,
+    analyzeAppealRejectedIntent,
     analyzeModerationCheck,
     getBanAppealOverrideResponse,
     shouldSkipBanAppealAutoReply,

@@ -201,6 +201,12 @@ async function handleCallbackQuery(bot, cbq) {
     const cbqId = cbq.id;
     bot.log(`🖱️ TG callback ${data} from ${chatId}`, 'command');
 
+    // Route admin approval callbacks through the bot's polling when tokens are shared
+    if (bot._adminCallbackHandler && (data.startsWith('approve_user:') || data.startsWith('reject_user:'))) {
+        try { await bot._adminCallbackHandler(cbq); } catch (e) { bot.log(`Admin callback error: ${e.message}`); }
+        return;
+    }
+
     if (data.startsWith('tsel_')) {
         const channelId = data.slice(5);
         const record = bot.activeTickets.get(channelId);

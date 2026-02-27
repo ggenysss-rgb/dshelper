@@ -512,62 +512,87 @@ async function main() {
     await botManager.startAll();
 
     // 6. Telegram callback polling for approve/reject buttons
+    //    IMPORTANT: Only run separate admin polling if the admin token is NOT
+    //    already used by any running bot instance. If the same token is shared,
+    //    two competing getUpdates consumers will conflict and steal each other's
+    //    updates, breaking all bot commands.
     if (ADMIN_TG_TOKEN) {
-        let tgOffset = 0;
-        const pollTelegram = async () => {
+        // Build the admin callback handler (shared between standalone polling and bot hook)
+        const handleAdminCallback = async (cq) => {
+            const [action, userIdStr] = (cq.data || '').split(':');
+            if (action !== 'approve_user' && action !== 'reject_user') return false;
+            const targetUserId = parseInt(userIdStr);
+            if (!targetUserId) return false;
             try {
-                const url = `https://api.telegram.org/bot${ADMIN_TG_TOKEN}/getUpdates?offset=${tgOffset}&timeout=30&allowed_updates=["callback_query"]`;
-                const resp = await fetch(url);
-                const data = await resp.json();
-                if (!data.ok) return;
-                for (const update of (data.result || [])) {
-                    tgOffset = update.update_id + 1;
-                    const cq = update.callback_query;
-                    if (!cq) continue;
-                    const [action, userIdStr] = (cq.data || '').split(':');
-                    const userId = parseInt(userIdStr);
-                    if (!userId) continue;
-                    try {
-                        const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(userId);
-                        if (!user) {
-                            await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `⚠️ Пользователь #${userId} не найден.`);
-                            continue;
-                        }
-                        if (action === 'approve_user') {
-                            if (user.role !== 'pending') {
-                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `ℹ️ Пользователь <b>${user.username}</b> уже обработан (роль: ${user.role}).`);
-                            } else {
-                                db.prepare("UPDATE users SET role = 'user' WHERE id = ?").run(userId);
-                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `✅ Пользователь <b>${user.username}</b> одобрен и может войти в систему.`);
-                                console.log(`[TG Approval] Approved user ${user.username} (id=${userId})`);
-                            }
-                        } else if (action === 'reject_user') {
-                            if (user.role !== 'pending') {
-                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `ℹ️ Пользователь <b>${user.username}</b> уже обработан (роль: ${user.role}).`);
-                            } else {
-                                db.prepare('DELETE FROM users WHERE id = ?').run(userId);
-                                await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `❌ Регистрация пользователя <b>${user.username}</b> отклонена и аккаунт удалён.`);
-                                console.log(`[TG Approval] Rejected user ${user.username} (id=${userId})`);
-                            }
-                        }
-                        // Acknowledge callback
-                        fetch(`https://api.telegram.org/bot${ADMIN_TG_TOKEN}/answerCallbackQuery?callback_query_id=${cq.id}`).catch(() => { });
-                    } catch (err) {
-                        console.error('[TG Approval] Error processing callback:', err.message);
+                const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(targetUserId);
+                if (!user) {
+                    await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `⚠️ Пользователь #${targetUserId} не найден.`);
+                    return true;
+                }
+                if (action === 'approve_user') {
+                    if (user.role !== 'pending') {
+                        await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `ℹ️ Пользователь <b>${user.username}</b> уже обработан (роль: ${user.role}).`);
+                    } else {
+                        db.prepare("UPDATE users SET role = 'user' WHERE id = ?").run(targetUserId);
+                        await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `✅ Пользователь <b>${user.username}</b> одобрен и может войти в систему.`);
+                        console.log(`[TG Approval] Approved user ${user.username} (id=${targetUserId})`);
+                    }
+                } else if (action === 'reject_user') {
+                    if (user.role !== 'pending') {
+                        await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `ℹ️ Пользователь <b>${user.username}</b> уже обработан (роль: ${user.role}).`);
+                    } else {
+                        db.prepare('DELETE FROM users WHERE id = ?').run(targetUserId);
+                        await sendTelegramMessage(ADMIN_TG_TOKEN, cq.from.id, `❌ Регистрация пользователя <b>${user.username}</b> отклонена и аккаунт удалён.`);
+                        console.log(`[TG Approval] Rejected user ${user.username} (id=${targetUserId})`);
                     }
                 }
+                fetch(`https://api.telegram.org/bot${ADMIN_TG_TOKEN}/answerCallbackQuery?callback_query_id=${cq.id}`).catch(() => { });
             } catch (err) {
-                if (!err.message?.includes('aborted')) {
-                    console.error('[TG Approval] Poll error:', err.message);
-                }
-            } finally {
-                setTimeout(pollTelegram, 1000);
+                console.error('[TG Approval] Error processing callback:', err.message);
             }
+            return true;
         };
-        pollTelegram();
-        console.log(`${LOG} ✅ Telegram approval polling started.`);
-    }
 
+        // Check if any running bot uses the same TG token as admin
+        let adminTokenShared = false;
+        for (const [, bot] of botManager.bots) {
+            if (bot.config.tgToken === ADMIN_TG_TOKEN) {
+                // Register the admin callback handler on this bot so it processes
+                // admin approval callbacks within its own polling loop
+                bot._adminCallbackHandler = handleAdminCallback;
+                adminTokenShared = true;
+                console.log(`${LOG} ✅ Admin approval callbacks routed through bot polling (shared token).`);
+                break;
+            }
+        }
+
+        if (!adminTokenShared) {
+            // Admin uses a separate token — safe to poll independently
+            let tgOffset = 0;
+            const pollTelegram = async () => {
+                try {
+                    const url = `https://api.telegram.org/bot${ADMIN_TG_TOKEN}/getUpdates?offset=${tgOffset}&timeout=30&allowed_updates=["callback_query"]`;
+                    const resp = await fetch(url);
+                    const data = await resp.json();
+                    if (!data.ok) return;
+                    for (const update of (data.result || [])) {
+                        tgOffset = update.update_id + 1;
+                        const cq = update.callback_query;
+                        if (!cq) continue;
+                        await handleAdminCallback(cq);
+                    }
+                } catch (err) {
+                    if (!err.message?.includes('aborted')) {
+                        console.error('[TG Approval] Poll error:', err.message);
+                    }
+                } finally {
+                    setTimeout(pollTelegram, 1000);
+                }
+            };
+            pollTelegram();
+            console.log(`${LOG} ✅ Telegram approval polling started (separate token).`);
+        }
+    }
     // 6. Graceful shutdown
     const shutdown = () => {
         console.log(`${LOG} 🛑 Shutting down...`);

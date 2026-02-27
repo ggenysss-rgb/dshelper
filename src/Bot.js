@@ -54,6 +54,8 @@ class Bot {
         this.sessionId = null;
         this.resumeUrl = null;
         this.seq = null;
+        this._gatewayAuthMode = this.config.discordBotToken ? 'bot' : 'user';
+        this._gatewayAltModeTried = false;
         this.heartbeatTimer = null;
         this.receivedAck = true;
         this.guildCreateHandled = false;
@@ -103,12 +105,27 @@ class Bot {
         this.stmtInsertMessage = null;
     }
 
+    getDiscordGatewayToken() {
+        return this.config.discordBotToken || this.config.discordToken || '';
+    }
+
+    isDiscordBotAuthMode() {
+        if (this.config.discordBotToken) return true;
+        return this._gatewayAuthMode === 'bot';
+    }
+
+    getDiscordAuthorizationHeader() {
+        const token = this.getDiscordGatewayToken();
+        if (!token) return '';
+        return this.isDiscordBotAuthMode() ? `Bot ${token}` : token;
+    }
+
     // ═══════════════════════════════════════════════════════
     //  LIFECYCLE
     // ═══════════════════════════════════════════════════════
 
     async start() {
-        const token = this.config.discordBotToken || this.config.discordToken;
+        const token = this.getDiscordGatewayToken();
         if (!token) { this.log('❌ No Discord token configured'); return; }
         if (!this.config.tgToken) { this.log('❌ No Telegram token configured'); return; }
 
@@ -277,7 +294,13 @@ class Bot {
     }
 
     updateConfig(newConfig) {
+        const prevToken = this.getDiscordGatewayToken();
         Object.assign(this.config, newConfig);
+        const nextToken = this.getDiscordGatewayToken();
+        if (prevToken !== nextToken) {
+            this._gatewayAltModeTried = false;
+            this._gatewayAuthMode = this.config.discordBotToken ? 'bot' : 'user';
+        }
     }
 
     // ═══════════════════════════════════════════════════════
@@ -431,14 +454,14 @@ class Bot {
     // ═══════════════════════════════════════════════════════
 
     async sendDiscordMessage(channelId, content, replyToMessageId) {
-        const token = this.config.discordBotToken || this.config.discordToken;
+        const authHeader = this.getDiscordAuthorizationHeader();
         const url = `https://discord.com/api/v9/channels/${channelId}/messages`;
         const payload = { content };
         if (replyToMessageId) payload.message_reference = { message_id: replyToMessageId };
         const body = JSON.stringify(payload);
         return new Promise((resolve, reject) => {
             const u = new URL(url);
-            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: token, 'User-Agent': 'Mozilla/5.0' } }, res => {
+            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: authHeader, 'User-Agent': 'Mozilla/5.0' } }, res => {
                 let chunks = ''; res.on('data', c => chunks += c);
                 res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
             });
@@ -447,12 +470,12 @@ class Bot {
     }
 
     async editDiscordMessage(channelId, messageId, content) {
-        const token = this.config.discordBotToken || this.config.discordToken;
+        const authHeader = this.getDiscordAuthorizationHeader();
         const url = `https://discord.com/api/v9/channels/${channelId}/messages/${messageId}`;
         const body = JSON.stringify({ content });
         return new Promise((resolve, reject) => {
             const u = new URL(url);
-            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: token, 'User-Agent': 'Mozilla/5.0' } }, res => {
+            const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: authHeader, 'User-Agent': 'Mozilla/5.0' } }, res => {
                 let chunks = ''; res.on('data', c => chunks += c);
                 res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
             });
@@ -461,9 +484,9 @@ class Bot {
     }
 
     async fetchChannelMessages(channelId, limit = 100) {
-        const token = this.config.discordBotToken || this.config.discordToken;
+        const authHeader = this.getDiscordAuthorizationHeader();
         try {
-            const res = await this.httpGet(`https://discord.com/api/v9/channels/${channelId}/messages?limit=${limit}`, { Authorization: token });
+            const res = await this.httpGet(`https://discord.com/api/v9/channels/${channelId}/messages?limit=${limit}`, { Authorization: authHeader });
             return res.ok ? JSON.parse(res.body) : [];
         } catch { return []; }
     }

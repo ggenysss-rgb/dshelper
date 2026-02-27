@@ -495,12 +495,32 @@ function scheduleMembersUpdate(bot) {
     bot._membersEmitTimer = setTimeout(emit, wait);
 }
 
+function resolveGatewayAuthMode(bot) {
+    if (bot.config.discordBotToken) return 'bot';
+    if (bot._gatewayAuthMode === 'bot' || bot._gatewayAuthMode === 'user') return bot._gatewayAuthMode;
+    bot._gatewayAuthMode = 'user';
+    return bot._gatewayAuthMode;
+}
+
+function getRestAuthHeader(bot) {
+    if (typeof bot.getDiscordAuthorizationHeader === 'function') {
+        return bot.getDiscordAuthorizationHeader();
+    }
+    const raw = bot.config.discordBotToken || bot.config.discordToken || '';
+    if (!raw) return '';
+    const mode = resolveGatewayAuthMode(bot);
+    return mode === 'bot' ? `Bot ${raw}` : raw;
+}
+
 
 function connectGateway(bot) {
     if (bot.destroyed) return;
-    const token = bot.config.discordBotToken || bot.config.discordToken;
+    const token = (typeof bot.getDiscordGatewayToken === 'function')
+        ? bot.getDiscordGatewayToken()
+        : (bot.config.discordBotToken || bot.config.discordToken || '');
     if (!token) { bot.log('❌ No Discord token'); return; }
-    const isBotToken = !!bot.config.discordBotToken;
+    const authMode = resolveGatewayAuthMode(bot);
+    const isBotToken = authMode === 'bot';
 
     // Initialize conversation logger
     if (!bot._convLogger) {
@@ -508,7 +528,7 @@ function connectGateway(bot) {
         bot.log(`📝 Conversation logger initialized (${bot._convLogger.getStats().total} entries)`);
     }
 
-    bot.log(`🔌 Connecting to Discord Gateway...`);
+    bot.log(`🔌 Connecting to Discord Gateway... (auth:${authMode})`);
     // Diagnostic: log auto-reply confi
     const arRules = bot.config.autoReplies || [];
     bot.log(`🤖 Auto-reply config: ${arRules.length} rules — ${arRules.map(r => `"${r.name}"(guild:${r.guildId || 'any'},ch:${r.channelId || 'any'})`).join(', ') || 'NONE'}`);
@@ -522,6 +542,24 @@ function connectGateway(bot) {
     ws.on('close', (code) => {
         cleanupGateway(bot);
         if (bot.destroyed) return;
+        if (code === 4004) {
+            // Auto-fallback: DISCORD_TOKEN may contain a bot token by mistake.
+            const canTryAlternateMode = !bot.config.discordBotToken && !!bot.config.discordToken;
+            if (canTryAlternateMode && authMode === 'user' && !bot._gatewayAltModeTried) {
+                bot._gatewayAuthMode = 'bot';
+                bot._gatewayAltModeTried = true;
+                bot.log('⚠️ Gateway 4004 in user mode; retrying DISCORD_TOKEN as bot mode...');
+                setTimeout(() => connectGateway(bot), 1000);
+                return;
+            }
+            if (canTryAlternateMode && authMode === 'bot' && bot._gatewayAltModeTried) {
+                bot.log('❌ Gateway 4004 in both user+bot modes. DISCORD_TOKEN is invalid/revoked.');
+            } else if (bot.config.discordBotToken) {
+                bot.log('❌ Gateway 4004 for DISCORD_BOT_TOKEN. Token invalid/revoked.');
+            } else {
+                bot.log('❌ Gateway 4004 for DISCORD_TOKEN. Token invalid/revoked.');
+            }
+        }
         const canResume = RESUMABLE_CODES.includes(code);
         const delay = canResume ? 2000 : 5000;
         bot.log(`🔌 Gateway closed (${code}), reconnecting in ${delay / 1000}s...`);
@@ -611,6 +649,8 @@ function handleDispatch(bot, event, d) {
             bot.sessionId = d.session_id;
             bot.resumeUrl = d.resume_gateway_url;
             if (d.user?.id) bot.selfUserId = d.user.id;
+            if (bot.config.discordBotToken) bot._gatewayAuthMode = 'bot';
+            else if (bot._gatewayAuthMode !== 'bot') bot._gatewayAuthMode = 'user';
             bot.log(`✅ Gateway READY (session: ${d.session_id}, user: ${d.user?.username || '?'} / ${d.user?.id || '?'})`);
             // For selfbot: GUILD_CREATE might not include channels.
             // Use REST API to fetch channels after a small delay
@@ -1178,13 +1218,13 @@ async function fetchAndScanChannels(bot) {
     const guildId = cfg.guildId;
     const prefixes = getTicketPrefixes(cfg.ticketPrefix);
     const categoryId = cfg.ticketsCategoryId;
-    const token = cfg.discordBotToken || cfg.discordToken;
+    const authHeader = getRestAuthHeader(bot);
 
     if (!guildId) { bot.log('⚠️ No guildId configured, cannot fetch channels'); return; }
 
     bot.log(`🌐 Fetching channels via REST API for guild ${guildId}...`);
     try {
-        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/channels`, { Authorization: token });
+        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/channels`, { Authorization: authHeader });
         if (!res.ok) {
             bot.log(`❌ REST /channels error: ${res.status} — ${res.body?.slice(0, 200)}`);
             return;
@@ -1213,7 +1253,7 @@ async function fetchAndScanChannels(bot) {
                 try {
                     const msgRes = await bot.httpGet(
                         `https://discord.com/api/v9/channels/${channelId}/messages?limit=1`,
-                        { Authorization: token }
+                        { Authorization: authHeader }
                     );
                     if (msgRes.ok) {
                         const msgs = JSON.parse(msgRes.body);
@@ -1236,14 +1276,14 @@ async function fetchAndScanChannels(bot) {
     }
 
     // Fetch members in background so UI doesn't block on cold start.
-    hydrateMembersFromRest(bot, guildId, token, {
+    hydrateMembersFromRest(bot, guildId, authHeader, {
         isBotToken: !!cfg.discordBotToken,
         ticketsCategoryId: categoryId,
     }).catch((e) => bot.log(`❌ Members fetch error: ${e.message}`));
 
     // Fetch guild roles
     try {
-        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/roles`, { Authorization: token });
+        const res = await bot.httpGet(`https://discord.com/api/v9/guilds/${guildId}/roles`, { Authorization: authHeader });
         if (res.ok) {
             const roles = JSON.parse(res.body);
             for (const r of roles) bot.guildRolesCache.set(r.id, r);
@@ -1341,7 +1381,7 @@ function startAutoReplyPolling(bot) {
     const cfg = bot.config;
     if (!cfg.autoReplies?.length) return;
 
-    const token = cfg.discordBotToken || cfg.discordToken;
+    const authHeader = getRestAuthHeader(bot);
     const guildId = cfg.guildId;
     // Track last seen message ID per channel
     if (!bot._arLastMsgId) bot._arLastMsgId = {};
@@ -1383,7 +1423,7 @@ function startAutoReplyPolling(bot) {
             try {
                 const res = await bot.httpGet(
                     `https://discord.com/api/v9/channels/${channelId}/messages?limit=5`,
-                    { Authorization: token }
+                    { Authorization: authHeader }
                 );
                 if (!res.ok) continue;
                 const msgs = JSON.parse(res.body);

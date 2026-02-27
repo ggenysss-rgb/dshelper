@@ -205,6 +205,64 @@ function shouldSkipNeuroQuestion(question) {
     return false;
 }
 
+const PURE_GREETING_PHRASES = new Set([
+    'привет',
+    'приветствую',
+    'здравствуй',
+    'здравствуйте',
+    'хай',
+    'салам',
+    'ку',
+    'здорово',
+    'здарова',
+    'добрый день',
+    'добрый вечер',
+    'доброго дня',
+    'доброго вечера',
+]);
+
+const PURE_GREETING_TOKENS = new Set([
+    'привет',
+    'приветствую',
+    'здравствуй',
+    'здравствуйте',
+    'хай',
+    'салам',
+    'ку',
+    'здорово',
+    'здарова',
+    'добрый',
+    'доброго',
+    'день',
+    'вечер',
+]);
+
+function isPureGreetingQuestion(question) {
+    const raw = String(question || '').trim();
+    const normalized = normalizeNeuroInput(raw);
+    if (!normalized) return false;
+
+    if (PURE_GREETING_PHRASES.has(normalized)) return true;
+
+    const tokens = normalized.split(' ').filter(Boolean);
+    if (tokens.length === 0) return false;
+
+    // Do not classify as greeting if message clearly asks about something.
+    if (/\d/.test(raw)) return false;
+    if (/(почему|зачем|когда|где|как|что|кто|сколько|можно|нельзя|правил|бан|взлом|сайт|вайп|мод|сервер|ошибк|апелляц|разбан)/i.test(normalized)) {
+        return false;
+    }
+    if (raw.includes('?') && tokens.length > 2) return false;
+
+    // Allow short greeting combinations like "привет бро", "добрый день".
+    if (tokens.length <= 3) {
+        const unknown = tokens.filter(t => !PURE_GREETING_TOKENS.has(t));
+        return unknown.length <= 1;
+    }
+
+    return false;
+}
+
 function splitDiscordMessage(text, maxLen = 1850) {
     const cleaned = String(text || '').replace(/\r\n/g, '\n').trim();
     if (!cleaned) return [];
@@ -267,8 +325,7 @@ function getBuiltInNeuroReply(question) {
     const normalized = normalizeNeuroInput(question);
     if (!normalized) return '';
 
-    const greeting = /(привет|здравствуй|здравствуйте|хай|ку|добрый день|добрый вечер|салам)/i.test(String(question || ''));
-    if (greeting) {
+    if (isPureGreetingQuestion(question)) {
         return '**Здравствуйте!** Чем можем Вам помочь?';
     }
 
@@ -392,13 +449,22 @@ function enforceNeuroAnswerQuality({ question = '', answerText = '', cfg = {}, c
         }
     }
 
-    const greeting = /(привет|здравствуй|здравствуйте|хай|ку|добрый день|добрый вечер|салам)/i.test(qRaw);
+    const greeting = isPureGreetingQuestion(question);
     const greetingJunk = /let'?s use|in the rag|assistant:|system:|["'`]{2,}|^\W{1,3}$|^\s*ю["'`]/i.test(text);
     if (greeting && greetingJunk) {
         return {
             text: '**Здравствуйте!** Чем можем Вам помочь?',
             replaced: true,
             reason: 'greeting_junk_guard',
+        };
+    }
+
+    if (!greeting && greetingJunk) {
+        const direct = getDirectNeuroDecision({ question, cfg, channelId, guildId });
+        return {
+            text: direct?.response || 'Уточни вопрос, ответ выше вышел не по теме.',
+            replaced: true,
+            reason: 'junk_guard',
         };
     }
 

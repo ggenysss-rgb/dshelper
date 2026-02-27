@@ -1585,7 +1585,7 @@ function handleDispatch(bot, event, d) {
                                                 authorUsername: bot.user?.username || 'Neuro',
                                             });
                                         }
-                                        bot.log(`✅ Neuro direct response sent to #${d.channel_id}`);
+                                        bot.log(`✅ Neuro direct response sent to #${d.channel_id} (via:${sentRes.usedAuth || 'unknown'})`);
                                     } else {
                                         bot.log(`❌ Failed to send direct reply: ${sentRes.status} ${sentRes.body}`);
                                     }
@@ -1673,7 +1673,7 @@ function handleDispatch(bot, event, d) {
 
                                     const sentRes = await sendDiscordMessageSmart(bot, d.channel_id, answerText, d.id, d.guild_id);
                                     if (sentRes.ok) {
-                                        bot.log(`✅ Neuro response sent to #${d.channel_id}`);
+                                        bot.log(`✅ Neuro response sent to #${d.channel_id} (via:${sentRes.usedAuth || 'unknown'})`);
                                         rememberNeuroMessageId(bot, sentRes);
                                         enqueueNeuroTelegramNotification(bot, {
                                             channelId: d.channel_id,
@@ -2256,7 +2256,7 @@ function startAutoReplyPolling(bot) {
                                                     authorUsername: bot.user?.username || 'Neuro',
                                                 });
                                             }
-                                            bot.log(`✅ Poll: direct response sent to #${channelId}`);
+                                            bot.log(`✅ Poll: direct response sent to #${channelId} (via:${sentRes.usedAuth || 'unknown'})`);
                                         } else {
                                             bot.log(`❌ Poll: failed to send direct reply: ${sentRes.status}`);
                                         }
@@ -2333,7 +2333,7 @@ function startAutoReplyPolling(bot) {
 
                                             const sentRes = await sendDiscordMessageSmart(bot, channelId, answerText, msg.id, aiGuildId);
                                             if (sentRes.ok) {
-                                                bot.log(`✅ Poll: Neuro response sent to #${channelId}`);
+                                                bot.log(`✅ Poll: Neuro response sent to #${channelId} (via:${sentRes.usedAuth || 'unknown'})`);
                                                 rememberNeuroMessageId(bot, sentRes);
                                                 enqueueNeuroTelegramNotification(bot, {
                                                     channelId,

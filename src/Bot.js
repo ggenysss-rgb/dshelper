@@ -18,15 +18,39 @@ const { startPolling, stopPolling } = require('./bot/telegram');
 
 class Bot {
     constructor(userId, config, dataDir, io) {
+        const extractDiscordIds = (value) => {
+            const matches = String(value || '').match(/\d{16,22}/g);
+            return Array.isArray(matches) ? matches : [];
+        };
+
         const normalizeGuildList = (raw) => {
-            if (Array.isArray(raw)) return raw.map(v => String(v || '').trim()).filter(Boolean);
+            const uniq = new Set();
+            const pushIds = (value) => {
+                for (const id of extractDiscordIds(value)) uniq.add(String(id).trim());
+            };
+
+            if (Array.isArray(raw)) {
+                for (const item of raw) pushIds(item);
+                return [...uniq];
+            }
+
             const txt = String(raw || '').trim();
             if (!txt) return [];
+
             try {
                 const parsed = JSON.parse(txt);
-                if (Array.isArray(parsed)) return parsed.map(v => String(v || '').trim()).filter(Boolean);
+                if (Array.isArray(parsed)) {
+                    for (const item of parsed) pushIds(item);
+                    if (uniq.size > 0) return [...uniq];
+                }
             } catch { }
-            return txt.split(',').map(v => String(v || '').trim()).filter(Boolean);
+
+            pushIds(txt);
+            if (uniq.size > 0) return [...uniq];
+            return txt
+                .split(',')
+                .map(v => String(v || '').trim().replace(/^['"]+|['"]+$/g, ''))
+                .filter(Boolean);
         };
 
         this.userId = userId;

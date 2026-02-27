@@ -219,6 +219,22 @@ async function main() {
         res.json({ ...bot.getStats(), botActive: true });
     });
 
+    // ── AI Usage Stats ──────────────────────────────────
+    app.get('/api/ai-stats', authenticateToken, (req, res) => {
+        const bot = getBot(req, res);
+        if (!bot) return res.json({ totalRequests: 0, totalErrors: 0, totalTokens: 0, providers: {}, startedAt: null, lastRequestAt: null });
+        const { getAiUsageStats: getStats } = require('./bot/gateway');
+        res.json(getStats(bot));
+    });
+
+    app.post('/api/ai-stats/reset', authenticateToken, (req, res) => {
+        const bot = getBot(req, res);
+        if (!bot) return res.status(404).json({ error: 'Bot not running' });
+        const { resetAiUsageStats: resetStats } = require('./bot/gateway');
+        resetStats(bot);
+        res.json({ ok: true });
+    });
+
     // ── Logs ─────────────────────────────────────────────
     app.get('/api/logs', authenticateToken, (req, res) => {
         const bot = getBot(req, res);

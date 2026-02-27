@@ -749,7 +749,10 @@ async function requestOpenAiCompatibleAnswer(bot, provider, endpoint, apiKey, mo
 
         const data = parseProviderBody(res.body);
         const answerText = getOpenAiStyleAnswer(data);
-        if (res.ok && answerText) return { ok: true, answerText, model, provider, error: '' };
+        if (res.ok && answerText) {
+            const usage = data?.usage || {};
+            return { ok: true, answerText, model, provider, error: '', usage: { promptTokens: usage.prompt_tokens || 0, completionTokens: usage.completion_tokens || 0, totalTokens: usage.total_tokens || 0 } };
+        }
 
         const err = stringifyProviderError(res.status, data);
         lastError = err;
@@ -803,7 +806,10 @@ async function requestGeminiAnswer(bot, apiKey, models, messages, logPrefix = ''
 
             const data = parseProviderBody(res.body);
             const answerText = getGeminiAnswer(data);
-            if (res.ok && answerText) return { ok: true, answerText, model: `${model}@${version}`, provider: 'gemini', error: '' };
+            if (res.ok && answerText) {
+                const um = data?.usageMetadata || {};
+                return { ok: true, answerText, model: `${model}@${version}`, provider: 'gemini', error: '', usage: { promptTokens: um.promptTokenCount || 0, completionTokens: um.candidatesTokenCount || 0, totalTokens: um.totalTokenCount || 0 } };
+            }
 
             const err = stringifyProviderError(res.status, data);
             lastError = err;
@@ -816,6 +822,93 @@ async function requestGeminiAnswer(bot, apiKey, models, messages, logPrefix = ''
     }
 
     return { ok: false, answerText: '', model: '', provider: 'gemini', error: lastError };
+}
+
+// ── AI Usage Tracking ─────────────────────────────────────────
+const _aiUsage = new Map(); // botId -> { providers: { openrouter: { ... }, groq: { ... }, gemini: { ... } }, ... }
+
+function _getUsageEntry(bot) {
+    const id = bot.userId || 'default';
+    if (!_aiUsage.has(id)) {
+        const entry = _loadAiUsage(bot);
+        _aiUsage.set(id, entry);
+    }
+    return _aiUsage.get(id);
+}
+
+function _emptyProvider() {
+    return { requests: 0, errors: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, models: {} };
+}
+
+function _emptyUsage() {
+    return { providers: {}, totalRequests: 0, totalErrors: 0, totalTokens: 0, startedAt: new Date().toISOString(), lastRequestAt: null };
+}
+
+function _loadAiUsage(bot) {
+    try {
+        const file = path.join(bot.dataDir || _dataDir, 'ai_usage.json');
+        if (fs.existsSync(file)) {
+            const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+            return data || _emptyUsage();
+        }
+    } catch { }
+    return _emptyUsage();
+}
+
+function _saveAiUsage(bot, entry) {
+    try {
+        const file = path.join(bot.dataDir || _dataDir, 'ai_usage.json');
+        fs.writeFileSync(file, JSON.stringify(entry, null, 2), 'utf8');
+    } catch { }
+}
+
+function trackAiUsage(bot, result) {
+    const entry = _getUsageEntry(bot);
+    const prov = result.provider || 'unknown';
+    if (!entry.providers[prov]) entry.providers[prov] = _emptyProvider();
+    const p = entry.providers[prov];
+
+    const prompt = result.usage?.promptTokens || 0;
+    const completion = result.usage?.completionTokens || 0;
+    const total = result.usage?.totalTokens || (prompt + completion);
+
+    p.requests++;
+    p.promptTokens += prompt;
+    p.completionTokens += completion;
+    p.totalTokens += total;
+
+    // Per-model stats
+    const modelName = result.model || 'unknown';
+    if (!p.models[modelName]) p.models[modelName] = { requests: 0, tokens: 0 };
+    p.models[modelName].requests++;
+    p.models[modelName].tokens += total;
+
+    entry.totalRequests++;
+    entry.totalTokens += total;
+    entry.lastRequestAt = new Date().toISOString();
+
+    // Persist every 5 requests
+    if (entry.totalRequests % 5 === 0) _saveAiUsage(bot, entry);
+}
+
+function trackAiError(bot, provider) {
+    const entry = _getUsageEntry(bot);
+    if (!entry.providers[provider]) entry.providers[provider] = _emptyProvider();
+    entry.providers[provider].errors++;
+    entry.totalErrors++;
+}
+
+function getAiUsageStats(bot) {
+    const entry = _getUsageEntry(bot);
+    _saveAiUsage(bot, entry); // persist current state
+    return entry;
+}
+
+function resetAiUsageStats(bot) {
+    const entry = _emptyUsage();
+    _aiUsage.set(bot.userId || 'default', entry);
+    _saveAiUsage(bot, entry);
+    return entry;
 }
 
 async function requestAiAnswer(bot, cfg, messages, opts = {}) {
@@ -864,8 +957,14 @@ async function requestAiAnswer(bot, cfg, messages, opts = {}) {
             continue;
         }
 
-        if (result?.ok) return { ...result, keyIndex };
-        if (result?.error) lastError = `${cred.provider}: ${result.error}`;
+        if (result?.ok) {
+            trackAiUsage(bot, result);
+            return { ...result, keyIndex };
+        }
+        if (result?.error) {
+            trackAiError(bot, cred.provider);
+            lastError = `${cred.provider}: ${result.error}`;
+        }
     }
 
     return { ok: false, answerText: '', model: '', provider: '', error: lastError, keyIndex: -1 };
@@ -2484,4 +2583,4 @@ function startAutoReplyPolling(bot) {
     }, 5000);
 }
 
-module.exports = { connectGateway, cleanupGateway, loadSystemPrompt, invalidateSystemPromptCache };
+module.exports = { connectGateway, cleanupGateway, loadSystemPrompt, invalidateSystemPromptCache, getAiUsageStats, resetAiUsageStats };

@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 const { escapeHtml, truncate, formatDuration, getKyivDate, formatKyivDate, sleep } = require('./helpers');
 const { buildStartMessage, buildStatsMessage, buildListMessage, buildTicketListButtons, buildActiveTicketMessage } = require('./builders');
+const { getAiUsageStats, resetAiUsageStats } = require('./gateway');
 
 function startPolling(bot) {
     if (bot.pollingTimer) return;
@@ -132,6 +133,36 @@ async function handleMessage(bot, msg) {
             case '/stats': {
                 const closedCount = bot.dbGetClosedCount();
                 await bot.tgSendMessage(chatId, buildStatsMessage(bot.ps, bot.botPaused, bot.activeTickets.size, closedCount));
+                break;
+            }
+
+            case '/ai': case '/tokens': case '/analytics': {
+                if (argsStr.toLowerCase() === 'reset') {
+                    resetAiUsageStats(bot);
+                    await bot.tgSendMessage(chatId, '🔄 Статистика AI сброшена.');
+                    break;
+                }
+                const stats = getAiUsageStats(bot);
+                const lines = ['╔══════════════════════════╗', '║  🧠  <b>AI СТАТИСТИКА</b>', '╚══════════════════════════╝', ''];
+                lines.push(`📊 <b>Всего запросов:</b> ${stats.totalRequests}`);
+                lines.push(`❌ <b>Ошибок:</b> ${stats.totalErrors}`);
+                lines.push(`🪙 <b>Токенов:</b> ${stats.totalTokens.toLocaleString('ru-RU')}`);
+                if (stats.startedAt) lines.push(`📅 <b>Отсчёт с:</b> ${new Date(stats.startedAt).toLocaleDateString('ru-RU')}`);
+                if (stats.lastRequestAt) lines.push(`🕐 <b>Последний:</b> ${new Date(stats.lastRequestAt).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}`);
+                lines.push('');
+                for (const [prov, p] of Object.entries(stats.providers || {})) {
+                    const icon = prov === 'gemini' ? '💎' : prov === 'groq' ? '⚡' : '🌐';
+                    lines.push(`${icon} <b>${escapeHtml(prov.toUpperCase())}</b>`);
+                    lines.push(`   📨 ${p.requests} запросов · ❌ ${p.errors} ошибок`);
+                    lines.push(`   🪙 ${p.totalTokens.toLocaleString('ru-RU')} токенов (⬆️${p.promptTokens.toLocaleString('ru-RU')} ⬇️${p.completionTokens.toLocaleString('ru-RU')})`);
+                    const models = Object.entries(p.models || {}).sort((a, b) => b[1].requests - a[1].requests);
+                    for (const [m, ms] of models.slice(0, 5)) {
+                        lines.push(`   └ <code>${escapeHtml(m)}</code>: ${ms.requests}× · ${ms.tokens.toLocaleString('ru-RU')} tok`);
+                    }
+                    lines.push('');
+                }
+                lines.push('<i>/ai reset — сбросить статистику</i>');
+                await bot.tgSendMessage(chatId, lines.join('\n'));
                 break;
             }
 

@@ -18,6 +18,17 @@ const { startPolling, stopPolling } = require('./bot/telegram');
 
 class Bot {
     constructor(userId, config, dataDir, io) {
+        const normalizeGuildList = (raw) => {
+            if (Array.isArray(raw)) return raw.map(v => String(v || '').trim()).filter(Boolean);
+            const txt = String(raw || '').trim();
+            if (!txt) return [];
+            try {
+                const parsed = JSON.parse(txt);
+                if (Array.isArray(parsed)) return parsed.map(v => String(v || '').trim()).filter(Boolean);
+            } catch { }
+            return txt.split(',').map(v => String(v || '').trim()).filter(Boolean);
+        };
+
         this.userId = userId;
         this.config = {
             tgToken: config.tgToken || '',
@@ -41,6 +52,7 @@ class Bot {
             priorityKeywords: config.priorityKeywords || [],
             binds: config.binds || {},
             autoReplies: config.autoReplies || [],
+            botReplyGuildIds: normalizeGuildList(config.botReplyGuildIds || process.env.BOT_REPLY_GUILD_IDS || ''),
             forumMode: config.forumMode || false,
             ...config,
         };
@@ -118,6 +130,21 @@ class Bot {
         const token = this.getDiscordGatewayToken();
         if (!token) return '';
         return this.isDiscordBotAuthMode() ? `Bot ${token}` : token;
+    }
+
+    shouldUseBotForGuild(guildId) {
+        if (!this.config.discordBotToken) return false;
+        const gid = String(guildId || '').trim();
+        if (!gid) return false;
+        const allowed = Array.isArray(this.config.botReplyGuildIds) ? this.config.botReplyGuildIds.map(String) : [];
+        return allowed.includes(gid);
+    }
+
+    getDiscordAuthorizationHeaderForGuild(guildId) {
+        if (this.shouldUseBotForGuild(guildId)) {
+            return `Bot ${this.config.discordBotToken}`;
+        }
+        return this.getDiscordAuthorizationHeader();
     }
 
     // ═══════════════════════════════════════════════════════
@@ -453,20 +480,31 @@ class Bot {
     //  DISCORD REST
     // ═══════════════════════════════════════════════════════
 
-    async sendDiscordMessage(channelId, content, replyToMessageId) {
-        const authHeader = this.getDiscordAuthorizationHeader();
+    async sendDiscordMessage(channelId, content, replyToMessageId, guildId) {
+        const primaryAuthHeader = this.getDiscordAuthorizationHeaderForGuild(guildId);
+        const fallbackAuthHeader = this.getDiscordAuthorizationHeader();
         const url = `https://discord.com/api/v9/channels/${channelId}/messages`;
         const payload = { content };
         if (replyToMessageId) payload.message_reference = { message_id: replyToMessageId };
         const body = JSON.stringify(payload);
-        return new Promise((resolve, reject) => {
+
+        const sendOnce = (authHeader) => new Promise((resolve, reject) => {
             const u = new URL(url);
             const req = https.request({ hostname: u.hostname, path: u.pathname, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: authHeader, 'User-Agent': 'Mozilla/5.0' } }, res => {
                 let chunks = ''; res.on('data', c => chunks += c);
-                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks, usedAuth: authHeader.startsWith('Bot ') ? 'bot' : 'user' }));
             });
             req.on('error', reject); req.write(body); req.end();
         });
+
+        const first = await sendOnce(primaryAuthHeader);
+        const usedBotFirst = primaryAuthHeader.startsWith('Bot ');
+        const canFallback = usedBotFirst && !first.ok && (first.status === 401 || first.status === 403) && fallbackAuthHeader !== primaryAuthHeader;
+        if (canFallback) {
+            this.log(`⚠️ Bot auth send failed (${first.status}) in guild ${guildId || '?'}, retrying with user auth...`);
+            return sendOnce(fallbackAuthHeader);
+        }
+        return first;
     }
 
     async editDiscordMessage(channelId, messageId, content) {

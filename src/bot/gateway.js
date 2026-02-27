@@ -230,13 +230,13 @@ function splitDiscordMessage(text, maxLen = 1850) {
     return parts.filter(Boolean);
 }
 
-async function sendDiscordMessageSmart(bot, channelId, content, replyToMessageId) {
+async function sendDiscordMessageSmart(bot, channelId, content, replyToMessageId, guildId) {
     const parts = splitDiscordMessage(content, 1850);
     if (parts.length === 0) return { ok: false, status: 400, body: 'empty_message' };
 
     let firstRes = null;
     for (let i = 0; i < parts.length; i++) {
-        const res = await bot.sendDiscordMessage(channelId, parts[i], i === 0 ? replyToMessageId : undefined);
+        const res = await bot.sendDiscordMessage(channelId, parts[i], i === 0 ? replyToMessageId : undefined, guildId);
         if (!firstRes) firstRes = res;
         if (!res.ok) return res;
     }
@@ -1439,7 +1439,7 @@ function handleDispatch(bot, event, d) {
                     const delaySec = decision.ruleId === 'moderation_check' ? 2 : (((cfg.autoReplies || []).find(r => (r.id || '') === decision.ruleId || r.name === decision.ruleName)?.delay) || 2);
                     setTimeout(async () => {
                         try {
-                            await bot.sendDiscordMessage(d.channel_id, decision.response, replyMsgId);
+                            await bot.sendDiscordMessage(d.channel_id, decision.response, replyMsgId, d.guild_id);
                             bot.log(`✅ Auto-reply sent: "${decision.ruleName}"`, 'autoreply', details);
                             bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${decision.ruleName}\n🧾 <b>rule_id:</b> <code>${decision.ruleId}</code>\n🎯 <b>confidence:</b> <code>${Number(decision.confidence || 0).toFixed(2)}</code>\n🔎 <b>source:</b> <code>${decision.source}</code>\n👤 <b>Игрок:</b> ${d.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(d.content || '').slice(0, 150)}</i>` });
                         } catch (e) {
@@ -1510,7 +1510,7 @@ function handleDispatch(bot, event, d) {
                         const now = Date.now();
                         if (!_profanityCooldown.has(cooldownKey) || now - _profanityCooldown.get(cooldownKey) > 30000) {
                             _profanityCooldown.set(cooldownKey, now);
-                            bot.sendDiscordMessage(d.channel_id, '<@&1086969387103293560>', d.id)
+                            bot.sendDiscordMessage(d.channel_id, '<@&1086969387103293560>', d.id, d.guild_id)
                                 .then(() => bot.log(`🚨 Profanity detected from ${author.username}: "${msgContent.slice(0, 50)}" (match: ${profanityResult.match})`))
                                 .catch(e => bot.log(`❌ Profanity ping failed: ${e.message}`));
                         }
@@ -1553,7 +1553,7 @@ function handleDispatch(bot, event, d) {
                             bot.log(`🤖 Neuro direct reply [${direct.source}] to ${author.username}: "${question.slice(0, 100)}"`);
                             (async () => {
                                 try {
-                                    const sentRes = await sendDiscordMessageSmart(bot, d.channel_id, direct.response, d.id);
+                                    const sentRes = await sendDiscordMessageSmart(bot, d.channel_id, direct.response, d.id, d.guild_id);
                                     if (sentRes.ok) {
                                         rememberNeuroMessageId(bot, sentRes);
                                         enqueueNeuroTelegramNotification(bot, {
@@ -1655,7 +1655,7 @@ function handleDispatch(bot, event, d) {
                                     }
                                     answerText = quality.text;
 
-                                    const sentRes = await sendDiscordMessageSmart(bot, d.channel_id, answerText, d.id);
+                                    const sentRes = await sendDiscordMessageSmart(bot, d.channel_id, answerText, d.id, d.guild_id);
                                     if (sentRes.ok) {
                                         bot.log(`✅ Neuro response sent to #${d.channel_id}`);
                                         rememberNeuroMessageId(bot, sentRes);
@@ -1715,7 +1715,7 @@ function handleDispatch(bot, event, d) {
                         const chId = d.channel_id;
                         setTimeout(async () => {
                             try {
-                                await bot.sendDiscordMessage(chId, cfg.autoGreetText);
+                                await bot.sendDiscordMessage(chId, cfg.autoGreetText, undefined, guildId);
                                 bot.log(`👋 Auto-greet sent in #${record.channelName} (role mention)`);
                             } catch (e) { bot.log(`❌ Auto-greet error: ${e.message}`); }
                         }, (cfg.autoGreetDelay || 3) * 1000);
@@ -2222,7 +2222,7 @@ function startAutoReplyPolling(bot) {
                                 bot.log(`🤖 Poll: direct reply [${direct.source}] to ${msg.author.username}: "${question.slice(0, 100)}"`);
                                 (async () => {
                                     try {
-                                        const sentRes = await sendDiscordMessageSmart(bot, channelId, direct.response, msg.id);
+                                        const sentRes = await sendDiscordMessageSmart(bot, channelId, direct.response, msg.id, aiGuildId);
                                         if (sentRes.ok) {
                                             rememberNeuroMessageId(bot, sentRes);
                                             enqueueNeuroTelegramNotification(bot, {
@@ -2313,7 +2313,7 @@ function startAutoReplyPolling(bot) {
                                             }
                                             answerText = quality.text;
 
-                                            const sentRes = await sendDiscordMessageSmart(bot, channelId, answerText, msg.id);
+                                            const sentRes = await sendDiscordMessageSmart(bot, channelId, answerText, msg.id, aiGuildId);
                                             if (sentRes.ok) {
                                                 bot.log(`✅ Poll: Neuro response sent to #${channelId}`);
                                                 rememberNeuroMessageId(bot, sentRes);
@@ -2370,7 +2370,7 @@ function startAutoReplyPolling(bot) {
                         const delaySec = decision.ruleId === 'moderation_check' ? 2 : (((cfg.autoReplies || []).find(r => (r.id || '') === decision.ruleId || r.name === decision.ruleName)?.delay) || 2);
                         await sleep(delaySec * 1000);
                         try {
-                            await bot.sendDiscordMessage(channelId, decision.response, msg.id);
+                            await bot.sendDiscordMessage(channelId, decision.response, msg.id, msgGuildId);
                             bot.log(`✅ Auto-reply sent: "${decision.ruleName}"`, 'autoreply', details);
                             bot.enqueue({ text: `🤖 <b>Авто-ответ отправлен</b>\n\n📋 <b>Правило:</b> ${decision.ruleName}\n🧾 <b>rule_id:</b> <code>${decision.ruleId}</code>\n🎯 <b>confidence:</b> <code>${Number(decision.confidence || 0).toFixed(2)}</code>\n🔎 <b>source:</b> <code>${decision.source}</code>\n👤 <b>Игрок:</b> ${msg.author?.username || 'unknown'}\n💬 <b>Сообщение:</b> <i>${(msg.content || '').slice(0, 150)}</i>` });
                         } catch (e) {

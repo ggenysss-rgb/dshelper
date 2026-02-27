@@ -1514,21 +1514,36 @@ function startAutoReplyPolling(bot) {
                     const pollHasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
                     if (!msg.author.bot && pollHasAiKeys && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
+                        const mentionFollowupWindowMs = 45000;
+                        if (!bot._aiMentionFollowups) bot._aiMentionFollowups = new Map();
+                        const followupKey = `${channelId}:${msg.author.id}`;
+                        const pendingMentionTs = bot._aiMentionFollowups.get(followupKey) || 0;
+                        const isRecentMentionPending = pendingMentionTs > 0 && (Date.now() - pendingMentionTs) <= mentionFollowupWindowMs;
                         const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
                         const isMentionTrigger = mentionsMe;
                         const isReplyToNeuro = isReplyToTrackedNeuroMessage(bot, msg);
+                        const isFollowupAfterMention = !isMentionTrigger && !isReplyToNeuro && isRecentMentionPending;
                         const isAllowedAuthor = msg.author.id !== bot.selfUserId || isMentionTrigger;
-                        const canTrigger = isReplyToNeuro || isMentionTrigger;
+                        const canTrigger = isReplyToNeuro || isMentionTrigger || isFollowupAfterMention;
 
                         if (isAllowedAuthor && canTrigger && !_neuroProcessed.has(msg.id)) {
-                            _neuroProcessed.add(msg.id);
-                            setTimeout(() => _neuroProcessed.delete(msg.id), 60000);
                             let question = content
                                 .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
                                 .replace(/[,،\s]+/g, ' ')
                                 .trim();
+                            if (isMentionTrigger && (!question || shouldSkipNeuroQuestion(question))) {
+                                bot._aiMentionFollowups.set(followupKey, Date.now());
+                                bot.log(`🧠 Poll: mention-only from ${msg.author.username}, waiting follow-up question...`);
+                                continue;
+                            }
+                            if (isFollowupAfterMention && !question) {
+                                question = content.trim();
+                            }
+                            bot._aiMentionFollowups.delete(followupKey);
+                            _neuroProcessed.add(msg.id);
+                            setTimeout(() => _neuroProcessed.delete(msg.id), 60000);
                             if (question.length > 0 && !shouldSkipNeuroQuestion(question)) {
-                                const triggerType = isReplyToNeuro ? 'reply' : 'mention';
+                                const triggerType = isReplyToNeuro ? 'reply' : (isFollowupAfterMention ? 'mention_followup' : 'mention');
                                 bot.log(`🧠 Poll: Neuro AI [${triggerType}] from ${msg.author.username}: "${question.slice(0, 100)}"`);
                                 if (bot._convLogger) {
                                     bot._convLogger.logAIResponse({

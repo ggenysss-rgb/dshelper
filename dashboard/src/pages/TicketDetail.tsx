@@ -184,7 +184,21 @@ export default function TicketDetail() {
     }
 
     return (
-        <div className="h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-4 md:gap-6 max-w-7xl mx-auto">
+        <div className="h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-4 md:gap-6 max-w-[90rem] mx-auto">
+            {/* Binds Sidebar */}
+            <div className="hidden xl:flex w-64 shrink-0 flex-col gap-4 overflow-y-auto custom-scrollbar bg-card border border-border rounded-xl p-4">
+                <h3 className="font-rajdhani font-bold text-lg text-foreground uppercase tracking-wide">Шаблоны</h3>
+                <div className="flex flex-col gap-2">
+                    {bindList.map(b => (
+                        <button key={b.name} onClick={() => selectBind(b)} className="text-left px-3 py-2 bg-secondary/50 border border-border/50 rounded-lg hover:bg-primary/20 hover:border-primary/30 transition-colors">
+                            <span className="font-mono text-primary text-sm font-bold block mb-1">/{b.name}</span>
+                            <span className="text-xs text-muted-foreground line-clamp-2">{b.message}</span>
+                        </button>
+                    ))}
+                    {bindList.length === 0 && <span className="text-sm text-muted-foreground italic">Нет биндов</span>}
+                </div>
+            </div>
+
             {/* Main Chat Area */}
             <div className="flex-1 flex flex-col bg-card border border-border rounded-xl overflow-hidden shadow-sm relative">
                 <div className="h-14 md:h-16 px-4 md:px-6 border-b border-border bg-card/50 backdrop-blur flex items-center justify-between shrink-0">

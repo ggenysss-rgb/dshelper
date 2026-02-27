@@ -212,6 +212,32 @@ async function main() {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
+    // Generate AI Summary for a ticket
+    app.post('/api/tickets/:id/summary', authenticateToken, async (req, res) => {
+        const bot = getBot(req, res); if (!bot) return res.status(400).json({ error: 'Bot not running' });
+        const channelId = req.params.id;
+        const record = bot.activeTickets.get(channelId);
+        if (!record) return res.status(404).json({ error: 'Ticket not found' });
+
+        try {
+            if (record.summary) {
+                return res.json({ summary: record.summary });
+            }
+
+            const rawMessages = await bot.fetchChannelMessages(channelId, 50);
+            const messages = rawMessages.reverse();
+
+            const { generateTicketSummary } = require('./bot/gateway');
+            const summaryText = await generateTicketSummary(bot, channelId, messages);
+            record.summary = summaryText;
+
+            res.json({ summary: summaryText });
+        } catch (err) {
+            bot.log(`❌ AI Summary Error for ${channelId}: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // ── Stats ────────────────────────────────────────────
     app.get('/api/stats', authenticateToken, (req, res) => {
         const bot = getBot(req, res);
@@ -571,9 +597,9 @@ async function main() {
 
         // Check if any running bot uses the same TG token as admin
         let adminTokenShared = false;
-        console.log(`${LOG} 🔍 Admin token check: admin=${ADMIN_TG_TOKEN ? ADMIN_TG_TOKEN.slice(0,8)+'...' : '(empty)'}, bots=${botManager.bots.size}`);
+        console.log(`${LOG} 🔍 Admin token check: admin=${ADMIN_TG_TOKEN ? ADMIN_TG_TOKEN.slice(0, 8) + '...' : '(empty)'}, bots=${botManager.bots.size}`);
         for (const [uid, bot] of botManager.bots) {
-            console.log(`${LOG} 🔍 Bot ${uid} tgToken: ${bot.config.tgToken ? bot.config.tgToken.slice(0,8)+'...' : '(empty)'}, match=${bot.config.tgToken === ADMIN_TG_TOKEN}`);
+            console.log(`${LOG} 🔍 Bot ${uid} tgToken: ${bot.config.tgToken ? bot.config.tgToken.slice(0, 8) + '...' : '(empty)'}, match=${bot.config.tgToken === ADMIN_TG_TOKEN}`);
             if (bot.config.tgToken === ADMIN_TG_TOKEN) {
                 // Register the admin callback handler on this bot so it processes
                 // admin approval callbacks within its own polling loop

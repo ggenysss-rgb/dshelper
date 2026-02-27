@@ -815,7 +815,7 @@ function handleDispatch(bot, event, d) {
             }
 
             // ── AI handler — forward questions to n8n webhook ──
-            // Trigger: reply to AI-generated Neuro message only
+            // Trigger: reply to AI-generated Neuro message or @mention of Neuro
             // Works on ALL guilds (or only specific ones if neuroGuildIds is set)
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
@@ -824,10 +824,10 @@ function handleDispatch(bot, event, d) {
             if (!isBot && !hasProfanity && hasAiKeys && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                const isSelfMentionTrigger = author.id === bot.selfUserId && mentionsMe;
+                const isMentionTrigger = mentionsMe;
                 const isReplyToNeuro = isReplyToTrackedNeuroMessage(bot, d);
-                const isAllowedAuthor = author.id !== bot.selfUserId || isSelfMentionTrigger;
-                const canTrigger = isReplyToNeuro || isSelfMentionTrigger;
+                const isAllowedAuthor = author.id !== bot.selfUserId || isMentionTrigger;
+                const canTrigger = isReplyToNeuro || isMentionTrigger;
 
                 if (isAllowedAuthor && canTrigger) {
                     // Start of AI logic — fallback array of keys
@@ -846,7 +846,7 @@ function handleDispatch(bot, event, d) {
                     if (question.length > 0 && !shouldSkipNeuroQuestion(question) && !_neuroProcessed.has(d.id)) {
                         _neuroProcessed.add(d.id);
                         setTimeout(() => _neuroProcessed.delete(d.id), 60000); // cleanup after 60s
-                        const triggerType = isReplyToNeuro ? 'reply' : 'self-mention';
+                        const triggerType = isReplyToNeuro ? 'reply' : 'mention';
                         bot.log(`🧠 Neuro AI [${triggerType}]: question from ${author.username}: "${question.slice(0, 100)}"`);
                         // Log AI question
                         if (bot._convLogger) {
@@ -1453,16 +1453,16 @@ function startAutoReplyPolling(bot) {
                         bot._lastChannelQuestion[channelId] = (msg.content || '').slice(0, 500);
                     }
 
-                    // ── AI handler (poll-based) — reply to AI-generated Neuro messages only ──
+                    // ── AI handler (poll-based) — reply to Neuro or @mention ──
                     const neuroExcludedPoll = ['1451246122755559555'];
                     const pollHasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
                     if (!msg.author.bot && pollHasAiKeys && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
                         const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
-                        const isSelfMentionTrigger = msg.author.id === bot.selfUserId && mentionsMe;
+                        const isMentionTrigger = mentionsMe;
                         const isReplyToNeuro = isReplyToTrackedNeuroMessage(bot, msg);
-                        const isAllowedAuthor = msg.author.id !== bot.selfUserId || isSelfMentionTrigger;
-                        const canTrigger = isReplyToNeuro || isSelfMentionTrigger;
+                        const isAllowedAuthor = msg.author.id !== bot.selfUserId || isMentionTrigger;
+                        const canTrigger = isReplyToNeuro || isMentionTrigger;
 
                         if (isAllowedAuthor && canTrigger && !_neuroProcessed.has(msg.id)) {
                             _neuroProcessed.add(msg.id);
@@ -1472,7 +1472,7 @@ function startAutoReplyPolling(bot) {
                                 .replace(/[,،\s]+/g, ' ')
                                 .trim();
                             if (question.length > 0 && !shouldSkipNeuroQuestion(question)) {
-                                const triggerType = isReplyToNeuro ? 'reply' : 'self-mention';
+                                const triggerType = isReplyToNeuro ? 'reply' : 'mention';
                                 bot.log(`🧠 Poll: Neuro AI [${triggerType}] from ${msg.author.username}: "${question.slice(0, 100)}"`);
                                 if (bot._convLogger) {
                                     bot._convLogger.logAIResponse({

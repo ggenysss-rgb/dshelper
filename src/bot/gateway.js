@@ -135,6 +135,102 @@ function shouldSkipNeuroQuestion(question) {
     return false;
 }
 
+const DEFAULT_OPENROUTER_MODELS = [
+    'stepfun/step-3.5-flash:free',
+    'qwen/qwen3-32b:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+];
+
+function getOpenRouterKeys(cfg) {
+    const raw = Array.isArray(cfg?.geminiApiKeys)
+        ? cfg.geminiApiKeys
+        : (cfg?.geminiApiKeys ? [cfg.geminiApiKeys] : []);
+    return raw
+        .map(v => String(v || '').trim())
+        .filter(Boolean);
+}
+
+function getOpenRouterModels() {
+    const fromEnv = String(process.env.OPENROUTER_MODELS || '')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+    return fromEnv.length > 0 ? fromEnv : DEFAULT_OPENROUTER_MODELS;
+}
+
+function parseOpenRouterBody(body) {
+    try { return JSON.parse(body || '{}'); } catch { return {}; }
+}
+
+function getOpenRouterAnswer(data) {
+    const text = data?.choices?.[0]?.message?.content;
+    return typeof text === 'string' ? text.trim() : '';
+}
+
+function stringifyOpenRouterError(status, data) {
+    const err = data?.error || data?.message || data;
+    const base = typeof err === 'string' ? err : JSON.stringify(err || {});
+    return `${status} ${String(base || '').slice(0, 280)}`.trim();
+}
+
+function isOpenRouterRetryable(status) {
+    return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function isOpenRouterKeyRejected(status) {
+    return status === 401 || status === 403;
+}
+
+async function requestOpenRouterAnswer(bot, cfg, messages, opts = {}) {
+    const logPrefix = opts.logPrefix || '';
+    const keys = getOpenRouterKeys(cfg);
+    if (keys.length === 0) return { ok: false, answerText: '', model: '', error: 'no OpenRouter key', keyIndex: -1 };
+
+    const models = getOpenRouterModels();
+    let lastError = 'no response';
+
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+        const apiKey = keys[keyIndex];
+        for (const model of models) {
+            const payload = {
+                model,
+                messages,
+                temperature: 0.7,
+                max_tokens: 800,
+            };
+
+            let res;
+            try {
+                res = await bot.httpPostWithHeaders(
+                    'https://openrouter.ai/api/v1/chat/completions',
+                    payload,
+                    { Authorization: `Bearer ${apiKey}` }
+                );
+            } catch (e) {
+                lastError = `network ${e.message}`;
+                bot.log(`⚠️ ${logPrefix}OpenRouter network error [${model}]: ${e.message}`);
+                await sleep(350);
+                continue;
+            }
+
+            const data = parseOpenRouterBody(res.body);
+            const answerText = getOpenRouterAnswer(data);
+            if (res.ok && answerText) return { ok: true, answerText, model, error: '', keyIndex };
+
+            const err = stringifyOpenRouterError(res.status, data);
+            lastError = err;
+            bot.log(`⚠️ ${logPrefix}OpenRouter error [${model}${keyIndex > 0 ? `, key#${keyIndex + 1}` : ''}]: ${err}`);
+
+            if (isOpenRouterKeyRejected(res.status)) break;
+            if (isOpenRouterRetryable(res.status)) {
+                await sleep(350);
+            }
+        }
+    }
+
+    return { ok: false, answerText: '', model: '', error: lastError, keyIndex: -1 };
+}
+
 function pushChatMessage(messages, role, content) {
     const text = String(content || '').trim();
     if (!text) return;
@@ -869,7 +965,7 @@ function handleDispatch(bot, event, d) {
             const neuroExcludedChannels = ['1451246122755559555'];
             const neuroGuilds = cfg.neuroGuildIds || [];
             const neuroAllowed = neuroGuilds.length === 0 || neuroGuilds.includes(d.guild_id);
-            const hasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
+            const hasAiKeys = getOpenRouterKeys(cfg).length > 0;
             if (!isBot && !hasProfanity && hasAiKeys && bot.selfUserId && neuroAllowed && !neuroExcludedChannels.includes(d.channel_id)) {
                 const content = d.content || '';
                 const mentionsMe = content.includes(`<@${bot.selfUserId}>`) || content.includes(`<@!${bot.selfUserId}>`);
@@ -879,13 +975,6 @@ function handleDispatch(bot, event, d) {
                 const canTrigger = isReplyToNeuro || isMentionTrigger;
 
                 if (isAllowedAuthor && canTrigger) {
-                    // Start of AI logic — fallback array of keys
-                    const keys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys : (cfg.geminiApiKeys ? [cfg.geminiApiKeys] : []);
-                    if (keys.length === 0) {
-                        bot.log('❌ No Gemini API keys configured. Set geminiApiKeys array in config.');
-                        break;
-                    }
-
                     // Extract question: remove mention if present
                     let question = content
                         .replace(new RegExp(`<@!?${bot.selfUserId}>`, 'g'), '')
@@ -944,31 +1033,9 @@ function handleDispatch(bot, event, d) {
                                 }
 
                                 pushChatMessage(messages, 'user', question);
-
-                                const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                if (!groqKey) { bot.log('❌ No OpenRouter API key configured'); return; }
-
-                                const payload = {
-                                    model: 'stepfun/step-3.5-flash:free',
-                                    messages,
-                                    temperature: 0.7,
-                                    max_tokens: 800
-                                };
-
-                                const res = await bot.httpPostWithHeaders(
-                                    'https://openrouter.ai/api/v1/chat/completions',
-                                    payload,
-                                    { 'Authorization': `Bearer ${groqKey}` }
-                                );
-                                const data = JSON.parse(res.body);
-
-                                let answerText = null;
-                                if (res.ok && data.choices && data.choices.length > 0) {
-                                    answerText = data.choices[0].message.content;
-                                    bot.log(`🧠 StepFun AI Success`);
-                                } else {
-                                    bot.log(`⚠️ StepFun Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
-                                }
+                                const aiResult = await requestOpenRouterAnswer(bot, cfg, messages);
+                                let answerText = aiResult.ok ? aiResult.answerText : '';
+                                if (aiResult.ok) bot.log(`🧠 OpenRouter success (${aiResult.model})`);
 
                                 if (answerText) {
                                     const guarded = sanitizeResponseLinks(answerText);
@@ -999,7 +1066,7 @@ function handleDispatch(bot, event, d) {
                                         bot.log(`❌ Failed to send Discord message: ${sentRes.status} ${sentRes.body}`);
                                     }
                                 } else {
-                                    bot.log(`❌ Neuro API: Gemini failed or no response generated.`);
+                                    bot.log(`❌ Neuro API: OpenRouter failed or no response generated${aiResult.error ? ` (${aiResult.error})` : ''}.`);
                                 }
                             } catch (e) {
                                 bot.log(`❌ Neuro AI error: ${e.stack}`);
@@ -1511,7 +1578,7 @@ function startAutoReplyPolling(bot) {
 
                     // ── AI handler (poll-based) — reply to Neuro or @mention ──
                     const neuroExcludedPoll = ['1451246122755559555'];
-                    const pollHasAiKeys = Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys.length > 0 : !!cfg.geminiApiKeys;
+                    const pollHasAiKeys = getOpenRouterKeys(cfg).length > 0;
                     if (!msg.author.bot && pollHasAiKeys && bot.selfUserId && !neuroExcludedPoll.includes(channelId)) {
                         const content = msg.content || '';
                         const mentionFollowupWindowMs = 45000;
@@ -1558,8 +1625,6 @@ function startAutoReplyPolling(bot) {
                                 const prevBotReply = isReplyToNeuro ? (msg.referenced_message.content || '').slice(0, 500) : '';
                                 (async () => {
                                     try {
-                                        const groqKey = (Array.isArray(cfg.geminiApiKeys) ? cfg.geminiApiKeys[0] : cfg.geminiApiKeys) || '';
-                                        if (!groqKey) { bot.log('❌ Poll: No OpenRouter API key configured'); return; }
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
                                         const messages = [{ role: 'system', content: systemPrompt }];
@@ -1583,25 +1648,9 @@ function startAutoReplyPolling(bot) {
                                             }
                                         }
                                         pushChatMessage(messages, 'user', question);
-                                        const payload = {
-                                            model: 'stepfun/step-3.5-flash:free',
-                                            messages,
-                                            temperature: 0.7,
-                                            max_tokens: 800
-                                        };
-                                        const res = await bot.httpPostWithHeaders(
-                                            'https://openrouter.ai/api/v1/chat/completions',
-                                            payload,
-                                            { 'Authorization': `Bearer ${groqKey}` }
-                                        );
-                                        const data = JSON.parse(res.body);
-                                        let answerText = null;
-                                        if (res.ok && data.choices && data.choices.length > 0) {
-                                            answerText = data.choices[0].message.content;
-                                            bot.log(`🧠 Poll: StepFun AI Success`);
-                                        } else {
-                                            bot.log(`⚠️ Poll: StepFun Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
-                                        }
+                                        const aiResult = await requestOpenRouterAnswer(bot, cfg, messages, { logPrefix: 'Poll: ' });
+                                        let answerText = aiResult.ok ? aiResult.answerText : '';
+                                        if (aiResult.ok) bot.log(`🧠 Poll: OpenRouter success (${aiResult.model})`);
                                         if (answerText) {
                                             const guarded = sanitizeResponseLinks(answerText);
                                             answerText = guarded.text;
@@ -1631,7 +1680,7 @@ function startAutoReplyPolling(bot) {
                                                 bot.log(`❌ Poll: Failed to send Discord message: ${sentRes.status}`);
                                             }
                                         } else {
-                                            bot.log(`❌ Poll: Neuro API — Groq failed`);
+                                            bot.log(`❌ Poll: Neuro API failed or no response generated${aiResult.error ? ` (${aiResult.error})` : ''}.`);
                                         }
                                     } catch (e) {
                                         bot.log(`❌ Poll: Neuro AI error: ${e.stack}`);

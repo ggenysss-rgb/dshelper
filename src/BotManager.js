@@ -25,6 +25,34 @@ class BotManager {
         // Helper: use DB value or fall back to env var
         const env = process.env;
 
+        const normalizeToken = (raw) => {
+            let token = String(raw || '').trim();
+            if (!token) return '';
+            // Allow users to paste token with surrounding quotes.
+            token = token.replace(/^['"]+|['"]+$/g, '').trim();
+            // Users often paste "Bot <token>" from docs/UI.
+            token = token.replace(/^bot\s+/i, '').trim();
+            // Ignore masked tokens accidentally stored in DB/UI.
+            if (token.includes('...')) return '';
+            return token;
+        };
+
+        const pickToken = (...candidates) => {
+            for (const candidate of candidates) {
+                const token = normalizeToken(candidate);
+                if (token) return token;
+            }
+            return '';
+        };
+
+        const discordTokenFromEnv = normalizeToken(env.DISCORD_TOKEN || '');
+        const discordTokenFromDb = normalizeToken(row.discord_token || '');
+        const discordBotTokenFromEnv = normalizeToken(env.DISCORD_BOT_TOKEN || '');
+        const discordToken = pickToken(discordTokenFromEnv, discordTokenFromDb);
+        const discordTokenSource = discordToken === discordTokenFromEnv && discordToken ? 'env.DISCORD_TOKEN'
+            : (discordToken === discordTokenFromDb && discordToken ? 'db.users.discord_token' : 'none');
+        const discordBotTokenSource = discordBotTokenFromEnv ? 'env.DISCORD_BOT_TOKEN' : 'none';
+
         // Parse staff role IDs from env (comma-separated)
         let envStaffRoleIds = [];
         if (env.STAFF_ROLE_IDS) {
@@ -45,8 +73,8 @@ class BotManager {
         const config = {
             tgToken: row.tg_token || env.TG_TOKEN || '',
             tgChatId: row.tg_chat_id || env.TG_CHAT_ID || '',
-            discordToken: row.discord_token || env.DISCORD_TOKEN || '',
-            discordBotToken: env.DISCORD_BOT_TOKEN || '',
+            discordToken,
+            discordBotToken: discordBotTokenFromEnv,
             guildId: row.discord_guild_id || env.GUILD_ID || '',
             ticketsCategoryId: row.tickets_category_id || env.TICKETS_CATEGORY_ID || '1448671656921927740',
             staffRoleIds: parseArr(row.staff_role_ids, envStaffRoleIds.length > 0 ? envStaffRoleIds : ['1475932249017946133', '1475961602619478116']),
@@ -77,9 +105,11 @@ class BotManager {
             maxMessageLength: row.max_message_length || 300,
             geminiApiKeys: (row.gemini_api_keys && row.gemini_api_keys !== '[]') ? JSON.parse(row.gemini_api_keys) : [],
             neuroKeyword: env.NEURO_KEYWORD || 'нейро',
+            discordTokenSource,
+            discordBotTokenSource,
         };
         // DEBUG: log what was loaded
-        console.log(`[Manager:${userId}] 🔍 Config loaded: staffRoleIds=${JSON.stringify(config.staffRoleIds)}, autoGreetRoleIds=${JSON.stringify(config.autoGreetRoleIds)}, raw_db_staff='${row.staff_role_ids}', raw_db_greet='${row.auto_greet_role_ids}'`);
+        console.log(`[Manager:${userId}] 🔍 Config loaded: discordToken=${config.discordToken ? `SET(${config.discordTokenSource})` : 'MISSING'}, discordBotToken=${config.discordBotToken ? `SET(${config.discordBotTokenSource})` : 'MISSING'}, staffRoleIds=${JSON.stringify(config.staffRoleIds)}, autoGreetRoleIds=${JSON.stringify(config.autoGreetRoleIds)}, raw_db_staff='${row.staff_role_ids}', raw_db_greet='${row.auto_greet_role_ids}'`);
         return config;
     }
 

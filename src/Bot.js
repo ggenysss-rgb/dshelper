@@ -453,7 +453,7 @@ class Bot {
             const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), ...extraHeaders };
             const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'POST', headers }, res => {
                 let chunks = ''; res.on('data', c => chunks += c);
-                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks, headers: res.headers }));
             });
             req.on('error', reject); req.write(data); req.end();
         });

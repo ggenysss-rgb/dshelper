@@ -10,6 +10,7 @@ const { containsProfanity } = require('./profanityFilter');
 const ConversationLogger = require('./conversationLogger');
 const { evaluateAutoReplyDecision } = require('./autoReplyEngine');
 const { buildRagContextMessage, sanitizeResponseLinks } = require('./ragEngine');
+const funtimeServerRules = require('./funtimeServerRules');
 
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const RESUMABLE_CODES = [4000, 4001, 4002, 4003, 4005, 4007, 4009];
@@ -202,9 +203,38 @@ function shouldSkipNeuroQuestion(question) {
     return false;
 }
 
+const _ruleById = new Map(
+    (Array.isArray(funtimeServerRules) ? funtimeServerRules : [])
+        .map(r => [String(r?.id || '').trim(), String(r?.text || '').trim()])
+        .filter(([id, text]) => id && text)
+);
+
+function extractRuleIdFromQuestion(question) {
+    const raw = String(question || '').toLowerCase();
+    if (!raw) return '';
+    if (!/(правил|пункт)/i.test(raw)) return '';
+
+    const triple = raw.match(/\b(\d{1,2})\s*[.,]\s*(\d{1,2})\s*[.,]\s*(\d{1,2})\b/);
+    if (triple) return `${triple[1]}.${triple[2]}.${triple[3]}`;
+
+    const single = raw.match(/\b(\d{1,2})\s*[.,]\s*(\d{1,2})\b/);
+    if (single) return `${single[1]}.${single[2]}`;
+
+    return '';
+}
+
 function getBuiltInNeuroReply(question) {
     const normalized = normalizeNeuroInput(question);
     if (!normalized) return '';
+
+    const ruleId = extractRuleIdFromQuestion(question);
+    if (ruleId && _ruleById.has(ruleId)) {
+        return _ruleById.get(ruleId) || '';
+    }
+
+    if (ruleId && !_ruleById.has(ruleId)) {
+        return `Пункта ${ruleId} в базе не найдено.`;
+    }
 
     const hasSiteKeyword = /\bсайт(а|ом|у|е)?\b/.test(normalized) || /\bfuntime\s*(su|me)\b/.test(normalized);
     if (hasSiteKeyword) {

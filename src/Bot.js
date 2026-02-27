@@ -517,6 +517,7 @@ class Bot {
     async sendDiscordMessage(channelId, content, replyToMessageId, guildId) {
         const cachedGuildId = this.channelCache.get(String(channelId || ''))?.guild_id || '';
         const effectiveGuildId = String(guildId || cachedGuildId || '').trim();
+        const forcedBotRoute = this.shouldUseBotForGuild(effectiveGuildId, channelId);
         const primaryAuthHeader = this.getDiscordAuthorizationHeaderForGuild(effectiveGuildId, channelId);
         const fallbackAuthHeader = this.getDiscordAuthorizationHeader();
         const url = `https://discord.com/api/v9/channels/${channelId}/messages`;
@@ -535,10 +536,18 @@ class Bot {
 
         const first = await sendOnce(primaryAuthHeader);
         const usedBotFirst = primaryAuthHeader.startsWith('Bot ');
-        const canFallback = usedBotFirst && !first.ok && (first.status === 401 || first.status === 403) && fallbackAuthHeader !== primaryAuthHeader;
+        const allowForcedBotFallback = process.env.BOT_REPLY_FALLBACK_TO_USER === '1';
+        const canFallback = usedBotFirst
+            && !first.ok
+            && (first.status === 401 || first.status === 403)
+            && fallbackAuthHeader !== primaryAuthHeader
+            && (!forcedBotRoute || allowForcedBotFallback);
         if (canFallback) {
             this.log(`⚠️ Bot auth send failed (${first.status}) in guild ${effectiveGuildId || '?'}, retrying with user auth...`);
             return sendOnce(fallbackAuthHeader);
+        }
+        if (forcedBotRoute && usedBotFirst && !first.ok && (first.status === 401 || first.status === 403)) {
+            this.log(`❌ Bot-only route blocked (${first.status}) in guild ${effectiveGuildId || '?'}, channel ${channelId}. User fallback disabled.`);
         }
         return first;
     }

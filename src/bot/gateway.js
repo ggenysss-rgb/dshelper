@@ -1377,8 +1377,16 @@ function handleDispatch(bot, event, d) {
             // ── Profanity filter — ping @персонал on swear words ──
             let hasProfanity = false;
             if (!isBot && d.guild_id === guildId) {
+                const authorId = String(d.author?.id || '');
+                const isSelfMessage = !!bot.selfUserId && authorId === String(bot.selfUserId);
+                const isTrackedNeuroMessage = !!(d.id && bot._neuroMessageIds?.has(d.id));
                 const isStaff = isStaffFromMember(d.member, staffRoleIds);
-                if (!isStaff) {
+                const cachedMember = authorId ? bot.guildMembersCache.get(authorId) : null;
+                const isStaffByCache = isStaffFromMember(cachedMember, staffRoleIds);
+
+                // Selfbot often gets partial MESSAGE_CREATE payloads (no member roles),
+                // so protect against false alerts on own/staff messages.
+                if (!isSelfMessage && !isTrackedNeuroMessage && !isStaff && !isStaffByCache) {
                     const msgContent = d.content || '';
                     const profanityResult = containsProfanity(msgContent);
                     if (profanityResult.found) {

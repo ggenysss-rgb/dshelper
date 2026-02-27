@@ -135,6 +135,41 @@ function shouldSkipNeuroQuestion(question) {
     return false;
 }
 
+function getBuiltInNeuroReply(question) {
+    const normalized = normalizeNeuroInput(question);
+    if (!normalized) return '';
+
+    const hasSiteKeyword = /\bсайт(а|ом|у|е)?\b/.test(normalized) || /\bfuntime\s*(su|me)\b/.test(normalized);
+    if (hasSiteKeyword) {
+        return 'Что именно не работает?\nfuntime.su\nfuntime.me';
+    }
+
+    return '';
+}
+
+function getDirectNeuroDecision({ question = '', cfg = {}, channelId = '', guildId = '' } = {}) {
+    const builtInReply = getBuiltInNeuroReply(question);
+    if (builtInReply) {
+        return { response: builtInReply, source: 'builtin:site' };
+    }
+
+    const decision = evaluateAutoReplyDecision({
+        rules: cfg.autoReplies || [],
+        content: question,
+        channelId: channelId || '',
+        guildId: guildId || '',
+        source: 'ai_intent',
+    });
+    if (decision.action === 'send' && decision.response) {
+        return {
+            response: decision.response,
+            source: `rule:${decision.ruleName || decision.ruleId || 'auto'}`,
+        };
+    }
+
+    return null;
+}
+
 const DEFAULT_OPENROUTER_MODELS = [
     'stepfun/step-3.5-flash:free',
     'qwen/qwen3-32b:free',
@@ -1262,6 +1297,45 @@ function handleDispatch(bot, event, d) {
                         .trim();
                     // For replies without text / short acknowledgements, skip
                     if (question.length > 0 && !shouldSkipNeuroQuestion(question) && !_neuroProcessed.has(d.id)) {
+                        const direct = getDirectNeuroDecision({
+                            question,
+                            cfg,
+                            channelId: d.channel_id,
+                            guildId: d.guild_id,
+                        });
+                        if (direct?.response) {
+                            _neuroProcessed.add(d.id);
+                            setTimeout(() => _neuroProcessed.delete(d.id), 60000);
+                            bot.log(`🤖 Neuro direct reply [${direct.source}] to ${author.username}: "${question.slice(0, 100)}"`);
+                            (async () => {
+                                try {
+                                    const sentRes = await bot.sendDiscordMessage(d.channel_id, direct.response, d.id);
+                                    if (sentRes.ok) {
+                                        rememberNeuroMessageId(bot, sentRes);
+                                        enqueueNeuroTelegramNotification(bot, {
+                                            channelId: d.channel_id,
+                                            authorUsername: author.username || author.global_name || author.id,
+                                            question,
+                                            answer: direct.response,
+                                        });
+                                        if (bot._convLogger) {
+                                            bot._convLogger.logAIResponse({
+                                                channelId: d.channel_id,
+                                                question: direct.response,
+                                                authorUsername: bot.user?.username || 'Neuro',
+                                            });
+                                        }
+                                        bot.log(`✅ Neuro direct response sent to #${d.channel_id}`);
+                                    } else {
+                                        bot.log(`❌ Failed to send direct reply: ${sentRes.status} ${sentRes.body}`);
+                                    }
+                                } catch (e) {
+                                    bot.log(`❌ Neuro direct reply error: ${e.message}`);
+                                }
+                            })();
+                            break;
+                        }
+
                         _neuroProcessed.add(d.id);
                         setTimeout(() => _neuroProcessed.delete(d.id), 60000); // cleanup after 60s
                         const triggerType = isReplyToNeuro ? 'reply' : 'mention';
@@ -1887,6 +1961,47 @@ function startAutoReplyPolling(bot) {
                                 question = content.trim();
                             }
                             bot._aiMentionFollowups.delete(followupKey);
+
+                            const aiGuildId = msg.guild_id || bot.channelCache.get(channelId)?.guild_id || cfg.guildId || '';
+                            const direct = getDirectNeuroDecision({
+                                question,
+                                cfg,
+                                channelId,
+                                guildId: aiGuildId,
+                            });
+                            if (direct?.response) {
+                                _neuroProcessed.add(msg.id);
+                                setTimeout(() => _neuroProcessed.delete(msg.id), 60000);
+                                bot.log(`🤖 Poll: direct reply [${direct.source}] to ${msg.author.username}: "${question.slice(0, 100)}"`);
+                                (async () => {
+                                    try {
+                                        const sentRes = await bot.sendDiscordMessage(channelId, direct.response, msg.id);
+                                        if (sentRes.ok) {
+                                            rememberNeuroMessageId(bot, sentRes);
+                                            enqueueNeuroTelegramNotification(bot, {
+                                                channelId,
+                                                authorUsername: msg.author?.username || msg.author?.global_name || msg.author?.id,
+                                                question,
+                                                answer: direct.response,
+                                            });
+                                            if (bot._convLogger) {
+                                                bot._convLogger.logAIResponse({
+                                                    channelId,
+                                                    question: direct.response,
+                                                    authorUsername: bot.user?.username || 'Neuro',
+                                                });
+                                            }
+                                            bot.log(`✅ Poll: direct response sent to #${channelId}`);
+                                        } else {
+                                            bot.log(`❌ Poll: failed to send direct reply: ${sentRes.status}`);
+                                        }
+                                    } catch (e) {
+                                        bot.log(`❌ Poll: direct reply error: ${e.message}`);
+                                    }
+                                })();
+                                continue;
+                            }
+
                             _neuroProcessed.add(msg.id);
                             setTimeout(() => _neuroProcessed.delete(msg.id), 60000);
                             if (question.length > 0 && !shouldSkipNeuroQuestion(question)) {

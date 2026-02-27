@@ -555,7 +555,9 @@ async function main() {
 
         // Check if any running bot uses the same TG token as admin
         let adminTokenShared = false;
-        for (const [, bot] of botManager.bots) {
+        console.log(`${LOG} 🔍 Admin token check: admin=${ADMIN_TG_TOKEN ? ADMIN_TG_TOKEN.slice(0,8)+'...' : '(empty)'}, bots=${botManager.bots.size}`);
+        for (const [uid, bot] of botManager.bots) {
+            console.log(`${LOG} 🔍 Bot ${uid} tgToken: ${bot.config.tgToken ? bot.config.tgToken.slice(0,8)+'...' : '(empty)'}, match=${bot.config.tgToken === ADMIN_TG_TOKEN}`);
             if (bot.config.tgToken === ADMIN_TG_TOKEN) {
                 // Register the admin callback handler on this bot so it processes
                 // admin approval callbacks within its own polling loop

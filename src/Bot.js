@@ -136,16 +136,19 @@ class Bot {
         return this.isDiscordBotAuthMode() ? `Bot ${token}` : token;
     }
 
-    shouldUseBotForGuild(guildId) {
+    shouldUseBotForGuild(guildId, channelId) {
         if (!this.config.discordBotToken) return false;
         const gid = String(guildId || '').trim();
-        if (!gid) return false;
+        const cid = String(channelId || '').trim();
         const allowed = Array.isArray(this.config.botReplyGuildIds) ? this.config.botReplyGuildIds.map(String) : [];
-        return allowed.includes(gid);
+        if (!allowed.length) return false;
+        if (gid && allowed.includes(gid)) return true;
+        if (cid && allowed.includes(cid)) return true;
+        return false;
     }
 
-    getDiscordAuthorizationHeaderForGuild(guildId) {
-        if (this.shouldUseBotForGuild(guildId)) {
+    getDiscordAuthorizationHeaderForGuild(guildId, channelId) {
+        if (this.shouldUseBotForGuild(guildId, channelId)) {
             return `Bot ${this.config.discordBotToken}`;
         }
         return this.getDiscordAuthorizationHeader();
@@ -488,7 +491,9 @@ class Bot {
     // ═══════════════════════════════════════════════════════
 
     async sendDiscordMessage(channelId, content, replyToMessageId, guildId) {
-        const primaryAuthHeader = this.getDiscordAuthorizationHeaderForGuild(guildId);
+        const cachedGuildId = this.channelCache.get(String(channelId || ''))?.guild_id || '';
+        const effectiveGuildId = String(guildId || cachedGuildId || '').trim();
+        const primaryAuthHeader = this.getDiscordAuthorizationHeaderForGuild(effectiveGuildId, channelId);
         const fallbackAuthHeader = this.getDiscordAuthorizationHeader();
         const url = `https://discord.com/api/v9/channels/${channelId}/messages`;
         const payload = { content };
@@ -508,7 +513,7 @@ class Bot {
         const usedBotFirst = primaryAuthHeader.startsWith('Bot ');
         const canFallback = usedBotFirst && !first.ok && (first.status === 401 || first.status === 403) && fallbackAuthHeader !== primaryAuthHeader;
         if (canFallback) {
-            this.log(`⚠️ Bot auth send failed (${first.status}) in guild ${guildId || '?'}, retrying with user auth...`);
+            this.log(`⚠️ Bot auth send failed (${first.status}) in guild ${effectiveGuildId || '?'}, retrying with user auth...`);
             return sendOnce(fallbackAuthHeader);
         }
         return first;

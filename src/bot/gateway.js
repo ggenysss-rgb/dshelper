@@ -203,6 +203,51 @@ function shouldSkipNeuroQuestion(question) {
     return false;
 }
 
+function formatMathResult(value) {
+    if (!Number.isFinite(value)) return '';
+    if (Number.isInteger(value)) return String(value);
+    return String(Number(value.toFixed(10))).replace(/\.0+$/, '');
+}
+
+function trySolveMathQuestion(question) {
+    const raw = String(question || '').trim();
+    if (!raw) return '';
+
+    const hasMathIntent = /(реши|решите|пример|посчитай|посчитайте|вычисли|вычислите|сколько будет)/i.test(raw);
+    if (!hasMathIntent) return '';
+
+    // Keep only arithmetic-safe symbols from the original text.
+    const expr = raw
+        .replace(/[,]/g, '.')
+        .replace(/[^0-9+\-*/^().\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (!expr) return '';
+    if (!/[0-9]/.test(expr) || !/[+\-*/^]/.test(expr)) return '';
+    if (expr.length > 80) return '';
+
+    const normalizedExpr = expr
+        .replace(/\^/g, '**')
+        .replace(/\s+/g, '');
+
+    // Strict allow-list before evaluation.
+    if (!/^[0-9+\-*/().]*$/.test(normalizedExpr)) return '';
+    if (/\*\*\*/.test(normalizedExpr)) return '';
+
+    let value;
+    try {
+        value = Function(`"use strict"; return (${normalizedExpr});`)();
+    } catch {
+        return '';
+    }
+
+    if (!Number.isFinite(value)) return '';
+    const result = formatMathResult(value);
+    if (!result) return '';
+    return `${expr} = ${result}`;
+}
+
 const _ruleById = new Map(
     (Array.isArray(funtimeServerRules) ? funtimeServerRules : [])
         .map(r => [String(r?.id || '').trim(), String(r?.text || '').trim()])
@@ -226,6 +271,9 @@ function extractRuleIdFromQuestion(question) {
 function getBuiltInNeuroReply(question) {
     const normalized = normalizeNeuroInput(question);
     if (!normalized) return '';
+
+    const mathReply = trySolveMathQuestion(question);
+    if (mathReply) return mathReply;
 
     const ruleId = extractRuleIdFromQuestion(question);
     if (ruleId && _ruleById.has(ruleId)) {

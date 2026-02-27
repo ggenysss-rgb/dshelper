@@ -2669,7 +2669,7 @@ function startAutoReplyPolling(bot) {
     }, 5000);
 }
 async function generateTicketSummary(bot, channelId, messages) {
-    const cfg = require(path.join(__dirname, '..', '..', 'config.json'));
+    const cfg = bot.config || {};
     const systemPrompt = "Ты — AI-помощник модератора. Твоя задача — сделать очень краткое саммари этого тикета. Выдели главную проблему/вопрос клиента и текущий статус (в процессе, ждет ответа, решено). Пиши по существу, максимум 3 предложения. Язык: русский.";
 
     // limit to last 50 messages to save tokens

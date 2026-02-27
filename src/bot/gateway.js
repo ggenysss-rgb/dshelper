@@ -874,7 +874,7 @@ function _extractRateLimit(headers, provider) {
     const remainReqs = parseInt(headers['x-ratelimit-remaining-requests']) || 0;
     const resetTokens = headers['x-ratelimit-reset-tokens'] || '';
     const resetReqs = headers['x-ratelimit-reset-requests'] || '';
-    
+
     // OpenRouter specific
     const orLimit = parseInt(headers['x-ratelimit-limit']) || 0;
     const orRemain = parseInt(headers['x-ratelimit-remaining']) || 0;
@@ -902,13 +902,13 @@ function _extractRateLimit(headers, provider) {
     return Object.keys(rl).length > 0 ? rl : null;
 }
 
-// Gemini daily limits (free tier defaults)
+// Gemini daily limits (free tier) — daily limit is REQUESTS only, tokens are per-minute (TPM)
 const GEMINI_DAILY_LIMITS = {
-    'gemini-2.0-flash': { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
-    'gemini-1.5-flash': { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
-    'gemini-1.5-pro': { requestsPerDay: 50, tokensPerDay: 1_000_000 },
-    'gemini-2.0-flash-lite': { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
-    default: { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
+    'gemini-2.0-flash': { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
+    'gemini-1.5-flash': { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
+    'gemini-1.5-pro': { requestsPerDay: 50, tokensPerMin: 32_000 },
+    'gemini-2.0-flash-lite': { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
+    default: { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
 };
 
 function _trackGeminiDailyUsage(entry, model, tokens) {
@@ -923,16 +923,15 @@ function _trackGeminiDailyUsage(entry, model, tokens) {
     entry.geminiDaily.models[cleanModel].tokens += tokens;
     entry.geminiDaily.totalRequests++;
     entry.geminiDaily.totalTokens += tokens;
-    
-    // Calculate limits for this model
+
+    // Calculate limits — daily limit is on REQUESTS, not tokens
     const limits = GEMINI_DAILY_LIMITS[cleanModel] || GEMINI_DAILY_LIMITS.default;
     entry.rateLimits = entry.rateLimits || {};
     entry.rateLimits.gemini = {
         limitRequests: limits.requestsPerDay,
         remainingRequests: Math.max(0, limits.requestsPerDay - entry.geminiDaily.totalRequests),
-        limitTokens: limits.tokensPerDay,
-        remainingTokens: Math.max(0, limits.tokensPerDay - entry.geminiDaily.totalTokens),
-        usedPct: Math.round((entry.geminiDaily.totalTokens / limits.tokensPerDay) * 100),
+        tokensPerMin: limits.tokensPerMin,
+        usedPct: Math.round((entry.geminiDaily.totalRequests / limits.requestsPerDay) * 100),
         dailyDate: today,
         dailyRequests: entry.geminiDaily.totalRequests,
         dailyTokens: entry.geminiDaily.totalTokens,

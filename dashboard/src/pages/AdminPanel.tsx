@@ -6,7 +6,7 @@ import client from '../api/client';
 type DashUser = { id: number; username: string; role: 'admin' | 'user' | 'pending' | 'banned'; created_at: number };
 type ModelStats = { requests: number; tokens: number };
 type ProviderStats = { requests: number; errors: number; promptTokens: number; completionTokens: number; totalTokens: number; models: Record<string, ModelStats> };
-type RateLimit = { limitTokens?: number; remainingTokens?: number; limitRequests?: number; remainingRequests?: number; usedPct?: number; creditsRemaining?: number; creditsLimit?: number; dailyDate?: string; dailyRequests?: number; dailyTokens?: number; updatedAt?: string; resetTokens?: string; resetRequests?: string };
+type RateLimit = { limitTokens?: number; remainingTokens?: number; limitRequests?: number; remainingRequests?: number; usedPct?: number; creditsRemaining?: number; creditsLimit?: number; dailyDate?: string; dailyRequests?: number; dailyTokens?: number; tokensPerMin?: number; updatedAt?: string; resetTokens?: string; resetRequests?: string };
 type GeminiDaily = { date: string; totalRequests: number; totalTokens: number; models: Record<string, { requests: number; tokens: number }> };
 type AiStats = { totalRequests: number; totalErrors: number; totalTokens: number; startedAt: string | null; lastRequestAt: string | null; providers: Record<string, ProviderStats>; rateLimits?: Record<string, RateLimit>; geminiDaily?: GeminiDaily | null };
 
@@ -97,6 +97,14 @@ function RateLimitCard({ name, rl }: { name: string; rl: RateLimit }) {
                     {rl.resetTokens && <span>Сброс токенов: {rl.resetTokens}</span>}
                     {rl.resetTokens && rl.resetRequests && <span> · </span>}
                     {rl.resetRequests && <span>Сброс запросов: {rl.resetRequests}</span>}
+                </div>
+            )}
+
+            {/* Gemini: TPM + daily tokens used */}
+            {isGemini && (
+                <div className="text-xs text-muted-foreground mt-2 pt-2 border-t border-border/30 space-y-1">
+                    {rl.tokensPerMin && <div>⚡ Лимит: <span className="font-medium text-foreground">{fmtShort(rl.tokensPerMin)}</span> токенов/мин (TPM)</div>}
+                    {rl.dailyTokens !== undefined && <div>📊 Использовано за день: <span className="font-medium text-foreground">{fmt(rl.dailyTokens)}</span> токенов</div>}
                 </div>
             )}
         </div>

@@ -42,6 +42,7 @@ function loadSystemPrompt() {
     try {
         // Base prompt from repo
         let prompt = fs.readFileSync(_systemPromptPath, 'utf8');
+        prompt += '\n\n[СИСТЕМА] Тон ответа: дружелюбный, спокойный, уважительный. Без грубости и токсичности.';
 
         // Large knowledge is injected via retrieval (RAG) at request-time, not appended entirely.
         const knowledgePath = path.join(_dataDir, 'learned_knowledge.json');
@@ -203,49 +204,42 @@ function shouldSkipNeuroQuestion(question) {
     return false;
 }
 
-function formatMathResult(value) {
-    if (!Number.isFinite(value)) return '';
-    if (Number.isInteger(value)) return String(value);
-    return String(Number(value.toFixed(10))).replace(/\.0+$/, '');
-}
+function splitDiscordMessage(text, maxLen = 1850) {
+    const cleaned = String(text || '').replace(/\r\n/g, '\n').trim();
+    if (!cleaned) return [];
+    if (cleaned.length <= maxLen) return [cleaned];
 
-function trySolveMathQuestion(question) {
-    const raw = String(question || '').trim();
-    if (!raw) return '';
+    const parts = [];
+    let remaining = cleaned;
+    while (remaining.length > 0) {
+        if (remaining.length <= maxLen) {
+            parts.push(remaining);
+            break;
+        }
+        let cut = remaining.lastIndexOf('\n\n', maxLen);
+        if (cut < Math.floor(maxLen * 0.4)) cut = remaining.lastIndexOf('\n', maxLen);
+        if (cut < Math.floor(maxLen * 0.4)) cut = remaining.lastIndexOf('. ', maxLen);
+        if (cut < Math.floor(maxLen * 0.4)) cut = maxLen;
 
-    const hasMathIntent = /(реши|решите|пример|посчитай|посчитайте|вычисли|вычислите|сколько будет)/i.test(raw);
-    if (!hasMathIntent) return '';
-
-    // Keep only arithmetic-safe symbols from the original text.
-    const expr = raw
-        .replace(/[,]/g, '.')
-        .replace(/[^0-9+\-*/^().\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    if (!expr) return '';
-    if (!/[0-9]/.test(expr) || !/[+\-*/^]/.test(expr)) return '';
-    if (expr.length > 80) return '';
-
-    const normalizedExpr = expr
-        .replace(/\^/g, '**')
-        .replace(/\s+/g, '');
-
-    // Strict allow-list before evaluation.
-    if (!/^[0-9+\-*/().]*$/.test(normalizedExpr)) return '';
-    if (/\*\*\*/.test(normalizedExpr)) return '';
-
-    let value;
-    try {
-        value = Function(`"use strict"; return (${normalizedExpr});`)();
-    } catch {
-        return '';
+        const chunk = remaining.slice(0, cut).trim();
+        if (chunk) parts.push(chunk);
+        remaining = remaining.slice(cut).trimStart();
     }
 
-    if (!Number.isFinite(value)) return '';
-    const result = formatMathResult(value);
-    if (!result) return '';
-    return `${expr} = ${result}`;
+    return parts.filter(Boolean);
+}
+
+async function sendDiscordMessageSmart(bot, channelId, content, replyToMessageId) {
+    const parts = splitDiscordMessage(content, 1850);
+    if (parts.length === 0) return { ok: false, status: 400, body: 'empty_message' };
+
+    let firstRes = null;
+    for (let i = 0; i < parts.length; i++) {
+        const res = await bot.sendDiscordMessage(channelId, parts[i], i === 0 ? replyToMessageId : undefined);
+        if (!firstRes) firstRes = res;
+        if (!res.ok) return res;
+    }
+    return firstRes || { ok: false, status: 500, body: 'send_failed' };
 }
 
 const _ruleById = new Map(
@@ -271,9 +265,6 @@ function extractRuleIdFromQuestion(question) {
 function getBuiltInNeuroReply(question) {
     const normalized = normalizeNeuroInput(question);
     if (!normalized) return '';
-
-    const mathReply = trySolveMathQuestion(question);
-    if (mathReply) return mathReply;
 
     const ruleId = extractRuleIdFromQuestion(question);
     if (ruleId && _ruleById.has(ruleId)) {
@@ -1486,7 +1477,7 @@ function handleDispatch(bot, event, d) {
                             bot.log(`🤖 Neuro direct reply [${direct.source}] to ${author.username}: "${question.slice(0, 100)}"`);
                             (async () => {
                                 try {
-                                    const sentRes = await bot.sendDiscordMessage(d.channel_id, direct.response, d.id);
+                                    const sentRes = await sendDiscordMessageSmart(bot, d.channel_id, direct.response, d.id);
                                     if (sentRes.ok) {
                                         rememberNeuroMessageId(bot, sentRes);
                                         enqueueNeuroTelegramNotification(bot, {
@@ -1587,7 +1578,7 @@ function handleDispatch(bot, event, d) {
                                     }
                                     answerText = quality.text;
 
-                                    const sentRes = await bot.sendDiscordMessage(d.channel_id, answerText, d.id);
+                                    const sentRes = await sendDiscordMessageSmart(bot, d.channel_id, answerText, d.id);
                                     if (sentRes.ok) {
                                         bot.log(`✅ Neuro response sent to #${d.channel_id}`);
                                         rememberNeuroMessageId(bot, sentRes);
@@ -2154,7 +2145,7 @@ function startAutoReplyPolling(bot) {
                                 bot.log(`🤖 Poll: direct reply [${direct.source}] to ${msg.author.username}: "${question.slice(0, 100)}"`);
                                 (async () => {
                                     try {
-                                        const sentRes = await bot.sendDiscordMessage(channelId, direct.response, msg.id);
+                                        const sentRes = await sendDiscordMessageSmart(bot, channelId, direct.response, msg.id);
                                         if (sentRes.ok) {
                                             rememberNeuroMessageId(bot, sentRes);
                                             enqueueNeuroTelegramNotification(bot, {
@@ -2244,7 +2235,7 @@ function startAutoReplyPolling(bot) {
                                             }
                                             answerText = quality.text;
 
-                                            const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);
+                                            const sentRes = await sendDiscordMessageSmart(bot, channelId, answerText, msg.id);
                                             if (sentRes.ok) {
                                                 bot.log(`✅ Poll: Neuro response sent to #${channelId}`);
                                                 rememberNeuroMessageId(bot, sentRes);

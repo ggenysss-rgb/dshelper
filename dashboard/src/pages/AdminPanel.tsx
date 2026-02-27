@@ -222,6 +222,30 @@ export default function AdminPanel() {
                         <div className="flex items-center justify-center py-16 text-muted-foreground"><RefreshCw className="w-5 h-5 animate-spin mr-2" /> Загрузка...</div>
                     ) : aiStats ? (
                         <>
+                            {/* ── Total Usage Banner ── */}
+                            <div className="bg-card border border-border rounded-xl p-5 mb-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Всего потрачено токенов</div>
+                                        <div className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">{fmt(aiStats.totalTokens)}</div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-6 text-center">
+                                        <div>
+                                            <div className="text-lg font-bold text-foreground">{fmt(aiStats.totalRequests)}</div>
+                                            <div className="text-[10px] text-muted-foreground">запросов</div>
+                                        </div>
+                                        <div>
+                                            <div className={`text-lg font-bold ${aiStats.totalErrors > 0 ? 'text-red-400' : 'text-green-400'}`}>{fmt(aiStats.totalErrors)}</div>
+                                            <div className="text-[10px] text-muted-foreground">ошибок</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-sm font-medium text-foreground">{fmtDate(aiStats.lastRequestAt)}</div>
+                                            <div className="text-[10px] text-muted-foreground">последний</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* ── Rate Limits Section ── */}
                             {aiStats.rateLimits && Object.keys(aiStats.rateLimits).length > 0 && (
                                 <div className="mb-6">
@@ -236,26 +260,6 @@ export default function AdminPanel() {
                                     </div>
                                 </div>
                             )}
-
-                            {/* ── Summary Cards ── */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                                <div className="bg-card border border-border rounded-xl p-4">
-                                    <div className="text-xs text-muted-foreground mb-1">Запросов</div>
-                                    <div className="text-2xl font-bold text-foreground">{fmt(aiStats.totalRequests)}</div>
-                                </div>
-                                <div className="bg-card border border-border rounded-xl p-4">
-                                    <div className="text-xs text-muted-foreground mb-1">Ошибок</div>
-                                    <div className={`text-2xl font-bold ${aiStats.totalErrors > 0 ? 'text-red-400' : 'text-green-400'}`}>{fmt(aiStats.totalErrors)}</div>
-                                </div>
-                                <div className="bg-card border border-border rounded-xl p-4">
-                                    <div className="text-xs text-muted-foreground mb-1">Всего токенов</div>
-                                    <div className="text-2xl font-bold text-foreground">{fmt(aiStats.totalTokens)}</div>
-                                </div>
-                                <div className="bg-card border border-border rounded-xl p-4">
-                                    <div className="text-xs text-muted-foreground mb-1">Последний</div>
-                                    <div className="text-sm font-medium text-foreground">{fmtDate(aiStats.lastRequestAt)}</div>
-                                </div>
-                            </div>
 
                             {/* ── Provider Breakdown ── */}
                             <div className="space-y-4">

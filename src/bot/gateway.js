@@ -9,6 +9,7 @@ const { buildTicketCreatedMessage, buildFirstMessageNotification, buildTicketClo
 const { containsProfanity } = require('./profanityFilter');
 const ConversationLogger = require('./conversationLogger');
 const { evaluateAutoReplyDecision } = require('./autoReplyEngine');
+const { buildRagContextMessage, sanitizeResponseLinks } = require('./ragEngine');
 
 const GATEWAY_URL = 'wss://gateway.discord.gg/?v=9&encoding=json';
 const RESUMABLE_CODES = [4000, 4001, 4002, 4003, 4005, 4007, 4009];
@@ -33,26 +34,14 @@ function loadSystemPrompt() {
         const promptPath = path.join(__dirname, '..', '..', 'neuro_style_prompt.txt');
         let prompt = fs.readFileSync(promptPath, 'utf8');
 
-        // Load structured learned knowledge
+        // Large knowledge is injected via retrieval (RAG) at request-time, not appended entirely.
         const knowledgePath = path.join(_dataDir, 'learned_knowledge.json');
         if (fs.existsSync(knowledgePath)) {
             try {
                 const knowledge = JSON.parse(fs.readFileSync(knowledgePath, 'utf8'));
-                const qaPairs = knowledge.filter(k => k.type === 'qa' && k.question && k.answer);
-                const facts = knowledge.filter(k => k.type === 'fact' && k.content);
-
-                if (qaPairs.length > 0) {
-                    prompt += '\n\nВЫУЧЕННЫЕ ОТВЕТЫ (используй эти ответы когда спрашивают похожее):\n';
-                    // Take last 100 Q&A pairs to avoid token overflow
-                    for (const qa of qaPairs.slice(-100)) {
-                        prompt += `В: "${qa.question}" → О: "${qa.answer}"\n`;
-                    }
-                }
-                if (facts.length > 0) {
-                    prompt += '\nВЫУЧЕННЫЕ ФАКТЫ (запомни и используй в подходящем контексте):\n';
-                    for (const f of facts.slice(-100)) {
-                        prompt += `- ${f.content}\n`;
-                    }
+                const count = Array.isArray(knowledge) ? knowledge.length : 0;
+                if (count > 0) {
+                    prompt += `\n\n[СИСТЕМА] Дополнительные знания (${count} записей) подаются через RAG-контекст.`;
                 }
             } catch (e) {
                 console.log(`[Neuro] Failed to parse learned_knowledge.json: ${e.message}`);
@@ -883,6 +872,17 @@ function handleDispatch(bot, event, d) {
 
                                 // Build OpenAI-compatible messages array for Groq
                                 const messages = [{ role: 'system', content: systemPrompt }];
+                                const ragContext = buildRagContextMessage({
+                                    query: question,
+                                    dataDir: bot.dataDir || _dataDir,
+                                    config: cfg,
+                                    topK: 8,
+                                    maxContextChars: 2600,
+                                });
+                                if (ragContext.message) {
+                                    messages.push({ role: 'system', content: ragContext.message });
+                                    bot.log(`📚 RAG context attached: ${ragContext.snippetCount} snippets`);
+                                }
 
                                 appendHistoryMessages(bot, messages, channelHistory);
 
@@ -922,6 +922,13 @@ function handleDispatch(bot, event, d) {
                                 }
 
                                 if (answerText) {
+                                    const guarded = sanitizeResponseLinks(answerText);
+                                    answerText = guarded.text;
+                                    if (guarded.replacedCount > 0) {
+                                        const blockedPreview = guarded.blockedUrls.slice(0, 3).join(', ');
+                                        bot.log(`🛡️ Link guard replaced ${guarded.replacedCount} URL(s)${blockedPreview ? `: ${blockedPreview}` : ''}`);
+                                    }
+
                                     const sentRes = await bot.sendDiscordMessage(d.channel_id, answerText, d.id);
                                     if (sentRes.ok) {
                                         bot.log(`✅ Neuro response sent to #${d.channel_id}`);
@@ -1485,6 +1492,17 @@ function startAutoReplyPolling(bot) {
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
                                         const messages = [{ role: 'system', content: systemPrompt }];
+                                        const ragContext = buildRagContextMessage({
+                                            query: question,
+                                            dataDir: bot.dataDir || _dataDir,
+                                            config: cfg,
+                                            topK: 8,
+                                            maxContextChars: 2600,
+                                        });
+                                        if (ragContext.message) {
+                                            messages.push({ role: 'system', content: ragContext.message });
+                                            bot.log(`📚 Poll RAG context attached: ${ragContext.snippetCount} snippets`);
+                                        }
                                         appendHistoryMessages(bot, messages, channelHistory);
                                         if (prevBotReply && !channelHistory.some(e => e.type === 'ai_question' && (e.question || e.answer || '').includes(prevBotReply.slice(0, 50)))) {
                                             if (messages.length > 1 && messages[messages.length - 1].role === 'assistant') {
@@ -1514,6 +1532,13 @@ function startAutoReplyPolling(bot) {
                                             bot.log(`⚠️ Poll: StepFun Error: ${res.status} ${JSON.stringify(data?.error || data)}`);
                                         }
                                         if (answerText) {
+                                            const guarded = sanitizeResponseLinks(answerText);
+                                            answerText = guarded.text;
+                                            if (guarded.replacedCount > 0) {
+                                                const blockedPreview = guarded.blockedUrls.slice(0, 3).join(', ');
+                                                bot.log(`🛡️ Poll link guard replaced ${guarded.replacedCount} URL(s)${blockedPreview ? `: ${blockedPreview}` : ''}`);
+                                            }
+
                                             const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);
                                             if (sentRes.ok) {
                                                 bot.log(`✅ Poll: Neuro response sent to #${channelId}`);

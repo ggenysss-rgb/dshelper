@@ -211,6 +211,11 @@ function getBuiltInNeuroReply(question) {
         return 'Что именно не работает?\nfuntime.su\nfuntime.me';
     }
 
+    const asksRule91 = /\bправил[аоыуе]?\b/.test(normalized) && (/\b9\s*1\b/.test(normalized) || /\b91\b/.test(normalized));
+    if (asksRule91) {
+        return '9.1 — попытки махинаций с оплатами или ввод администрации в заблуждение. Наказание: бан без возврата средств.';
+    }
+
     return '';
 }
 
@@ -235,6 +240,42 @@ function getDirectNeuroDecision({ question = '', cfg = {}, channelId = '', guild
     }
 
     return null;
+}
+
+function getLetterStats(text) {
+    const raw = String(text || '');
+    return {
+        cyr: (raw.match(/[А-Яа-яЁё]/g) || []).length,
+        lat: (raw.match(/[A-Za-z]/g) || []).length,
+    };
+}
+
+function enforceNeuroAnswerQuality({ question = '', answerText = '', cfg = {}, channelId = '', guildId = '' } = {}) {
+    let text = String(answerText || '').trim();
+    if (!text) return { text: '', replaced: false, reason: '' };
+
+    // Trim common broken prefixes like `".` or stray wrapping quotes.
+    text = text
+        .replace(/^["'`]+\s*/, '')
+        .replace(/\s*["'`]+$/, '')
+        .replace(/^\.\s+/, '')
+        .trim();
+
+    const qStats = getLetterStats(question);
+    const aStats = getLetterStats(text);
+    const questionMostlyRu = qStats.cyr >= Math.max(2, qStats.lat);
+    const answerLooksEnglish = aStats.lat >= 12 && (aStats.cyr === 0 || aStats.lat > aStats.cyr * 2.5);
+
+    if (questionMostlyRu && answerLooksEnglish) {
+        const direct = getDirectNeuroDecision({ question, cfg, channelId, guildId });
+        return {
+            text: direct?.response || 'Уточни вопрос, ответ выше вышел не по теме.',
+            replaced: true,
+            reason: 'english_guard',
+        };
+    }
+
+    return { text, replaced: false, reason: '' };
 }
 
 const DEFAULT_OPENROUTER_MODELS = [
@@ -1448,6 +1489,17 @@ function handleDispatch(bot, event, d) {
                                         const blockedPreview = guarded.blockedUrls.slice(0, 3).join(', ');
                                         bot.log(`🛡️ Link guard replaced ${guarded.replacedCount} URL(s)${blockedPreview ? `: ${blockedPreview}` : ''}`);
                                     }
+                                    const quality = enforceNeuroAnswerQuality({
+                                        question,
+                                        answerText,
+                                        cfg,
+                                        channelId: d.channel_id,
+                                        guildId: d.guild_id,
+                                    });
+                                    if (quality.replaced) {
+                                        bot.log(`🛡️ Neuro quality guard replaced AI output (${quality.reason})`);
+                                    }
+                                    answerText = quality.text;
 
                                     const sentRes = await bot.sendDiscordMessage(d.channel_id, answerText, d.id);
                                     if (sentRes.ok) {
@@ -2094,6 +2146,17 @@ function startAutoReplyPolling(bot) {
                                                 const blockedPreview = guarded.blockedUrls.slice(0, 3).join(', ');
                                                 bot.log(`🛡️ Poll link guard replaced ${guarded.replacedCount} URL(s)${blockedPreview ? `: ${blockedPreview}` : ''}`);
                                             }
+                                            const quality = enforceNeuroAnswerQuality({
+                                                question,
+                                                answerText,
+                                                cfg,
+                                                channelId,
+                                                guildId: aiGuildId,
+                                            });
+                                            if (quality.replaced) {
+                                                bot.log(`🛡️ Poll quality guard replaced AI output (${quality.reason})`);
+                                            }
+                                            answerText = quality.text;
 
                                             const sentRes = await bot.sendDiscordMessage(channelId, answerText, msg.id);
                                             if (sentRes.ok) {

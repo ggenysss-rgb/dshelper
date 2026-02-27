@@ -887,8 +887,8 @@ function trackAiUsage(bot, result) {
     entry.totalTokens += total;
     entry.lastRequestAt = new Date().toISOString();
 
-    // Persist every 5 requests
-    if (entry.totalRequests % 5 === 0) _saveAiUsage(bot, entry);
+    // Persist immediately for real-time dashboard
+    _saveAiUsage(bot, entry);
 }
 
 function trackAiError(bot, provider) {

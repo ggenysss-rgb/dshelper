@@ -145,9 +145,16 @@ const DEFAULT_GROQ_MODELS = [
     'llama-3.3-70b-versatile',
 ];
 const DEFAULT_GEMINI_MODELS = [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-pro-latest',
     'gemini-1.5-flash',
     'gemini-1.5-pro',
 ];
+const DEFAULT_GEMINI_API_VERSIONS = ['v1beta', 'v1'];
+const GEMINI_MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
+const _geminiModelCache = new Map();
 
 function splitKeyList(raw) {
     return String(raw || '')
@@ -244,6 +251,13 @@ function getProviderModels(envName, fallback) {
     return fromEnv.length > 0 ? fromEnv : fallback;
 }
 
+function getProviderApiVersions(envName, fallback) {
+    const fromEnv = splitKeyList(process.env[envName] || '')
+        .map(v => v.replace(/^\/+|\/+$/g, '').trim())
+        .filter(Boolean);
+    return fromEnv.length > 0 ? fromEnv : fallback;
+}
+
 function parseProviderBody(body) {
     try { return JSON.parse(body || '{}'); } catch { return {}; }
 }
@@ -263,6 +277,27 @@ function getGeminiAnswer(data) {
     return parts.map(p => String(p?.text || '')).join('\n').trim();
 }
 
+function normalizeGeminiModelName(name) {
+    return String(name || '').replace(/^models\//, '').trim();
+}
+
+function supportsGeminiGenerateContent(modelInfo) {
+    const methods = Array.isArray(modelInfo?.supportedGenerationMethods)
+        ? modelInfo.supportedGenerationMethods
+        : [];
+    return methods.includes('generateContent') || methods.includes('streamGenerateContent');
+}
+
+function rankGeminiModel(name) {
+    const n = String(name || '').toLowerCase();
+    if (n.includes('2.5') && n.includes('flash')) return 100;
+    if (n.includes('2.0') && n.includes('flash')) return 95;
+    if (n.includes('1.5') && n.includes('flash')) return 90;
+    if (n.includes('1.5') && n.includes('pro')) return 80;
+    if (n.includes('pro')) return 70;
+    return 50;
+}
+
 function stringifyProviderError(status, data) {
     const err = data?.error || data?.message || data;
     const base = typeof err === 'string' ? err : JSON.stringify(err || {});
@@ -275,6 +310,61 @@ function isProviderRetryable(status) {
 
 function isProviderKeyRejected(status) {
     return status === 401 || status === 403;
+}
+
+function isGeminiModelVersionMiss(status, data) {
+    if (status !== 404) return false;
+    const text = JSON.stringify(data || {}).toLowerCase();
+    return text.includes('not found for api version') || text.includes('is not supported for generatecontent');
+}
+
+async function fetchGeminiModels(bot, apiKey, apiVersion, logPrefix = '') {
+    const url = `https://generativelanguage.googleapis.com/${apiVersion}/models?key=${encodeURIComponent(apiKey)}&pageSize=200`;
+    try {
+        const res = await bot.httpGet(url);
+        const data = parseProviderBody(res.body);
+        if (!res.ok) {
+            return { ok: false, models: [], error: stringifyProviderError(res.status, data), status: res.status };
+        }
+        const list = Array.isArray(data?.models) ? data.models : [];
+        const models = list
+            .filter(m => supportsGeminiGenerateContent(m))
+            .map(m => normalizeGeminiModelName(m?.name))
+            .filter(name => name.toLowerCase().startsWith('gemini'))
+            .sort((a, b) => rankGeminiModel(b) - rankGeminiModel(a));
+        return { ok: true, models: [...new Set(models)], error: '', status: res.status };
+    } catch (e) {
+        bot.log(`⚠️ ${logPrefix}gemini listModels network error [${apiVersion}]: ${e.message}`);
+        return { ok: false, models: [], error: `network ${e.message}`, status: 0 };
+    }
+}
+
+async function getGeminiCandidateModels(bot, apiKey, configuredModels, versions, logPrefix = '') {
+    const cleanConfigured = (Array.isArray(configuredModels) ? configuredModels : [])
+        .map(m => normalizeGeminiModelName(m))
+        .filter(Boolean);
+    const cacheKey = String(apiKey || '');
+    const now = Date.now();
+    const cached = _geminiModelCache.get(cacheKey);
+    if (cached && now - cached.ts < GEMINI_MODEL_CACHE_TTL_MS && Array.isArray(cached.models) && cached.models.length > 0) {
+        return [...new Set([...cached.models, ...cleanConfigured])];
+    }
+
+    const discovered = [];
+    for (const version of versions) {
+        const info = await fetchGeminiModels(bot, apiKey, version, logPrefix);
+        if (info.ok && info.models.length > 0) {
+            discovered.push(...info.models);
+        }
+    }
+
+    const uniqueDiscovered = [...new Set(discovered)];
+    if (uniqueDiscovered.length > 0) {
+        _geminiModelCache.set(cacheKey, { ts: now, models: uniqueDiscovered });
+        bot.log(`ℹ️ ${logPrefix}gemini listModels: ${uniqueDiscovered.length} generateContent models available`);
+    }
+
+    return [...new Set([...uniqueDiscovered, ...cleanConfigured])];
 }
 
 async function requestOpenAiCompatibleAnswer(bot, provider, endpoint, apiKey, models, messages, logPrefix = '', keyIndex = 0) {
@@ -323,35 +413,46 @@ async function requestGeminiAnswer(bot, apiKey, models, messages, logPrefix = ''
     const prompt = buildGeminiPrompt(messages);
     if (!prompt) return { ok: false, answerText: '', model: '', provider: 'gemini', error: 'empty prompt' };
 
-    for (const model of models) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const payload = {
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 800,
-            },
-        };
+    const versions = getProviderApiVersions('GEMINI_API_VERSIONS', DEFAULT_GEMINI_API_VERSIONS);
+    const candidateModels = await getGeminiCandidateModels(bot, apiKey, models, versions, logPrefix);
+    const finalModels = candidateModels.length > 0 ? candidateModels : models;
 
-        let res;
-        try {
-            res = await bot.httpPost(url, payload);
-        } catch (e) {
-            lastError = `network ${e.message}`;
-            bot.log(`⚠️ ${logPrefix}gemini network error [${model}]: ${e.message}`);
-            await sleep(350);
-            continue;
+    for (const modelRaw of finalModels) {
+        const model = normalizeGeminiModelName(modelRaw);
+        if (!model) continue;
+
+        for (const version of versions) {
+            const url = `https://generativelanguage.googleapis.com/${version}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const payload = {
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.7,
+                    maxOutputTokens: 800,
+                },
+            };
+
+            let res;
+            try {
+                res = await bot.httpPost(url, payload);
+            } catch (e) {
+                lastError = `network ${e.message}`;
+                bot.log(`⚠️ ${logPrefix}gemini network error [${model}@${version}]: ${e.message}`);
+                await sleep(350);
+                continue;
+            }
+
+            const data = parseProviderBody(res.body);
+            const answerText = getGeminiAnswer(data);
+            if (res.ok && answerText) return { ok: true, answerText, model: `${model}@${version}`, provider: 'gemini', error: '' };
+
+            const err = stringifyProviderError(res.status, data);
+            lastError = err;
+            bot.log(`⚠️ ${logPrefix}gemini error [${model}@${version}${keyIndex > 0 ? `, key#${keyIndex + 1}` : ''}]: ${err}`);
+
+            if (isProviderKeyRejected(res.status)) break;
+            if (isGeminiModelVersionMiss(res.status, data)) continue;
+            if (isProviderRetryable(res.status)) await sleep(350);
         }
-
-        const data = parseProviderBody(res.body);
-        const answerText = getGeminiAnswer(data);
-        if (res.ok && answerText) return { ok: true, answerText, model, provider: 'gemini', error: '' };
-
-        const err = stringifyProviderError(res.status, data);
-        lastError = err;
-        bot.log(`⚠️ ${logPrefix}gemini error [${model}${keyIndex > 0 ? `, key#${keyIndex + 1}` : ''}]: ${err}`);
-        if (isProviderKeyRejected(res.status)) break;
-        if (isProviderRetryable(res.status)) await sleep(350);
     }
 
     return { ok: false, answerText: '', model: '', provider: 'gemini', error: lastError };

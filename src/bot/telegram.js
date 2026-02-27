@@ -62,6 +62,28 @@ async function handleMessage(bot, msg) {
                 await bot.tgSendMessage(chatId, buildStartMessage(bot.activeTickets.size, bot.config));
                 break;
 
+            case '/web': case '/dashboard': case '/app': {
+                const domain = process.env.DASHBOARD_URL
+                    || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '')
+                    || (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : '');
+                if (!domain) {
+                    await bot.tgSendMessage(chatId, '❌ Dashboard URL не настроен.\n\nУстанови переменную <code>DASHBOARD_URL</code> в Railway (например <code>https://your-app.up.railway.app</code>).');
+                    break;
+                }
+                const url = domain.replace(/\/+$/, '');
+                await bot.tgSendMessage(chatId,
+                    ['╔══════════════════════════╗', '║  🌐  <b>DASHBOARD</b>', '╚══════════════════════════╝', '',
+                        'Нажми кнопку ниже — откроется панель управления прямо в Telegram! 🚀'].join('\n'),
+                    {
+                        inline_keyboard: [
+                            [{ text: '🖥 Открыть Dashboard', web_app: { url } }],
+                            [{ text: '🔗 Открыть в браузере', url }],
+                        ]
+                    }
+                );
+                break;
+            }
+
             case '/list': {
                 const tickets = bot.getTicketList();
                 if (tickets.length === 0) {

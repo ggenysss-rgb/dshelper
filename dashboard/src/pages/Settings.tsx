@@ -168,6 +168,20 @@ export default function Settings() {
                         placeholder={"openrouter:sk-or-v1-...\ngroq:gsk_...\ngemini:AIza..."}
                     />
                 </div>
+                <div className="py-3 last:border-0">
+                    <span className="text-sm font-medium text-foreground">Указания для ИИ</span>
+                    <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                        Запишите указания и правила поведения для ИИ. Каждое указание на отдельной строке.
+                        Эти указания добавляются к системному промпту автоматически — не нужно редактировать промпт вручную.
+                    </p>
+                    <textarea
+                        value={Array.isArray(s.neuroCustomInstructions) ? s.neuroCustomInstructions.join('\n') : (typeof s.neuroCustomInstructions === 'string' ? s.neuroCustomInstructions : '')}
+                        onChange={e => update('neuroCustomInstructions', e.target.value.split('\n'))}
+                        rows={5}
+                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary mt-1 resize-y"
+                        placeholder={"Говори прямо и коротко\nНе извиняйся\nНе используй смайлики\nЕсли не знаешь — говори \"не знаю\""}
+                    />
+                </div>
             </motion.div>
         </div>
     );

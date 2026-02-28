@@ -902,43 +902,6 @@ function _extractRateLimit(headers, provider) {
     return Object.keys(rl).length > 0 ? rl : null;
 }
 
-// Gemini daily limits (free tier) — daily limit is REQUESTS only, tokens are per-minute (TPM)
-const GEMINI_DAILY_LIMITS = {
-    'gemini-2.0-flash': { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
-    'gemini-1.5-flash': { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
-    'gemini-1.5-pro': { requestsPerDay: 50, tokensPerMin: 32_000 },
-    'gemini-2.0-flash-lite': { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
-    default: { requestsPerDay: 1500, tokensPerMin: 1_000_000 },
-};
-
-function _trackGeminiDailyUsage(entry, model, tokens) {
-    if (!entry.geminiDaily) entry.geminiDaily = { date: '', models: {}, totalRequests: 0, totalTokens: 0 };
-    const today = new Date().toISOString().slice(0, 10);
-    if (entry.geminiDaily.date !== today) {
-        entry.geminiDaily = { date: today, models: {}, totalRequests: 0, totalTokens: 0 };
-    }
-    const cleanModel = (model || '').split('@')[0];
-    if (!entry.geminiDaily.models[cleanModel]) entry.geminiDaily.models[cleanModel] = { requests: 0, tokens: 0 };
-    entry.geminiDaily.models[cleanModel].requests++;
-    entry.geminiDaily.models[cleanModel].tokens += tokens;
-    entry.geminiDaily.totalRequests++;
-    entry.geminiDaily.totalTokens += tokens;
-
-    // Calculate limits — daily limit is on REQUESTS, not tokens
-    const limits = GEMINI_DAILY_LIMITS[cleanModel] || GEMINI_DAILY_LIMITS.default;
-    entry.rateLimits = entry.rateLimits || {};
-    entry.rateLimits.gemini = {
-        limitRequests: limits.requestsPerDay,
-        remainingRequests: Math.max(0, limits.requestsPerDay - entry.geminiDaily.totalRequests),
-        tokensPerMin: limits.tokensPerMin,
-        usedPct: Math.round((entry.geminiDaily.totalRequests / limits.requestsPerDay) * 100),
-        dailyDate: today,
-        dailyRequests: entry.geminiDaily.totalRequests,
-        dailyTokens: entry.geminiDaily.totalTokens,
-        updatedAt: new Date().toISOString(),
-    };
-}
-
 // ── Rate Limit Extraction ──────────────────────────────
 function _extractRateLimit(headers, provider) {
     if (!headers) return null;
@@ -950,7 +913,7 @@ function _extractRateLimit(headers, provider) {
     const remainReqs = parseInt(headers['x-ratelimit-remaining-requests']) || 0;
     const resetTokens = headers['x-ratelimit-reset-tokens'] || '';
     const resetReqs = headers['x-ratelimit-reset-requests'] || '';
-    
+
     // OpenRouter specific
     const orLimit = parseInt(headers['x-ratelimit-limit']) || 0;
     const orRemain = parseInt(headers['x-ratelimit-remaining']) || 0;
@@ -999,7 +962,7 @@ function _trackGeminiDailyUsage(entry, model, tokens) {
     entry.geminiDaily.models[cleanModel].tokens += tokens;
     entry.geminiDaily.totalRequests++;
     entry.geminiDaily.totalTokens += tokens;
-    
+
     // Calculate limits for this model
     const limits = GEMINI_DAILY_LIMITS[cleanModel] || GEMINI_DAILY_LIMITS.default;
     entry.rateLimits = entry.rateLimits || {};
@@ -1041,17 +1004,7 @@ function trackAiUsage(bot, result) {
     entry.totalTokens += total;
     entry.lastRequestAt = new Date().toISOString();
 
-    // Track Gemini daily usage
     if (prov === 'gemini') _trackGeminiDailyUsage(entry, result.model, total);
-
-    // Track Gemini daily usage
-    if (prov === 'gemini') _trackGeminiDailyUsage(entry, result.model, total);
-
-    // Track rate limits from provider headers
-    if (result.rateLimit) {
-        if (!entry.rateLimits) entry.rateLimits = {};
-        entry.rateLimits[prov] = { ...result.rateLimit, updatedAt: new Date().toISOString() };
-    }
 
     // Track rate limits from provider headers
     if (result.rateLimit) {

@@ -464,7 +464,7 @@ class Bot {
             const u = new URL(url);
             const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers }, res => {
                 let chunks = ''; res.on('data', c => chunks += c);
-                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks }));
+                res.on('end', () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, body: chunks, headers: res.headers }));
             });
             req.on('error', reject); req.end();
         });
@@ -1099,6 +1099,7 @@ class Bot {
             staffRoleIds: this.config.staffRoleIds || [],
             autoGreetRoleIds: this.config.autoGreetRoleIds || [],
             geminiApiKeys: this.config.geminiApiKeys || [],
+            neuroCustomInstructions: this.config.neuroCustomInstructions || [],
         };
     }
 
@@ -1108,7 +1109,8 @@ class Bot {
             'maxMessageLength', 'ticketPrefix', 'closingPhrase', 'forumMode',
             'includeFirstUserMessage', 'notifyOnClose', 'mentionOnHighPriority',
             'pollingIntervalSec', 'rateLimitMs', 'priorityKeywords', 'ticketsCategoryId',
-            'shiftChannelId', 'autoGreetAllChannels', 'staffRoleIds', 'autoGreetRoleIds', 'geminiApiKeys'
+            'shiftChannelId', 'autoGreetAllChannels', 'staffRoleIds', 'autoGreetRoleIds', 'geminiApiKeys',
+            'neuroCustomInstructions'
         ];
         const arrayKeysComma = ['priorityKeywords', 'staffRoleIds', 'autoGreetRoleIds'];
         const arrayKeysNewline = ['geminiApiKeys'];
@@ -1117,6 +1119,8 @@ class Bot {
             if (allowedKeys.includes(k)) {
                 if (arrayKeysComma.includes(k) && typeof v === 'string') {
                     this.config[k] = v.split(',').map(x => x.trim()).filter(Boolean);
+                } else if (k === 'neuroCustomInstructions' && Array.isArray(v)) {
+                    this.config[k] = v.map(x => String(x).trim()).filter(Boolean);
                 } else if (arrayKeysNewline.includes(k) && typeof v === 'string') {
                     this.config[k] = v.split('\n').map(x => x.trim()).filter(Boolean);
                 } else {

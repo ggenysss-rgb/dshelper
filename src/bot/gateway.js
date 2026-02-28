@@ -939,6 +939,83 @@ function _trackGeminiDailyUsage(entry, model, tokens) {
     };
 }
 
+// ── Rate Limit Extraction ──────────────────────────────
+function _extractRateLimit(headers, provider) {
+    if (!headers) return null;
+    const rl = {};
+    // Groq / OpenRouter style headers
+    const limitTokens = parseInt(headers['x-ratelimit-limit-tokens']) || 0;
+    const remainTokens = parseInt(headers['x-ratelimit-remaining-tokens']) || 0;
+    const limitReqs = parseInt(headers['x-ratelimit-limit-requests']) || 0;
+    const remainReqs = parseInt(headers['x-ratelimit-remaining-requests']) || 0;
+    const resetTokens = headers['x-ratelimit-reset-tokens'] || '';
+    const resetReqs = headers['x-ratelimit-reset-requests'] || '';
+    
+    // OpenRouter specific
+    const orLimit = parseInt(headers['x-ratelimit-limit']) || 0;
+    const orRemain = parseInt(headers['x-ratelimit-remaining']) || 0;
+    const orCreditsRemain = headers['x-credits-remaining'];
+    const orCreditsLimit = headers['x-credits-limit'];
+
+    if (limitTokens || limitReqs) {
+        rl.limitTokens = limitTokens;
+        rl.remainingTokens = remainTokens;
+        rl.limitRequests = limitReqs;
+        rl.remainingRequests = remainReqs;
+        rl.resetTokens = resetTokens;
+        rl.resetRequests = resetReqs;
+        rl.usedPct = limitTokens > 0 ? Math.round(((limitTokens - remainTokens) / limitTokens) * 100) : 0;
+    }
+    if (orLimit) {
+        rl.limitRequests = rl.limitRequests || orLimit;
+        rl.remainingRequests = rl.remainingRequests || orRemain;
+    }
+    if (orCreditsRemain !== undefined) {
+        rl.creditsRemaining = parseFloat(orCreditsRemain) || 0;
+        rl.creditsLimit = parseFloat(orCreditsLimit) || 0;
+    }
+
+    return Object.keys(rl).length > 0 ? rl : null;
+}
+
+// Gemini daily limits (free tier defaults)
+const GEMINI_DAILY_LIMITS = {
+    'gemini-2.0-flash': { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
+    'gemini-1.5-flash': { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
+    'gemini-1.5-pro': { requestsPerDay: 50, tokensPerDay: 1_000_000 },
+    'gemini-2.0-flash-lite': { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
+    default: { requestsPerDay: 1500, tokensPerDay: 1_000_000 },
+};
+
+function _trackGeminiDailyUsage(entry, model, tokens) {
+    if (!entry.geminiDaily) entry.geminiDaily = { date: '', models: {}, totalRequests: 0, totalTokens: 0 };
+    const today = new Date().toISOString().slice(0, 10);
+    if (entry.geminiDaily.date !== today) {
+        entry.geminiDaily = { date: today, models: {}, totalRequests: 0, totalTokens: 0 };
+    }
+    const cleanModel = (model || '').split('@')[0];
+    if (!entry.geminiDaily.models[cleanModel]) entry.geminiDaily.models[cleanModel] = { requests: 0, tokens: 0 };
+    entry.geminiDaily.models[cleanModel].requests++;
+    entry.geminiDaily.models[cleanModel].tokens += tokens;
+    entry.geminiDaily.totalRequests++;
+    entry.geminiDaily.totalTokens += tokens;
+    
+    // Calculate limits for this model
+    const limits = GEMINI_DAILY_LIMITS[cleanModel] || GEMINI_DAILY_LIMITS.default;
+    entry.rateLimits = entry.rateLimits || {};
+    entry.rateLimits.gemini = {
+        limitRequests: limits.requestsPerDay,
+        remainingRequests: Math.max(0, limits.requestsPerDay - entry.geminiDaily.totalRequests),
+        limitTokens: limits.tokensPerDay,
+        remainingTokens: Math.max(0, limits.tokensPerDay - entry.geminiDaily.totalTokens),
+        usedPct: Math.round((entry.geminiDaily.totalTokens / limits.tokensPerDay) * 100),
+        dailyDate: today,
+        dailyRequests: entry.geminiDaily.totalRequests,
+        dailyTokens: entry.geminiDaily.totalTokens,
+        updatedAt: new Date().toISOString(),
+    };
+}
+
 function trackAiUsage(bot, result) {
     const entry = _getUsageEntry(bot);
     const prov = result.provider || 'unknown';
@@ -966,6 +1043,15 @@ function trackAiUsage(bot, result) {
 
     // Track Gemini daily usage
     if (prov === 'gemini') _trackGeminiDailyUsage(entry, result.model, total);
+
+    // Track Gemini daily usage
+    if (prov === 'gemini') _trackGeminiDailyUsage(entry, result.model, total);
+
+    // Track rate limits from provider headers
+    if (result.rateLimit) {
+        if (!entry.rateLimits) entry.rateLimits = {};
+        entry.rateLimits[prov] = { ...result.rateLimit, updatedAt: new Date().toISOString() };
+    }
 
     // Track rate limits from provider headers
     if (result.rateLimit) {
@@ -1880,7 +1966,15 @@ function handleDispatch(bot, event, d) {
                                 const channelHistory = convLogger ? convLogger.getChannelHistory(d.channel_id, 10) : [];
 
                                 // Build OpenAI-compatible messages array for Groq
-                                const messages = [{ role: 'system', content: systemPrompt }];
+                                let finalSystemPrompt = systemPrompt;
+                                const customInstructions = cfg.neuroCustomInstructions;
+                                if (Array.isArray(customInstructions) && customInstructions.length > 0) {
+                                    const filtered = customInstructions.map(s => String(s).trim()).filter(Boolean);
+                                    if (filtered.length > 0) {
+                                        finalSystemPrompt += '\n\n[УКАЗАНИЯ ОПЕРАТОРА]\n' + filtered.map(s => `- ${s}`).join('\n');
+                                    }
+                                }
+                                const messages = [{ role: 'system', content: finalSystemPrompt }];
                                 const ragContext = buildRagContextMessage({
                                     query: question,
                                     dataDir: bot.dataDir || _dataDir,
@@ -2544,7 +2638,15 @@ function startAutoReplyPolling(bot) {
                                     try {
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
-                                        const messages = [{ role: 'system', content: systemPrompt }];
+                                        let finalSystemPrompt = systemPrompt;
+                                        const customInstructions = cfg.neuroCustomInstructions;
+                                        if (Array.isArray(customInstructions) && customInstructions.length > 0) {
+                                            const filtered = customInstructions.map(s => String(s).trim()).filter(Boolean);
+                                            if (filtered.length > 0) {
+                                                finalSystemPrompt += '\n\n[УКАЗАНИЯ ОПЕРАТОРА]\n' + filtered.map(s => `- ${s}`).join('\n');
+                                            }
+                                        }
+                                        const messages = [{ role: 'system', content: finalSystemPrompt }];
                                         const ragContext = buildRagContextMessage({
                                             query: question,
                                             dataDir: bot.dataDir || _dataDir,

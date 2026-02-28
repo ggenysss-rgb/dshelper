@@ -1919,15 +1919,7 @@ function handleDispatch(bot, event, d) {
                                 const channelHistory = convLogger ? convLogger.getChannelHistory(d.channel_id, 10) : [];
 
                                 // Build OpenAI-compatible messages array for Groq
-                                let finalSystemPrompt = systemPrompt;
-                                const customInstructions = cfg.neuroCustomInstructions;
-                                if (Array.isArray(customInstructions) && customInstructions.length > 0) {
-                                    const filtered = customInstructions.map(s => String(s).trim()).filter(Boolean);
-                                    if (filtered.length > 0) {
-                                        finalSystemPrompt += '\n\n[УКАЗАНИЯ ОПЕРАТОРА]\n' + filtered.map(s => `- ${s}`).join('\n');
-                                    }
-                                }
-                                const messages = [{ role: 'system', content: finalSystemPrompt }];
+                                const messages = [{ role: 'system', content: systemPrompt }];
                                 const ragContext = buildRagContextMessage({
                                     query: question,
                                     dataDir: bot.dataDir || _dataDir,
@@ -1951,6 +1943,14 @@ function handleDispatch(bot, event, d) {
                                 }
 
                                 pushChatMessage(messages, 'user', question);
+
+                                const customInstructions = cfg.neuroCustomInstructions;
+                                if (Array.isArray(customInstructions) && customInstructions.length > 0) {
+                                    const filtered = customInstructions.map(s => String(s).trim()).filter(Boolean);
+                                    if (filtered.length > 0) {
+                                        messages[messages.length - 1].content += '\n\n[ВАЖНО: СТРОГИЕ УКАЗАНИЯ ОПЕРАТОРА]\n' + filtered.map(s => `- ${s}`).join('\n');
+                                    }
+                                }
                                 const aiResult = await requestAiAnswer(bot, cfg, messages);
                                 let answerText = aiResult.ok ? aiResult.answerText : '';
                                 if (aiResult.ok) bot.log(`🧠 AI success (${aiResult.provider}/${aiResult.model})`);
@@ -2591,15 +2591,7 @@ function startAutoReplyPolling(bot) {
                                     try {
                                         const systemPrompt = loadSystemPrompt();
                                         const channelHistory = bot._convLogger ? bot._convLogger.getChannelHistory(channelId, 10) : [];
-                                        let finalSystemPrompt = systemPrompt;
-                                        const customInstructions = cfg.neuroCustomInstructions;
-                                        if (Array.isArray(customInstructions) && customInstructions.length > 0) {
-                                            const filtered = customInstructions.map(s => String(s).trim()).filter(Boolean);
-                                            if (filtered.length > 0) {
-                                                finalSystemPrompt += '\n\n[УКАЗАНИЯ ОПЕРАТОРА]\n' + filtered.map(s => `- ${s}`).join('\n');
-                                            }
-                                        }
-                                        const messages = [{ role: 'system', content: finalSystemPrompt }];
+                                        const messages = [{ role: 'system', content: systemPrompt }];
                                         const ragContext = buildRagContextMessage({
                                             query: question,
                                             dataDir: bot.dataDir || _dataDir,
@@ -2620,6 +2612,14 @@ function startAutoReplyPolling(bot) {
                                             }
                                         }
                                         pushChatMessage(messages, 'user', question);
+
+                                        const customInstructions = cfg.neuroCustomInstructions;
+                                        if (Array.isArray(customInstructions) && customInstructions.length > 0) {
+                                            const filtered = customInstructions.map(s => String(s).trim()).filter(Boolean);
+                                            if (filtered.length > 0) {
+                                                messages[messages.length - 1].content += '\n\n[ВАЖНО: СТРОГИЕ УКАЗАНИЯ ОПЕРАТОРА]\n' + filtered.map(s => `- ${s}`).join('\n');
+                                            }
+                                        }
                                         const aiResult = await requestAiAnswer(bot, cfg, messages, { logPrefix: 'Poll: ' });
                                         let answerText = aiResult.ok ? aiResult.answerText : '';
                                         if (aiResult.ok) bot.log(`🧠 Poll: AI success (${aiResult.provider}/${aiResult.model})`);
